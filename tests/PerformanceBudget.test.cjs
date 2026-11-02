@@ -9,7 +9,7 @@ function setting(name) {
  assert.ok(m,name); return Number(m[1]);
 }
 test("entrypoints remain identical", () => {
- assert.equal(src,compat); assert.ok(src.includes('Version = "1.1.26"'));
+ assert.equal(src,compat); assert.ok(src.includes('Version = "1.1.27"'));
 });
 test("roster stays event-maintained and reused in hot paths", () => {
  assert.ok(src.includes("perfCounters.roster = Players:GetPlayers()"));
