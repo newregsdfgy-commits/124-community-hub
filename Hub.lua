@@ -1,18 +1,28 @@
--- 124 Community Hub v1.1.10 | AIM equipped-tool gate / idle scan fix / LOS optimization
+-- 124 Community Hub v1.1.11 | Compact ESP: slim outlines, independent small labels, distance scaling
 -- PlaceId: 18537079992
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.1.10",
+    Version = "1.1.11",
     PlaceId = 18537079992,
     EspRefreshSeconds = 0.55,
     EspMaxPlayers = 16, -- Ограничение количества Highlight для слабых телефонов.
     StudMeters = 0.28, -- Стандартный масштаб Roblox: 1 stud ≈ 0.28 м.
     ConfigFile = "124_community_settings_v09.json",
     MenuKey = Enum.KeyCode.RightShift,
-    EspFillTransparency = 0.78,
+    EspFillTransparency = 0.88, -- Менее заметная подсветка.
+    EspOutlineTransparency = 0.38, -- Встроенный Highlight не имеет толщины в px.
+    EspNameSizeNear = 10,
+    EspNameSizeMid = 9,
+    EspNameSizeFar = 8,
+    EspMetaSizeNear = 9, -- HP и дистанция, независимые TextLabel.
+    EspMetaSizeFar = 8,
+    EspMidDistanceMeters = 80,
+    EspFarDistanceMeters = 150,
+    EspLabelWidth = 148,
+    EspLabelHeight = 27,
     AimFovDefaultPixels = 175,
     AimFovMinPixels = 40,
     AimFovMaxPixels = 400,
@@ -104,7 +114,7 @@ local state = {
     espEnemyOnly = false,
     espRangeMeters = 200,
     espColorPreset = "TEAM", -- TEAM / GOLD / GREEN / WHITE
-    espLineThickness = 2,
+    espLineThickness = 1, -- Новая тонкая графика по умолчанию.
     performanceMode = "AUTO", -- AUTO / ECO / QUALITY
     activeHud = true,
     aimRangeMeters = 180,
@@ -344,13 +354,15 @@ local function espLimit()
     return CONFIG.EspMaxPlayers
 end
 
+-- Тонкий ESP. Ник над игроком; HP и дистанция в отдельной нижней строке.
+-- Каждой подписи свой размер, без масштабирования GUI при отдалении.
 local function createRender(player, character, head)
     local hl = mk("Highlight", {
         Name = "Army124ESPHighlight",
         Adornee = character,
         DepthMode = Enum.HighlightDepthMode.AlwaysOnTop,
         FillTransparency = CONFIG.EspFillTransparency,
-        OutlineTransparency = 0,
+        OutlineTransparency = CONFIG.EspOutlineTransparency,
     }, character)
     local bb = mk("BillboardGui", {
         Name = "Army124ESPLabel",
@@ -358,31 +370,53 @@ local function createRender(player, character, head)
         AlwaysOnTop = true,
         LightInfluence = 0,
         MaxDistance = state.espRangeMeters / CONFIG.StudMeters,
-        Size = UDim2.fromOffset(192, 49),
-        StudsOffsetWorldSpace = Vector3.new(0, 2.5, 0),
+        Size = UDim2.fromOffset(CONFIG.EspLabelWidth, CONFIG.EspLabelHeight),
+        StudsOffsetWorldSpace = Vector3.new(0, 2.1, 0),
         ResetOnSpawn = false,
     }, PlayerGui)
     local nameLabel = mk("TextLabel", {
         BackgroundTransparency = 1,
-        Size = UDim2.new(1, 0, 0, 25),
-        TextSize = 13,
-        Font = Enum.Font.GothamBold,
-        TextStrokeTransparency = 0.3,
+        Position = UDim2.fromOffset(0, 0),
+        Size = UDim2.new(1, 0, 0, 13),
+        TextSize = CONFIG.EspNameSizeNear,
+        TextScaled = false,
+        TextWrapped = false,
+        TextTruncate = Enum.TextTruncate.AtEnd,
+        Font = Enum.Font.GothamMedium,
+        TextStrokeTransparency = 0.55,
         TextColor3 = Color3.new(1, 1, 1),
         Text = "",
     }, bb)
     local healthLabel = mk("TextLabel", {
         BackgroundTransparency = 1,
-        Position = UDim2.fromOffset(0, 25),
-        Size = UDim2.new(1, 0, 0, 20),
-        TextSize = 12,
+        Position = UDim2.fromOffset(0, 13),
+        Size = UDim2.new(0.5, -3, 0, 12),
+        TextXAlignment = Enum.TextXAlignment.Right,
+        TextSize = CONFIG.EspMetaSizeNear,
+        TextScaled = false,
+        TextWrapped = false,
+        TextTruncate = Enum.TextTruncate.AtEnd,
         Font = Enum.Font.Gotham,
-        TextStrokeTransparency = 0.3,
+        TextStrokeTransparency = 0.55,
         TextColor3 = Color3.fromRGB(120, 255, 160),
         Text = "",
     }, bb)
+    local distanceLabel = mk("TextLabel", {
+        BackgroundTransparency = 1,
+        Position = UDim2.new(0.5, 3, 0, 13),
+        Size = UDim2.new(0.5, -3, 0, 12),
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextSize = CONFIG.EspMetaSizeNear,
+        TextScaled = false,
+        TextWrapped = false,
+        TextTruncate = Enum.TextTruncate.AtEnd,
+        Font = Enum.Font.Gotham,
+        TextStrokeTransparency = 0.55,
+        TextColor3 = Color3.fromRGB(220, 220, 220),
+        Text = "",
+    }, bb)
     local item = {character = character, highlight = hl, billboard = bb,
-        nameLabel = nameLabel, healthLabel = healthLabel}
+        nameLabel = nameLabel, healthLabel = healthLabel, distanceLabel = distanceLabel}
     renderData[player] = item
     return item
 end
@@ -405,33 +439,49 @@ local function updatePlayer(player, myRoot)
         return
     end
     local item = renderData[player]
-    if item and (item.character ~= character or not isLive(item.highlight) or not isLive(item.billboard)) then
+    if item and (item.character ~= character or not isLive(item.highlight)
+        or not isLive(item.billboard) or not isLive(item.distanceLabel)) then
         deleteRender(player)
         item = nil
     end
     if not item then item = createRender(player, character, head) end
     local color = getPlayerColor(player)
+    local meters = myRoot and math.floor(
+        (root.Position - myRoot.Position).Magnitude * CONFIG.StudMeters + 0.5
+    ) or 0
+    local near = meters < CONFIG.EspMidDistanceMeters
+    local far = meters >= CONFIG.EspFarDistanceMeters
+    local nameSize = far and CONFIG.EspNameSizeFar
+        or not near and CONFIG.EspNameSizeMid or CONFIG.EspNameSizeNear
+    local metaSize = near and CONFIG.EspMetaSizeNear or CONFIG.EspMetaSizeFar
     setIfDifferent(item.billboard, "MaxDistance", state.espRangeMeters / CONFIG.StudMeters)
     setIfDifferent(item.highlight, "FillColor", color)
     setIfDifferent(item.highlight, "OutlineColor", color)
-    local labelParts = {}
-    if state.names then table.insert(labelParts, player.DisplayName) end
-    if state.distance and myRoot then
-        local meters = math.floor((root.Position - myRoot.Position).Magnitude * CONFIG.StudMeters + 0.5)
-        table.insert(labelParts, tostring(meters) .. " м")
-    end
-    local nameText = table.concat(labelParts, "  |  ")
-    setIfDifferent(item.nameLabel, "Text", nameText)
+    setIfDifferent(item.nameLabel, "Text", state.names and player.DisplayName or "")
+    setIfDifferent(item.nameLabel, "TextSize", nameSize)
     setIfDifferent(item.nameLabel, "TextColor3", color)
-    setIfDifferent(item.nameLabel, "Visible", #labelParts > 0)
+    setIfDifferent(item.nameLabel, "Visible", state.names)
+    setIfDifferent(item.distanceLabel, "Text", state.distance and (tostring(meters) .. " м") or "")
+    setIfDifferent(item.distanceLabel, "TextSize", metaSize)
+    setIfDifferent(item.distanceLabel, "Visible", state.distance)
     local maxHp = math.max(hum.MaxHealth, 1)
-    local hp = math.clamp(hum.Health / maxHp, 0, 1)
     if state.health then
-        setIfDifferent(item.healthLabel, "Text", string.format("HP %d/%d", math.ceil(hum.Health), math.ceil(maxHp)))
-        setIfDifferent(item.healthLabel, "TextColor3", Color3.fromRGB(math.floor(255 * (1 - hp)), math.floor(255 * hp), 90))
+        local hp = math.clamp(hum.Health / maxHp, 0, 1)
+        setIfDifferent(item.healthLabel, "Text",
+            string.format("HP %d/%d", math.ceil(hum.Health), math.ceil(maxHp)))
+        setIfDifferent(item.healthLabel, "TextColor3",
+            Color3.fromRGB(math.floor(255 * (1 - hp)), math.floor(255 * hp), 90))
     end
+    setIfDifferent(item.healthLabel, "TextSize", metaSize)
     setIfDifferent(item.healthLabel, "Visible", state.health)
-    setIfDifferent(item.billboard, "Enabled", item.nameLabel.Visible or item.healthLabel.Visible)
+    -- При отключении имени нижняя строка поднимается на его место.
+    local lowerY = state.names and 13 or 0
+    setIfDifferent(item.healthLabel, "Position", UDim2.fromOffset(0, lowerY))
+    setIfDifferent(item.distanceLabel, "Position", UDim2.new(0.5, 3, 0, lowerY))
+    local hasMeta = state.health or state.distance
+    local height = state.names and (hasMeta and CONFIG.EspLabelHeight or 14) or 14
+    setIfDifferent(item.billboard, "Size", UDim2.fromOffset(CONFIG.EspLabelWidth, height))
+    setIfDifferent(item.billboard, "Enabled", state.names or hasMeta)
 end
 
 local function sameTeamESP(player)
@@ -1610,7 +1660,7 @@ local storedKeys = {
     "cameraFovEnabled", "cameraFovDegrees", "antiAim", "antiAimSpeed", "antiAimTilt",
 }
 local numericRules = {
-    espRangeMeters = {10, 200}, espLineThickness = {1, 4},
+    espRangeMeters = {10, 200}, espLineThickness = {1, 2},
     aimRangeMeters = {5, 180}, aimSmoothness = {0, 10},
     aimSmoothX = {1, 10}, aimSmoothY = {1, 10},
     predictionSeconds = {0, 0.25}, aimFovPixels = {40, 400},
@@ -1738,6 +1788,9 @@ local function applySettings(incoming, autoLoad)
     local wasBooster = state.booster
     local oldBoosterMode = state.boosterMode
     for key, value in pairs(sanitized) do state[key] = value end
+    -- Миграция: старые профили могли сохранить толстые линии (2-4 px).
+    -- При первом запуске новой версии используем тонкий стиль 1 px.
+    if autoLoad then state.espLineThickness = 1 end
     -- Автозагрузка не активирует боевые действия и вращение тела.
     -- Даже если в сохранённом CUSTOM antiAim=true, старт остаётся безопасным.
     if autoLoad then
@@ -2231,7 +2284,7 @@ local function refreshTracers()
             if not data.tracer or not data.tracer.Parent then
                 data.tracer = mk("Frame", {
                     Name = "Army124TopTracer", AnchorPoint = Vector2.new(0.5, 0.5),
-                    BackgroundColor3 = CONFIG.Neutral, BackgroundTransparency = 0.12,
+                    BackgroundColor3 = CONFIG.Neutral, BackgroundTransparency = 0.38,
                     BorderSizePixel = 0, ZIndex = 1,
                 }, tracerGui)
             end
@@ -2240,7 +2293,7 @@ local function refreshTracers()
             local length = vector.Magnitude
             data.tracer.Visible = length > 2
             if length > 2 then
-                data.tracer.Size = UDim2.fromOffset(length, 2)
+                setIfDifferent(data.tracer, "Size", UDim2.fromOffset(length, 1))
                 data.tracer.Position = UDim2.fromOffset((goal2d.X + source.X) / 2, (goal2d.Y + source.Y) / 2)
                 data.tracer.Rotation = math.deg(math.atan2(vector.Y, vector.X))
                 setIfDifferent(data.tracer, "BackgroundColor3", getPlayerColor(player))
@@ -2268,9 +2321,9 @@ local shapePairsR6 = {
 }
 local function shapeLine(parent)
     return mk("Frame", {BackgroundColor3 = CONFIG.Accent,
-        BackgroundTransparency = 0.07, BorderSizePixel = 0,
+        BackgroundTransparency = 0.22, BorderSizePixel = 0,
         AnchorPoint = Vector2.new(0.5, 0.5), Visible = false,
-        Size = UDim2.fromOffset(2, 2)}, parent)
+        Size = UDim2.fromOffset(1, 1)}, parent)
 end
 local function clearShapes()
     for player, item in pairs(shapeData) do
@@ -2805,7 +2858,7 @@ local function addChoice(page, label, choices, key, callback)
     return repaint
 end
 
-addSection(pages.ESP, "VISUALS", "Индикаторы игроков и дистанция")
+addSection(pages.ESP, "VISUALS", "Компактные подписи и тонкие ESP-линии")
 
 addToggle(pages.ESP, "ESP подсветка", "Игроки за объектами до 200 м", "esp", function()
     refreshESP()
@@ -2831,7 +2884,7 @@ addSection(pages.ESP, "ESP OPTIONS", "Дальность, стиль и подп
 addSlider(pages.ESP, "Дальность ESP", "До 200 метров", "espRangeMeters", 10, 200, 5,
     function(v) return tostring(v) .. " м" end,
     function() refreshESP(); refreshShapes() end)
-addSlider(pages.ESP, "Толщина линий", "Box / Skeleton (1–4 px)", "espLineThickness", 1, 4, 1,
+addSlider(pages.ESP, "Толщина линий", "Box / Skeleton (1–2 px), Tracer всегда 1 px", "espLineThickness", 1, 2, 1,
     function(v) return tostring(v) .. " px" end, refreshShapes)
 repaintColors = addChoice(pages.ESP, "Цвет ESP", {
     {value="TEAM", label="TEAM"}, {value="GOLD", label="GOLD"},
