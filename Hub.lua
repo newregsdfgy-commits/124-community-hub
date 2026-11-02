@@ -4925,7 +4925,7 @@ task.spawn(function()
                 perfCounters.session.lastShown = summary
             end
         end
-        if state.hud or state.activeHud then
+        if state.hud or state.activeHud or pages.MISC.Visible then
             local display = string.format("FPS %d | ESP %d | Shape %d | Scan %.1f ms | %s",
                 measuredFps, perfCounters.espCount, perfCounters.shapeCount,
                 perfCounters.aimScanMs, perfTier())
