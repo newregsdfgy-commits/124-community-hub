@@ -4810,6 +4810,7 @@ cleanup = function(safeStop)
         state.antiAfk = false
         state.bunnyHop = false
         state.spamChat = false
+        state.sessionDiagnostics = false
         state.booster = false
         state.cameraFovEnabled = false
         -- Если запись файла запрещена, защита на следующем запуске
