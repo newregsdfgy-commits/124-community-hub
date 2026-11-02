@@ -2895,8 +2895,11 @@ addSlider(pages.AIM, "Скорость AIM", "0 = максимум · 10 = пл�
     0, 10, 1,
     function(value) return value == 0 and "MAX" or "Smooth " .. tostring(value) end)
 addButton(pages.AIM, "Управление", "ПКМ: удерживать | клавиша: ON/OFF | телефон: AIM | нужен Tool", function()
+    local tool = aimPro.equippedTool()
     tell("AIM: клавиша " .. state.aimKeyName .. " | FOV " .. state.aimFovPixels
-        .. "px | Visible Check " .. (state.visibleCheck and "ON" or "OFF"))
+        .. "px | Visible Check " .. (state.visibleCheck and "ON" or "OFF")
+        .. " | Tool: " .. (tool and tool.Name or "НЕТ")
+        .. " | Scan: " .. tostring(perfCounters.aimScanMs) .. " мс")
 end)
 
 addSection(pages.MISC, "AIR MOTION WATCH", "Подозрительное перемещение — не определение модераторов")
