@@ -1,11 +1,11 @@
--- 124 Community Visuals v1.1.21 | Operator GUI / interaction stability
+-- 124 Community Visuals v1.1.22 | startup diagnostics + operator GUI
 -- PlaceId: 18537079992
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.1.21",
+    Version = "1.1.22",
     PlaceId = 18537079992,
     EspRefreshSeconds = 0.75, -- Лёгкое обновление списка игроков; FPS на первом месте.
     EspMaxPlayers = 12, -- Меньше Highlight и GUI-обновлений по умолчанию.
@@ -109,7 +109,7 @@ if not LocalPlayer then
     warn("[124 Community Visuals] Локальный игрок недоступен")
     return
 end
-local PlayerGui = LocalPlayer:WaitForChild("PlayerGui", 15)
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui", 30)
 if not PlayerGui then
     warn("[124 Community Visuals] PlayerGui недоступен")
     return
@@ -121,6 +121,50 @@ if type(getgenv) == "function" then
     local ok, result = pcall(getgenv)
     if ok and type(result) == "table" then env = result end
 end
+-- Startup reporting is independent of the main GUI, which might not initialize.
+local function bootFailure(stage, err)
+    local reason = tostring(err or "unknown")
+    env.ARMY124_BOOT_PHASE = "failed"
+    env.ARMY124_BOOT_ERROR = tostring(stage) .. ": " .. reason
+    warn("[124 START] " .. env.ARMY124_BOOT_ERROR)
+    pcall(function()
+        local previous = PlayerGui:FindFirstChild("Army124StartupError")
+        if previous then previous:Destroy() end
+        local screen = Instance.new("ScreenGui")
+        screen.Name, screen.ResetOnSpawn = "Army124StartupError", false
+        screen.IgnoreGuiInset, screen.DisplayOrder = true, 10000
+        local card = Instance.new("Frame")
+        card.AnchorPoint = Vector2.new(0.5, 0)
+        card.Position = UDim2.new(0.5, 0, 0, 12)
+        card.Size = UDim2.new(0.90, 0, 0, 110)
+        card.BackgroundColor3 = Color3.fromRGB(22, 26, 30)
+        card.BorderSizePixel = 0
+        card.Parent = screen
+        local max = Instance.new("UISizeConstraint")
+        max.MaxSize, max.Parent = Vector2.new(520, 110), card
+        local title = Instance.new("TextLabel")
+        title.Position = UDim2.fromOffset(12, 5)
+        title.Size = UDim2.new(1, -24, 0, 26)
+        title.BackgroundTransparency = 1
+        title.Text = "124 / ОШИБКА ЗАПУСКА: " .. tostring(stage)
+        title.TextColor3 = Color3.fromRGB(234, 116, 112)
+        title.Font, title.TextSize = Enum.Font.GothamBold, 13
+        title.TextXAlignment, title.Parent = Enum.TextXAlignment.Left, card
+        local detail = Instance.new("TextLabel")
+        detail.Position = UDim2.fromOffset(12, 32)
+        detail.Size = UDim2.new(1, -24, 1, -40)
+        detail.BackgroundTransparency = 1
+        detail.Text = reason:sub(1, 420)
+        detail.Font, detail.TextSize = Enum.Font.Code, 11
+        detail.TextWrapped = true
+        detail.TextColor3 = Color3.fromRGB(225, 230, 236)
+        detail.TextXAlignment = Enum.TextXAlignment.Left
+        detail.TextYAlignment, detail.Parent = Enum.TextYAlignment.Top, card
+        screen.Parent = PlayerGui
+    end)
+end
+env.ARMY124_BOOT_PHASE = "preflight"
+env.ARMY124_BOOT_ERROR = nil
 -- Старый экземпляр ДОЛЖЕН освободить UI, BindToRenderStep и свойства.
 -- Старые версии возвращают nil при успехе, поэтому проверяем освобождение
 -- env.ARMY124_CLEANUP, а не только возвращаемое значение.
@@ -128,16 +172,16 @@ if type(env.ARMY124_CLEANUP) == "function" then
     local previous = env.ARMY124_CLEANUP
     local ok, result = pcall(previous)
     if not ok or result == false or env.ARMY124_CLEANUP == previous then
-        warn("[124 Community Visuals] Предыдущий Visuals не выгружен полностью; "
-            .. "новый запуск отменён: " .. tostring(result))
+        bootFailure("PREVIOUS CLEANUP",
+            "Старая копия не выгружена. Перезапусти игру. " .. tostring(result))
         return
     end
 end
 if type(env.ARMY124_RECOVERY) == "function" then
     local ok, restored = pcall(env.ARMY124_RECOVERY)
     if not ok or restored ~= true then
-        warn("[124 Community Visuals] Прежняя графика/камера не восстановлены. "
-            .. "Новый запуск отменён, сохранён callback восстановления.")
+        bootFailure("RECOVERY",
+            "Восстановление старой графики не завершено. " .. tostring(restored))
         return
     end
 end
@@ -5855,18 +5899,31 @@ refreshFovRing()
 print("[124 Community Visuals] " .. CONFIG.Version .. " загружен | MEMORY / SESSION DIAGNOSTICS")
 end -- initializeHubUI; isolates UI locals from root Luau limit.
 
+env.ARMY124_BOOT_PHASE = "initializing-ui"
 local initOk, initErr = xpcall(initializeHubUI, function(err)
-    return tostring(err)
+    local msg = tostring(err)
+    if type(debug) == "table" and type(debug.traceback) == "function" then
+        local ok, trace = pcall(debug.traceback, msg, 2)
+        if ok and type(trace) == "string" then return trace end
+    end
+    return msg
 end)
 if not initOk then
-    warn("[124 Community Visuals] Ошибка инициализации UI: " .. tostring(initErr))
     local registered = env.ARMY124_CLEANUP
     if type(registered) == "function" and registered ~= abortPartialHub then
         local cleaned, result = pcall(registered)
-        if not cleaned or result == false then
-            pcall(abortPartialHub)
-        end
+        if not cleaned or result == false then pcall(abortPartialHub) end
     else
         pcall(abortPartialHub)
     end
+    bootFailure("UI INITIALIZATION", initErr)
+elseif not PlayerGui:FindFirstChild("Army124CommunityVisualsGUI") then
+    bootFailure("GUI MISSING", "UI завершилась, но ScreenGui отсутствует.")
+else
+    env.ARMY124_BOOT_PHASE = "ready"
+    env.ARMY124_BOOT_ERROR = nil
+    pcall(function()
+        local old = PlayerGui:FindFirstChild("Army124StartupError")
+        if old then old:Destroy() end
+    end)
 end
