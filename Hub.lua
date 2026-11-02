@@ -1,11 +1,11 @@
--- 124 Community Hub v1.1.15 | Low-overhead idle loops, adaptive ESP, mobile ECO, optional air scan
+-- 124 Community Hub v1.1.16 | Performance Stability: tier dwell, stable ESP, frametime telemetry, opt-in diagnostics
 -- PlaceId: 18537079992
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.1.15",
+    Version = "1.1.16",
     PlaceId = 18537079992,
     EspRefreshSeconds = 0.75, -- Лёгкое обновление списка игроков; FPS на первом месте.
     EspMaxPlayers = 12, -- Меньше Highlight и GUI-обновлений по умолчанию.
@@ -57,6 +57,11 @@ local CONFIG = {
     EspShapeQualityLimit = 20,
     PerfEcoEnterFps = 44,
     PerfEcoExitFps = 54, -- Гистерезис без прыгания ECO/BALANCED каждый замер.
+    PerfTierMinDwellSeconds = 10, -- AUTO не переключается раз в секунду.
+    PerfEcoLowSamples = 2,
+    PerfBalancedRecoverySamples = 4,
+    FrameTimeWindow = 240, -- Кольцевой буфер, не растёт со временем.
+    FrameTimeSpikeMs = 50,
     BhopMinInterval = 0.08, -- Частота проверок прыжка; физика ограничивает реальный BHOP.
     BhopMaxInterval = 0.60,
     BhopSpeedMultiplierCap = 2.0,
@@ -140,6 +145,7 @@ local state = {
     espColorPreset = "TEAM", -- TEAM / GOLD / GREEN / WHITE
     espLineThickness = 1, -- Новая тонкая графика по умолчанию.
     performanceMode = "AUTO", -- AUTO / ECO / QUALITY
+    sessionDiagnostics = false, -- Анализ LogService только по запросу.
     activeHud = true,
     aimRangeMeters = 180,
     aimSmoothness = 3, -- 0 = мгновенно, 1 = быстро, 10 = максимально плавно.
@@ -218,7 +224,7 @@ local measuredFps = 60
 local perfCounters = {espCount = 0, shapeCount = 0, aimScanMs = 0}
 -- Покадровый рендер ESP (после Camera/AIM/Recoil); НЕ сканируем игроков каждый кадр.
 perfCounters.espVisual = {bound = false, bindingName = "Army124CommunityESP_" .. tostring(LocalPlayer.UserId),
-    errorAt = 0, active = {}, projected = {}}
+    errorAt = 0, active = {}, projected = {}, ordered = {}}
 -- Только пассивная диагностика клиентских событий: это НЕ обход античита и НЕ антибан.
 perfCounters.session = {
     messages = 0, warnings = 0, errors = 0, keywordHits = 0,
@@ -390,16 +396,39 @@ end
 -- AUTO определяем только один раз на измерение FPS. Гистерезис предотвращает
 -- резкую смену количества ESP-объектов при 42–55 FPS.
 local autoPerformanceTier = UserInputService.TouchEnabled and "ECO" or "BALANCED"
+local autoTierChangedAt = os.clock()
+local autoTierStableCount = 0
 local function perfTier()
     if state.performanceMode == "ECO" then return "ECO" end
     if state.performanceMode == "QUALITY" then return "QUALITY" end
     return autoPerformanceTier
 end
 local function updateAutoPerformanceTier()
+    -- Only AUTO may change its own tier. Require sustained readings AND
+    -- minimum dwell to prevent repeated Highlight/Billboard destruction.
+    if state.performanceMode ~= "AUTO" then
+        autoTierStableCount = 0
+        return
+    end
+    local candidate
+    local needed
     if autoPerformanceTier == "BALANCED" then
-        if measuredFps < CONFIG.PerfEcoEnterFps then autoPerformanceTier = "ECO" end
+        if measuredFps < CONFIG.PerfEcoEnterFps then
+            candidate, needed = "ECO", CONFIG.PerfEcoLowSamples
+        end
     elseif measuredFps >= CONFIG.PerfEcoExitFps then
-        autoPerformanceTier = "BALANCED"
+        candidate, needed = "BALANCED", CONFIG.PerfBalancedRecoverySamples
+    end
+    if not candidate then
+        autoTierStableCount = 0
+        return
+    end
+    autoTierStableCount = autoTierStableCount + 1
+    if autoTierStableCount >= needed
+        and os.clock() - autoTierChangedAt >= CONFIG.PerfTierMinDwellSeconds then
+        autoPerformanceTier = candidate
+        autoTierChangedAt = os.clock()
+        autoTierStableCount = 0
     end
 end
 local function espLimit()
@@ -545,10 +574,12 @@ local function sameTeamESP(player)
 end
 
 local espCandidateScratch = {}
+local espCandidatePool = {} -- Pooled records: no allocation per player on every scan.
 local espKeepScratch = {}
 local function refreshESP()
     if not state.esp then
         for player in pairs(renderData) do deleteRender(player) end
+        table.clear(perfCounters.espVisual.ordered)
         perfCounters.espCount = 0
         return
     end
@@ -556,6 +587,7 @@ local function refreshESP()
     local myRoot = character and character:FindFirstChild("HumanoidRootPart")
     if not myRoot then
         for player in pairs(renderData) do deleteRender(player) end
+        table.clear(perfCounters.espVisual.ordered)
         perfCounters.espCount = 0
         return
     end
@@ -568,25 +600,43 @@ local function refreshESP()
             local root = ch and ch:FindFirstChild("HumanoidRootPart")
             local hum = ch and ch:FindFirstChildOfClass("Humanoid")
             if root and hum and hum.Health > 0 then
-                local distance = (root.Position - myRoot.Position).Magnitude
-                if distance * CONFIG.StudMeters <= state.espRangeMeters then
-                    candidates[#candidates + 1] = {player = player, distance = distance}
+                local offset = root.Position - myRoot.Position
+                local dist2 = offset:Dot(offset)
+                local maxStuds = state.espRangeMeters / CONFIG.StudMeters
+                if dist2 <= maxStuds * maxStuds then
+                    local index = #candidates + 1
+                    local entry = espCandidatePool[index]
+                    if not entry then
+                        entry = {}
+                        espCandidatePool[index] = entry
+                    end
+                    entry.player, entry.distanceSquared = player, dist2
+                    candidates[index] = entry
                 end
             end
         end
     end
-    table.sort(candidates, function(a, b) return a.distance < b.distance end)
+    table.sort(candidates, function(a, b)
+        if a.distanceSquared ~= b.distanceSquared then
+            return a.distanceSquared < b.distanceSquared
+        end
+        return a.player.UserId < b.player.UserId -- Stable tie breaker.
+    end)
     local keep = espKeepScratch
+    local ordered = perfCounters.espVisual.ordered
     table.clear(keep)
-    for i = 1, math.min(#candidates, espLimit()) do
+    table.clear(ordered)
+    local limit = math.min(#candidates, espLimit())
+    for i = 1, limit do
         local player = candidates[i].player
         keep[player] = true
         updatePlayer(player, myRoot)
+        if renderData[player] then ordered[#ordered + 1] = player end
     end
     for player in pairs(renderData) do
         if not keep[player] then deleteRender(player) end
     end
-    perfCounters.espCount = math.min(#candidates, espLimit())
+    perfCounters.espCount = #ordered
 end
 
 -- FullBright и FPS Booster имеют общую исходную копию освещения.
@@ -2780,15 +2830,17 @@ local function refreshShapes()
         or tier == "QUALITY" and CONFIG.EspShapeQualityLimit
         or CONFIG.EspShapeBalancedLimit
     table.clear(active)
-    -- Повторное использование таблиц уменьшает выделение памяти на каждом кадре.
+    -- Отрисовываем в том же порядке, что и ближайших игроков в ESP.
+    -- Никогда не проверяем части персонажей после заполнения лимита.
     local projected = perfCounters.espVisual.projected
-    for player, info in pairs(renderData) do
-        local char = info.character
+    for _, player in ipairs(perfCounters.espVisual.ordered) do
+        if activeCount >= shapeBudget then break end
+        local info = renderData[player]
+        local char = info and info.character
         local head = char and char:FindFirstChild("Head")
         local root = char and char:FindFirstChild("HumanoidRootPart")
         local hum = char and char:FindFirstChildOfClass("Humanoid")
-        if activeCount < shapeBudget
-            and player.Parent == Players and head and root and hum and hum.Health > 0
+        if info and player.Parent == Players and head and root and hum and hum.Health > 0
             and player.Character == char and (not state.espEnemyOnly or not sameTeamESP(player))
             and (root.Position - myRoot.Position).Magnitude * CONFIG.StudMeters <= state.espRangeMeters then
             active[player] = true
