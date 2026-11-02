@@ -11,22 +11,22 @@ function setting(name) {
 }
 test("booster test branch files and startup match",()=>{
  assert.equal(src,hub);
- assert.ok(src.includes('Version = "1.1.25"'));
- assert.ok(fs.readFileSync("Start.lua", "utf8").includes("v1.1.25-chat-permission-test"));
+ assert.ok(src.includes('Version = "1.1.26"'));
+ assert.ok(fs.readFileSync("Start.lua", "utf8").includes("v1.1.26-booster-recovery-audit-test"));
 });
 test("foreground traversal has smaller CPU and batch budgets",()=>{
- assert.ok(setting("BoosterBatch") <= 64);
- assert.ok(setting("BoosterSliceMs") <= 0.6);
- assert.ok(setting("BoosterLowFpsSliceMs") <= 0.25);
- assert.ok(setting("BoosterInitialDelay") >= 0.04);
- assert.ok(setting("BoosterLowFpsDelay") >= 0.08);
+ assert.ok(setting("BoosterBatch") >= 64 && setting("BoosterBatch") <= 128);
+ assert.ok(setting("BoosterSliceMs") >= 0.6 && setting("BoosterSliceMs") <= 1.2);
+ assert.ok(setting("BoosterLowFpsSliceMs") >= 0.3 && setting("BoosterLowFpsSliceMs") < setting("BoosterSliceMs"));
+ assert.ok(setting("BoosterInitialDelay") <= 0.02);
+ assert.ok(setting("BoosterLowFpsDelay") <= 0.04);
  assert.ok(src.includes("task.wait(measuredFps < 42 and CONFIG.BoosterLowFpsDelay"));
 });
 test("streaming worker does not run every 20ms or process 144 objects at once",()=>{
- assert.ok(setting("BoosterQueueBatch") <= 32);
- assert.ok(setting("BoosterQueueSliceMs") <= 0.4);
- assert.ok(setting("BoosterQueueDelay") >= 0.06);
- assert.ok(setting("BoosterQueueLowFpsDelay") >= 0.12);
+ assert.ok(setting("BoosterQueueBatch") >= 32 && setting("BoosterQueueBatch") <= 64);
+ assert.ok(setting("BoosterQueueSliceMs") <= 0.8);
+ assert.ok(setting("BoosterQueueDelay") >= 0.03 && setting("BoosterQueueDelay") <= 0.06);
+ assert.ok(setting("BoosterQueueLowFpsDelay") >= 0.06 && setting("BoosterQueueLowFpsDelay") <= 0.10);
  assert.ok(src.includes("and (measuredFps < 42 and CONFIG.BoosterQueueLowFpsDelay"));
 });
 test("repair waits for streaming quiet and enforces cooldown",()=>{
