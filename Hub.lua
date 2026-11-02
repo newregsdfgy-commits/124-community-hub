@@ -4851,8 +4851,11 @@ task.spawn(function()
                 end
             end)
         end
+        -- Не создаём пустой цикл на каждом Heartbeat во время repair:
+        -- обработка очереди невозможна, пока идёт полный повторный обход.
         task.wait((not state.booster and 0.75)
-            or (boosterPro.complete and boosterPro.queueCount > 0 and 0)
+            or (boosterPro.complete and not boosterPro.repairing
+                and boosterPro.queueCount > 0 and 0.02)
             or 0.12)
     end
 end)
