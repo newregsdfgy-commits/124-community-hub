@@ -5067,7 +5067,8 @@ task.spawn(function()
         end
         -- O(N log N) percentile work only when the PERFORMANCE page is visible,
         -- and no more than once every three seconds. Never in RenderStepped.
-        if pages.MISC.Visible and os.clock() - perfCounters.frametime.lastUpdated >= 3 then
+        if panel.Visible and pages.MISC.Visible
+            and os.clock() - perfCounters.frametime.lastUpdated >= 3 then
             perfCounters.frametime.lastUpdated = os.clock()
             local summary = perfCounters.frametime.summary()
             if summary ~= perfCounters.frametime.lastShown then
