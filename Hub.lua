@@ -3167,31 +3167,85 @@ local function applyResponsiveLayout()
             boosterPro.floatingButton.Size, boosterPro.floatingButton.AnchorPoint)
     end
     wideLayout = wide
-    -- На узких экранах короткие подписи не перекрывают соседние вкладки.
+    if wide then
+        -- Desktop: screenshot-inspired left sidebar; real contents on the right.
+        tabs.Position = UDim2.fromOffset(0, 0)
+        tabs.Size = UDim2.new(0, 188, 1, 0)
+        navSlots.Position = UDim2.fromOffset(0, 87)
+        navSlots.Size = UDim2.new(1, 0, 1, -150)
+        navigationLayout.FillDirection = Enum.FillDirection.Vertical
+        navigationLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+        navigationLayout.VerticalAlignment = Enum.VerticalAlignment.Top
+        navigationLayout.Padding = UDim.new(0, 8)
+    else
+        -- Mobile: five evenly sized buttons in a bottom row.
+        tabs.Position = UDim2.new(0, 0, 1, -57)
+        tabs.Size = UDim2.new(1, 0, 0, 57)
+        navSlots.Position = UDim2.fromOffset(0, 1)
+        navSlots.Size = UDim2.new(1, 0, 1, -1)
+        navigationLayout.FillDirection = Enum.FillDirection.Horizontal
+        navigationLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+        navigationLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+        navigationLayout.Padding = UDim.new(0, 4)
+    end
     for _, nav in ipairs(navigation) do
-        tabButtons[nav.key].Text = width < 355 and (nav.key == "MISC" and "MEM" or nav.key)
-            or (nav.symbol .. "  " .. nav.label)
-        tabButtons[nav.key].TextSize = width < 355 and 10 or 11
+        local button = tabButtons[nav.key]
+        if wide then
+            button.Size = UDim2.new(1, -18, 0, 44)
+            button.Text = "   " .. nav.symbol .. "    " .. nav.label
+            button.TextSize = 12
+            button.TextXAlignment = Enum.TextXAlignment.Left
+            tabUnderline[nav.key].Position = UDim2.fromOffset(0, 4)
+            tabUnderline[nav.key].Size = UDim2.new(0, 3, 1, -8)
+        else
+            button.Size = UDim2.new(0.2, -7, 1, 0)
+            local short = nav.key == "MISC" and "PERF" or nav.key
+            button.Text = width < 370 and short or (nav.symbol .. " " .. short)
+            button.TextSize = width < 355 and 9 or 10
+            button.TextXAlignment = Enum.TextXAlignment.Center
+            tabUnderline[nav.key].Position = UDim2.new(0.5, -11, 0, -7)
+            tabUnderline[nav.key].Size = UDim2.fromOffset(22, 2)
+        end
     end
     for _, page in pairs(pages) do
-        local info = pageColumns[page]
         if wide then
-            info.left.Position = UDim2.new(0, 0, 0, 0)
-            info.left.Size = UDim2.new(0.5, -5, 1, 0)
-            info.right.Position = UDim2.new(0.5, 5, 0, 0)
-            info.right.Size = UDim2.new(0.5, -5, 1, 0)
-            info.right.Visible = true
+            page.Position = UDim2.fromOffset(198, 82)
+            page.Size = UDim2.new(1, -211, 1, -99)
         else
-            info.left.Position = UDim2.fromScale(0, 0)
-            info.left.Size = UDim2.fromScale(1, 1)
-            info.right.Visible = false
+            page.Position = UDim2.fromOffset(12, 82)
+            page.Size = UDim2.new(1, -24, 1, -155)
         end
-        for _, item in ipairs(info.widgets) do
-            local desired = wide and info[item.side] or info.left
-            if item.object.Parent ~= desired then item.object.Parent = desired end
+        local info = pageColumns[page]
+        if info then
+            if wide then
+                info.left.Position = UDim2.fromOffset(0, 0)
+                info.left.Size = UDim2.new(0.5, -5, 1, 0)
+                info.right.Position = UDim2.new(0.5, 5, 0, 0)
+                info.right.Size = UDim2.new(0.5, -5, 1, 0)
+                info.right.Visible = true
+            else
+                info.left.Position = UDim2.fromScale(0, 0)
+                info.left.Size = UDim2.fromScale(1, 1)
+                info.right.Visible = false
+            end
+            for _, item in ipairs(info.widgets) do
+                local desired = wide and info[item.side] or info.left
+                if item.object.Parent ~= desired then item.object.Parent = desired end
+            end
         end
     end
+    if boosterPro.dashboard then boosterPro.dashboard.layout(wide) end
+    local brandTitle = bar:FindFirstChild("BrandTitle")
+    local brandCaption = bar:FindFirstChild("BrandCaption")
+    if brandTitle then
+        brandTitle.Size = wide and UDim2.fromOffset(122, 21) or UDim2.new(1, -183, 0, 21)
+        brandTitle.TextSize = wide and 12 or 15
+    end
+    if brandCaption then
+        brandCaption.Size = wide and UDim2.fromOffset(122, 16) or UDim2.new(1, -183, 0, 16)
+    end
 end
+
 local function showPage(key)
     if not pages[key] then return end
     if key ~= "AIM" and captureAimKey then
@@ -3202,8 +3256,8 @@ local function showPage(key)
     for name, page in pairs(pages) do
         local selected = name == key
         page.Visible = selected
-        tabButtons[name].BackgroundColor3 = selected and Color3.fromRGB(50, 28, 37) or P.panel
-        tabButtons[name].TextColor3 = selected and P.text or P.dim
+        tabButtons[name].BackgroundColor3 = selected and P.tile or P.panel
+        tabButtons[name].TextColor3 = selected and P.accent or P.dim
         tabButtons[name].Font = selected and Enum.Font.GothamBold or Enum.Font.GothamMedium
         tabUnderline[name].Visible = selected
         tabOutlines[name].Transparency = selected and 0.44 or 1
@@ -3212,8 +3266,9 @@ end
 for name, button in pairs(tabButtons) do
     safeActivate(button, function() showPage(name) end)
 end
+boosterPro.dashboard.openSettings = function() showPage("MISC") end
 applyResponsiveLayout()
-showPage("AIM")
+showPage("HOME")
 local currentLayoutCamera = nil
 local cameraLayoutConnection = nil
 local function trackLayoutCamera()
@@ -4409,7 +4464,7 @@ applyResponsiveLayout()
 local status = mk("TextLabel", {
     Name = "Footer", Position = UDim2.new(0, 18, 1, -70),
     Size = UDim2.new(1, -36, 0, 15), BackgroundTransparency = 1,
-    Text = "v" .. CONFIG.Version .. "    ·    LOCAL SESSION    ·    ×  UNLOAD",
+    Text = "124 COMMUNITY VISUALS   ·   v" .. CONFIG.Version .. "    ·    LOCAL SESSION",
     TextSize = 10, Font = Enum.Font.Code,
     TextColor3 = CONFIG.Muted,
     TextXAlignment = Enum.TextXAlignment.Left,
@@ -4422,7 +4477,7 @@ local mini = mk("TextButton", {
     Size = UDim2.fromOffset(67, 35),
     BackgroundColor3 = P.background,
     TextColor3 = P.accent,
-    Text = "124  ◇", TextSize = 12,
+    Text = "124  V", TextSize = 12,
     Font = Enum.Font.Code, Visible = false,
 }, gui)
 round(mini, 4)
@@ -5577,6 +5632,7 @@ connect(RunService.RenderStepped, function(dt)
     accumulated = accumulated + math.max(dt, 0)
     if accumulated >= 1 then
         measuredFps = math.floor(frames / math.max(accumulated, 0.01) + 0.5)
+        if boosterPro.dashboard then boosterPro.dashboard.push(measuredFps) end
         updateAutoPerformanceTier()
         perfCounters.guard.update(measuredFps, perfCounters.frametime.spikesThisSecond)
         perfCounters.frametime.spikesThisSecond = 0
@@ -5618,6 +5674,7 @@ task.spawn(function()
             if savedTerrainColors then restoreTerrainColors() end
         end
         stats.Visible = state.hud
+        if boosterPro.dashboard then boosterPro.dashboard.update() end
         if boosterPro.label and boosterPro.label.Parent then
             boosterPro.label.Text = boosterPro.readout()
         end
