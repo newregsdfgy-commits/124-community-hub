@@ -4,6 +4,7 @@ on:
     branches: [v1.1.18-max-performance-test]
     paths:
       - 'Hub.lua'
+      - 'tests/**'
       - '.github/workflows/luau-compile.yml'
   workflow_dispatch:
 
@@ -29,6 +30,9 @@ jobs:
         run: |
           cmake -S luau-source -B luau-build -DCMAKE_BUILD_TYPE=Release -DLUAU_BUILD_TESTS=OFF
           cmake --build luau-build --target Luau.Compile.CLI --parallel 2
+      - name: Run performance regression model tests
+        shell: bash
+        run: node --test tests/HubPerformance.test.cjs
       - name: Parse and compile Hub.lua (optimization level 2)
         shell: bash
         run: |
