@@ -1,11 +1,11 @@
--- 124 Community Visuals v1.1.26 | booster recovery, safe frame pacing and full source audit
+-- 124 Community Visuals v1.1.27 | lifecycle hardening and complete source audit
 -- PlaceId: 18537079992
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.1.26",
+    Version = "1.1.27",
     PlaceId = 18537079992,
     EspRefreshSeconds = 0.75, -- Лёгкое обновление списка игроков; FPS на первом месте.
     EspMaxPlayers = 12, -- Меньше Highlight и GUI-обновлений по умолчанию.
@@ -1242,7 +1242,12 @@ local function optimizeObject(obj, alreadyScreened)
     if snap then
         for key, original in pairs(snap) do
             if desired[key] == nil then
-                local ok = pcall(function() obj[key] = original end)
+                -- A write can succeed without the original value being retained.
+                -- A failed mode downgrade must keep its snapshot for a retry.
+                local ok = pcall(function()
+                    if obj[key] ~= original then obj[key] = original end
+                    if obj[key] ~= original then error("mode restore mismatch") end
+                end)
                 if ok or not obj.Parent then
                     snap[key] = nil
                 else
@@ -1259,9 +1264,14 @@ local function optimizeObject(obj, alreadyScreened)
         if read and current ~= target then
             local wrote = pcall(function() obj[key] = target end)
             if wrote then
-                boosterPro.changedProperties = boosterPro.changedProperties + 1
+                -- Save the original for every successful setter call, including
+                -- APIs whose read-back is delayed; never silently lose rollback.
                 if not snap then snap = {}; savedGraphics[obj] = snap end
                 if snap[key] == nil then snap[key] = current end
+                local checked, applied = pcall(function() return obj[key] end)
+                if checked and applied == target then
+                    boosterPro.changedProperties = boosterPro.changedProperties + 1
+                end
             end
         end
     end
@@ -1524,8 +1534,12 @@ local function setBooster(enabled, keepBaseline)
                 for obj, snapshot in pairs(savedGraphics) do
                     if obj.Parent and next(snapshot) ~= nil then remaining = remaining + 1 end
                 end
-                boosterPro.phase = remaining > 0 and "RESTORE PENDING" or "OFF"
-                if remaining > 0 or boosterPro.restoreFailures > 0 then
+                local terrainPending = savedTerrainDecoration ~= nil
+                    or savedTerrainColors ~= nil
+                local restorePending = remaining > 0 or terrainPending
+                boosterPro.phase = restorePending and "RESTORE PENDING"
+                    or (boosterPro.lastError and "FAILED" or "OFF")
+                if restorePending or boosterPro.restoreFailures > 0 then
                     tell("FPS Booster Pro: частичный откат, ошибок "
                         .. tostring(boosterPro.restoreFailures) .. ", объектов с остатком "
                         .. tostring(remaining))
@@ -4327,7 +4341,6 @@ boosterPro.autoRollback = function()
     if type(baseline) ~= "number" or baseline < 35 or
         type(avg) ~= "number" or #boosterPro.afterFPS < 4 then return end
     local now = os.clock()
-    -- В том числе ДО окончания перекраски, если карта очень большая.
     -- A slow scan must never turn Booster off before it applies to the map.
     if not boosterPro.complete then return end
     local guardReady = boosterPro.readyAt
