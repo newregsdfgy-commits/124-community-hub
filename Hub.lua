@@ -191,6 +191,7 @@ local boosterPro = {
     queuedProcessed = setmetatable({}, {__mode = "k"}),
     queueDropped = 0, scanned = 0, repairing = false,
     repairCoveredDrops = 0, repairRetryAt = 0, repairErrors = 0,
+    recoveryFailures = 0, recoveryNextAt = 0,
 }
 -- Только для исполнителей, умеющих читать/писать Terrain.Decoration.
 -- Если это недоступно, не трогаем Terrain: полноценного SmoothPlastic для него нет.
@@ -936,7 +937,7 @@ local function optimizeHierarchy(root, revision)
             end
             boosterPro.scanned = boosterPro.scanned + 1
             count = count + 1
-            if count >= CONFIG.BoosterBatch or (count % 16 == 0 and
+            if count >= CONFIG.BoosterBatch or (count % 4 == 0 and
                 (os.clock() - sliceStarted) * 1000 >=
                     (measuredFps < 35 and CONFIG.BoosterLowFpsSliceMs or CONFIG.BoosterSliceMs)) then
                 count = 0
@@ -1072,7 +1073,7 @@ local function setBooster(enabled, keepBaseline)
                 if not alive or revision ~= boosterRevision or not state.booster then return end
                 optimizeObject(obj)
                 n = n + 1
-                if n % 16 == 0 and ((os.clock() - phaseStarted) * 1000 >=
+                if n % 4 == 0 and ((os.clock() - phaseStarted) * 1000 >=
                     CONFIG.BoosterSliceMs or n % CONFIG.BoosterBatch == 0) then
                     task.wait()
                     phaseStarted = os.clock()
@@ -1112,7 +1113,7 @@ local function setBooster(enabled, keepBaseline)
                 if revision ~= boosterRevision or state.booster then return end
                 boosterPro.restoreObject(obj, snapshot)
                 count = count + 1
-                if count % 16 == 0 and ((os.clock() - sliceStarted) * 1000 >=
+                if count % 4 == 0 and ((os.clock() - sliceStarted) * 1000 >=
                     CONFIG.BoosterSliceMs or count % CONFIG.BoosterBatch == 0) then
                     task.wait()
                     sliceStarted = os.clock()
@@ -4522,7 +4523,7 @@ task.spawn(function()
                     end
                     boosterPro.queuedProcessed[obj] = nil
                 end
-                if i % 16 == 0 and
+                if i % 4 == 0 and
                     (os.clock() - sliceStarted) * 1000 >= CONFIG.BoosterQueueSliceMs then
                     break
                 end
@@ -4582,7 +4583,7 @@ function boosterPro.restoreGraphicsSliced()
     for obj, snapshot in pairs(savedGraphics) do
         boosterPro.restoreObject(obj, snapshot)
         count = count + 1
-        if count % 16 == 0 and ((os.clock() - started) * 1000 >=
+        if count % 4 == 0 and ((os.clock() - started) * 1000 >=
             CONFIG.BoosterSliceMs or count % CONFIG.BoosterBatch == 0) then
             task.wait()
             started = os.clock()
@@ -4822,8 +4823,22 @@ task.spawn(function()
         -- Отложенный откат после временного отказа записи API: до полной успешности
         -- не забываем исходные свойства. Не восстанавливаем Terrain при WHITE/ULTRA.
         if not state.fullbright and not state.booster
-            and type(env.ARMY124_RECOVERY) == "function" then
-            pcall(env.ARMY124_RECOVERY)
+            and type(env.ARMY124_RECOVERY) == "function"
+            and os.clock() >= boosterPro.recoveryNextAt then
+            local ok, done = pcall(env.ARMY124_RECOVERY)
+            if ok and done == true then
+                boosterPro.recoveryFailures = 0
+                boosterPro.recoveryNextAt = 0
+            else
+                boosterPro.recoveryFailures = boosterPro.recoveryFailures + 1
+                local seconds = math.min(120, 2 ^ math.min(boosterPro.recoveryFailures, 7))
+                boosterPro.recoveryNextAt = os.clock() + seconds
+                if boosterPro.recoveryFailures == 1 or boosterPro.recoveryFailures == 5 then
+                    warn("[124 Community Hub] Recovery не завершён (попытка "
+                        .. tostring(boosterPro.recoveryFailures)
+                        .. "); повтор через " .. tostring(seconds) .. " сек")
+                end
+            end
         end
         if state.fullbright or state.booster then
             for _, key in ipairs(lightingProperties) do enforceLightingProperty(key) end
