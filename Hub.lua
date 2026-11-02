@@ -175,7 +175,8 @@ local boosterPro = {
     queued = {}, queuedSeen = setmetatable({}, {__mode = "k"}),
     queueHead = 1, queueTail = 0, queueCount = 0, queueCap = 8192,
     queuedProcessed = setmetatable({}, {__mode = "k"}),
-    queueDropped = 0, scanned = 0, repairing = false, repaired = false,
+    queueDropped = 0, scanned = 0, repairing = false,
+    repairCoveredDrops = 0, repairRetryAt = 0, repairErrors = 0,
 }
 -- Только для исполнителей, умеющих читать/писать Terrain.Decoration.
 -- Если это недоступно, не трогаем Terrain: полноценного SmoothPlastic для него нет.
@@ -1018,7 +1019,8 @@ local function setBooster(enabled, keepBaseline)
     boosterPro.queuedProcessed = setmetatable({}, {__mode = "k"})
     boosterPro.queueHead, boosterPro.queueTail, boosterPro.queueCount = 1, 0, 0
     boosterPro.queueDropped, boosterPro.scanned = 0, 0
-    boosterPro.repairing, boosterPro.repaired = false, false
+    boosterPro.repairing = false
+    boosterPro.repairCoveredDrops, boosterPro.repairRetryAt, boosterPro.repairErrors = 0, 0, 0
     if enabled then
         boosterPro.after = nil
         boosterPro.afterFPS = {}
@@ -4373,22 +4375,34 @@ task.spawn(function()
         -- Если StreamingEnabled переполнил кольцевую очередь,
         -- один фоновый повторный проход восстановит пропущенные детали.
         -- Проход ограничен тем же миллисекундным бюджетом; не бесконечный цикл.
+        -- После нескольких переполнений допускаем новые проверки.
+        -- Защита от вечного сканирования: максимум один запуск в 12 сек,
+        -- не более трёх повторов при постоянной ошибке API.
         if state.booster and boosterPro.complete and boosterPro.queueCount == 0
-            and boosterPro.queueDropped > 0 and not boosterPro.repaired
-            and not boosterPro.repairing then
-            boosterPro.repairing, boosterPro.repaired = true, true
+            and boosterPro.queueDropped > boosterPro.repairCoveredDrops
+            and not boosterPro.repairing and os.clock() >= boosterPro.repairRetryAt
+            and boosterPro.repairErrors < 3 then
+            boosterPro.repairing = true
+            boosterPro.repairRetryAt = os.clock() + 12
             local repairRevision = boosterRevision
+            local coveredDrops = boosterPro.queueDropped
             task.spawn(function()
                 local ok, result = pcall(function()
                     return optimizeHierarchy(Workspace, repairRevision)
                         and optimizeHierarchy(Lighting, repairRevision)
                 end)
+                if not alive or not state.booster or repairRevision ~= boosterRevision then
+                    return -- Новая ревизия владеет собственным состоянием.
+                end
                 boosterPro.repairing = false
-                if alive and state.booster and repairRevision == boosterRevision then
-                    if ok and result then
-                        tell("Booster: восстановлена обработка пропущенных при подгрузке объектов")
-                    else
-                        warn("[124 Community Hub] Booster: повторная проверка подгрузки не завершена")
+                if ok and result then
+                    boosterPro.repairCoveredDrops = coveredDrops
+                    boosterPro.repairErrors = 0
+                else
+                    boosterPro.repairErrors = boosterPro.repairErrors + 1
+                    if boosterPro.repairErrors <= 3 then
+                        warn("[124 Community Hub] Booster: повторный обход не завершён ("
+                            .. tostring(boosterPro.repairErrors) .. "/3)")
                     end
                 end
             end)
@@ -4403,6 +4417,21 @@ for _, property in ipairs(lightingProperties) do
             enforceLightingProperty(property)
         end
     end)
+end
+
+-- Чанковый откат вместо синхронной массовой записи свойств: каждый проход
+-- отдаёт кадр после 16 объектов/2 мс. Работает и при hot reload.
+function boosterPro.restoreGraphicsSliced()
+    local started, count = os.clock(), 0
+    for obj, snapshot in pairs(savedGraphics) do
+        boosterPro.restoreObject(obj, snapshot)
+        count = count + 1
+        if count % 16 == 0 and ((os.clock() - started) * 1000 >=
+            CONFIG.BoosterSliceMs or count % CONFIG.BoosterBatch == 0) then
+            task.wait()
+            started = os.clock()
+        end
+    end
 end
 
 cleanup = function(safeStop)
@@ -4465,11 +4494,8 @@ cleanup = function(safeStop)
         perfCounters.espVisual.bound = false
     end
     pcall(applyLighting)
-    -- Сначала пробуем восстановить и объекты. После этого собираем ВСЕ
-    -- неудавшиеся снимки в один callback, переживающий hot-reexecute.
-    for obj, saved in pairs(savedGraphics) do
-        boosterPro.restoreObject(obj, saved)
-    end
+    -- Нагрузку распределяем по кадрам, сохраняя snapshots при частичном откате.
+    boosterPro.restoreGraphicsSliced()
     if savedLighting or savedTerrainDecoration or savedTerrainColors
         or next(savedGraphics) ~= nil or next(memoryFX.camera.saved) ~= nil
         or next(memoryFX.spin.pending) ~= nil then
@@ -4484,9 +4510,7 @@ cleanup = function(safeStop)
             pcall(applyLighting)
             if savedTerrainDecoration then restoreTerrainGrass() end
             if savedTerrainColors then restoreTerrainColors() end
-            for obj, snapshot in pairs(savedGraphics) do
-                boosterPro.restoreObject(obj, snapshot)
-            end
+            boosterPro.restoreGraphicsSliced()
             memoryFX.camera.reset()
             memoryFX.spin.restorePending()
             local done = not (savedLighting or savedTerrainDecoration or savedTerrainColors)
