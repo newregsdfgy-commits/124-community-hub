@@ -1,11 +1,11 @@
--- 124 Community Hub v1.1.18 | Max Performance: visual guard, opt-in module CPU meter, lazy ESP overlays
+-- 124 Community Visuals v1.1.19 | Purple dashboard, responsive sidebar and original feature modules
 -- PlaceId: 18537079992
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.1.18",
+    Version = "1.1.19",
     PlaceId = 18537079992,
     EspRefreshSeconds = 0.75, -- Лёгкое обновление списка игроков; FPS на первом месте.
     EspMaxPlayers = 12, -- Меньше Highlight и GUI-обновлений по умолчанию.
@@ -82,12 +82,12 @@ local CONFIG = {
     FullBrightAmbient = Color3.fromRGB(170, 170, 170),
     FullBrightOutdoorAmbient = Color3.fromRGB(175, 175, 175),
     FullBrightExposure = 0.12,
-    Accent = Color3.fromRGB(232, 75, 91), -- Красный акцент в стиле Red Panel.
+    Accent = Color3.fromRGB(161, 46, 255), -- 124 Community Visuals: violet accent.
     EspGold = Color3.fromRGB(232, 188, 78), -- Отдельный цвет GOLD, не связан с красной темой.
-    Neutral = Color3.fromRGB(245, 137, 141),
-    Window = Color3.fromRGB(15, 16, 21),
-    Surface = Color3.fromRGB(25, 26, 32),
-    Muted = Color3.fromRGB(139, 141, 151),
+    Neutral = Color3.fromRGB(207, 147, 250),
+    Window = Color3.fromRGB(13, 5, 22),
+    Surface = Color3.fromRGB(31, 13, 44),
+    Muted = Color3.fromRGB(151, 127, 170),
 }
 
 if game.PlaceId ~= CONFIG.PlaceId then
@@ -2606,13 +2606,13 @@ local viewport = Workspace.CurrentCamera and Workspace.CurrentCamera.ViewportSiz
 local TweenService = game:GetService("TweenService")
 local P = {
     background = CONFIG.Window,
-    panel = Color3.fromRGB(21, 22, 28),
+    panel = Color3.fromRGB(21, 8, 32),
     tile = CONFIG.Surface,
-    border = Color3.fromRGB(51, 53, 63),
-    text = Color3.fromRGB(237, 235, 240),
+    border = Color3.fromRGB(56, 23, 78),
+    text = Color3.fromRGB(242, 233, 251),
     dim = CONFIG.Muted,
     accent = CONFIG.Accent,
-    off = Color3.fromRGB(57, 59, 69),
+    off = Color3.fromRGB(56, 31, 70),
 }
 -- На телефоне даже альбомный экран остаётся одноколоночным: элементы
 -- управления не должны уменьшаться до нечитабельного размера.
@@ -2622,15 +2622,15 @@ local function windowMetrics(view)
     local wide = (not mobile) and view.X >= 770
     local landscape = view.X > view.Y
     local availableWidth = math.max(160, view.X - (mobile and 22 or 32))
-    local preferredWidth = wide and 752 or (mobile and landscape and 520 or 410)
+    local preferredWidth = wide and 960 or (mobile and landscape and 520 or 410)
     local width = math.min(availableWidth, preferredWidth)
     local availableHeight = math.max(120, view.Y - (mobile and 22 or 38))
-    local height = math.min(wide and 532 or 610, availableHeight)
+    local height = math.min(wide and 624 or 610, availableHeight)
     return width, height, wide
 end
 local winWidth, winHeight = windowMetrics(viewport)
 local panel = mk("Frame", {
-    Name = "RedPanel",
+    Name = "CommunityVisualsPanel",
     AnchorPoint = Vector2.new(0.5, 0.5),
     Position = UDim2.fromScale(0.5, 0.5),
     Size = UDim2.fromOffset(winWidth, winHeight),
@@ -2638,7 +2638,7 @@ local panel = mk("Frame", {
     BorderSizePixel = 0,
     Active = true,
 }, gui)
-round(panel, 11)
+round(panel, 13)
 mk("UIStroke", {Color = P.border, Transparency = 0.08, Thickness = 1}, panel)
 local panelScale = mk("UIScale", {Scale = 1}, panel)
 -- AnchorPoint-aware экранный clamp: возвращает панель / плавающую кнопку в кадр.
@@ -2664,18 +2664,18 @@ local function tweenPanel(toScale)
             Enum.EasingDirection.Out), {Scale = toScale}):Play()
     end)
 end
--- Верхняя тонкая линия и ручная композиция шапки: без тяжёлых градиентов и свечения.
+-- The accent mark is inexpensive; no animated gradients, glow or overlays.
 mk("Frame", {
     Name = "TopAccent", BorderSizePixel = 0,
     BackgroundColor3 = P.accent,
-    Position = UDim2.fromOffset(15, 0), Size = UDim2.fromOffset(75, 2),
+    Position = UDim2.fromOffset(14, 0), Size = UDim2.fromOffset(83, 2),
 }, panel)
 local bar = mk("Frame", {
     Name = "DragBar", BackgroundTransparency = 1,
     Size = UDim2.new(1, 0, 0, 74), Active = true,
 }, panel)
 local emblem = mk("Frame", {
-    Name = "BrandMark", BackgroundColor3 = Color3.fromRGB(42, 23, 32),
+    Name = "BrandMark", BackgroundColor3 = Color3.fromRGB(49, 15, 71),
     BorderSizePixel = 0, Position = UDim2.fromOffset(16, 17),
     Size = UDim2.fromOffset(37, 37),
 }, bar)
@@ -2689,14 +2689,14 @@ mk("TextLabel", {
 mk("TextLabel", {
     Name = "BrandTitle", BackgroundTransparency = 1,
     Position = UDim2.fromOffset(66, 16), Size = UDim2.new(1, -183, 0, 21),
-    Text = "124 COMMUNITY", TextColor3 = P.text, TextSize = 15,
+    Text = "124 COMMUNITY", TextColor3 = P.accent, TextSize = 15,
     Font = Enum.Font.GothamBold, TextXAlignment = Enum.TextXAlignment.Left,
     TextTruncate = Enum.TextTruncate.AtEnd,
 }, bar)
 mk("TextLabel", {
     Name = "BrandCaption", BackgroundTransparency = 1,
     Position = UDim2.fromOffset(66, 38), Size = UDim2.new(1, -183, 0, 16),
-    Text = "ARMY RP   /   RED PANEL   /   v" .. CONFIG.Version,
+    Text = "VISUALS  /  v" .. CONFIG.Version,
     TextColor3 = P.dim, Font = Enum.Font.Code,
     TextSize = 10, TextXAlignment = Enum.TextXAlignment.Left,
     TextTruncate = Enum.TextTruncate.AtEnd,
@@ -2721,9 +2721,9 @@ mk("Frame", {
     Position = UDim2.fromOffset(15, 73), Size = UDim2.new(1, -30, 0, 1),
 }, panel)
 
--- Навигация внизу, как в референсе. Слоты управления не участвуют в ESP/AIM логике.
+-- Sidebar on desktop; bottom navigation stays accessible on small screens.
 local tabs = mk("Frame", {
-    Name = "BottomNavigation", BackgroundColor3 = P.panel, BorderSizePixel = 0,
+    Name = "VisualsNavigation", BackgroundColor3 = P.panel, BorderSizePixel = 0,
     Position = UDim2.new(0, 0, 1, -57), Size = UDim2.new(1, 0, 0, 57),
 }, panel)
 round(tabs, 10)
@@ -2741,14 +2741,15 @@ mk("UIPadding", {
     PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10),
     PaddingTop = UDim.new(0, 7), PaddingBottom = UDim.new(0, 7),
 }, navSlots)
-mk("UIListLayout", {
+local navigationLayout = mk("UIListLayout", {
     FillDirection = Enum.FillDirection.Horizontal,
     HorizontalAlignment = Enum.HorizontalAlignment.Center,
+    VerticalAlignment = Enum.VerticalAlignment.Center,
     SortOrder = Enum.SortOrder.LayoutOrder,
     Padding = UDim.new(0, 4),
 }, navSlots)
 local tabButtons, tabUnderline, tabOutlines, pages, pageColumns = {}, {}, {}, {}, {}
-local currentPage = "AIM"
+local currentPage = "HOME"
 -- Защита от ложных нажатий: палец сдвигает страницу, а не переключатель.
 local scrollFrames = {}
 local touchGestures = setmetatable({}, {__mode = "k"})
@@ -2807,10 +2808,11 @@ local function safeActivate(control, callback)
     end)
 end
 local navigation = {
-    {key = "AIM", label = "COMBAT", symbol = "◎"},
-    {key = "ESP", label = "VISUALS", symbol = "▣"},
-    {key = "MISC", label = "MEMORY", symbol = "≡"},
-    {key = "CFG", label = "CONFIG", symbol = "◇"},
+    {key = "HOME", label = "Dashboard", symbol = "⌂"},
+    {key = "ESP", label = "Visuals", symbol = "▣"},
+    {key = "AIM", label = "Aim", symbol = "◎"},
+    {key = "MISC", label = "Performance", symbol = "ϟ"},
+    {key = "CFG", label = "Settings", symbol = "⚙"},
 }
 local function makeColumn(parent, name)
     local scroll = mk("ScrollingFrame", {
@@ -2847,9 +2849,10 @@ for idx, tab in ipairs(navigation) do
         Name = key .. "Tab", LayoutOrder = idx,
         BackgroundColor3 = P.panel,
         BorderSizePixel = 0,
-        Size = UDim2.new(0.25, -8, 1, 0),
+        Size = UDim2.new(0.2, -7, 1, 0),
         Text = tab.symbol .. "  " .. tab.label,
         Font = Enum.Font.GothamMedium, TextSize = 11,
+        TextXAlignment = Enum.TextXAlignment.Center,
         TextColor3 = P.dim, AutoButtonColor = false,
     }, navSlots)
     round(button, 6)
@@ -2864,14 +2867,16 @@ for idx, tab in ipairs(navigation) do
         Name = key .. "Page", BackgroundTransparency = 1,
         Position = UDim2.fromOffset(12, 82),
         Size = UDim2.new(1, -24, 1, -155),
-        Visible = key == "AIM",
+        Visible = key == "HOME",
     }, panel)
     pages[key] = page
-    pageColumns[page] = {
-        left = makeColumn(page, key .. "Left"),
-        right = makeColumn(page, key .. "Right"),
-        side = "left", widgets = {}, order = 0,
-    }
+    if key ~= "HOME" then
+        pageColumns[page] = {
+            left = makeColumn(page, key .. "Left"),
+            right = makeColumn(page, key .. "Right"),
+            side = "left", widgets = {}, order = 0,
+        }
+    end
 end
 -- Каждый элемент сохраняет свой логический столбец. После поворота телефона
 -- элементы безопасно переподключаются, сохраняя LayoutOrder и обработчики.
