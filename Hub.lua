@@ -1792,8 +1792,33 @@ do
         if preferred and preferred:IsA("TextChannel") then
             return preferred
         end
-        -- Не отправляем в произвольные приватные каналы.
-        return nil, "RBXGeneral отсутствует; требуется штатный канал чата"
+        -- Custom-chat: допускаем только ЕДИНСТВЕННЫЙ доступный публичный
+        -- TextChannel, где у самого игрока есть TextSource.CanSend.
+        -- В командные/приватные/системные каналы ничего не переадресуем.
+        local found
+        for _, candidate in ipairs(channels:GetChildren()) do
+            if candidate:IsA("TextChannel")
+                and candidate.Name ~= "RBXSystem"
+                and not candidate.Name:match("^RBXWhisper")
+                and not candidate.Name:match("^RBXTeam") then
+                local canSend = false
+                for _, source in ipairs(candidate:GetChildren()) do
+                    if source:IsA("TextSource") and source.UserId == LocalPlayer.UserId
+                        and source.CanSend then
+                        canSend = true
+                        break
+                    end
+                end
+                if canSend then
+                    if found then
+                        return nil, "несколько общих каналов; выбери чат вручную"
+                    end
+                    found = candidate
+                end
+            end
+        end
+        if found then return found end
+        return nil, "нет доступного общего канала; проверь настройки чата"
     end
 
     -- Вызывать исключительно из кнопки, после ввода сообщения пользователем.
