@@ -142,6 +142,8 @@ local state = {
     aimKeyName = CONFIG.AimKeyDefault,
     aimMode = "body", -- head / body / legs; сохраняем прежний режим по умолчанию.
     teamCheck = true,
+    aimOnlyRegisteredWeapons = false, -- Реальные Tool регистрируются игроком.
+    aimWeaponNames = "", -- Храним список точных имён через "|", без угадывания.
     antiAfk = false,
     bunnyHop = false, -- По умолчанию выключено, работает при движении по земле.
     bhopJumpInterval = 0.22, -- Пауза между попытками прыжка (сек).
@@ -268,6 +270,12 @@ function aimPro.equippedTool()
     local character = LocalPlayer.Character
     if not character or not character.Parent or not tool or tool.Parent ~= character then
         return nil
+    end
+    if state.aimOnlyRegisteredWeapons then
+        local allowed = "|" .. (state.aimWeaponNames or "") .. "|"
+        if not string.find(allowed, "|" .. tool.Name .. "|", 1, true) then
+            return nil
+        end
     end
     return tool
 end
@@ -1705,6 +1713,10 @@ do
         local speed = math.max(bunny.originalSpeed,
             math.min(bunny.originalSpeed * state.bhopSpeedMultiplier,
                 CONFIG.BhopWalkSpeedCap))
+        if math.abs(hum.WalkSpeed - speed) < 0.05 then
+            bunny.appliedSpeed = speed
+            return
+        end
         local ok = pcall(function() hum.WalkSpeed = speed end)
         if ok then bunny.appliedSpeed = speed end
     end
@@ -1848,6 +1860,7 @@ local storedKeys = {
     "espEnemyOnly", "espRangeMeters", "espColorPreset", "espLineThickness", "performanceMode",
     "aimbot", "aimRangeMeters", "aimSmoothness", "aimSmoothX", "aimSmoothY",
     "prediction", "predictionSeconds", "targetLock", "aimFovPixels", "aimMode",
+    "aimOnlyRegisteredWeapons", "aimWeaponNames",
     "fovVisible", "fovThickness", "visibleCheck", "teamCheck", "fullbright", "booster",
     "antiAfk", "airAlerts", "hud", "activeHud", "aimKeyName", "controlRecoil", "recoilStrength", "boosterMode",
     "bunnyHop", "bhopJumpInterval", "bhopSpeedMultiplier", "spamChat", "chatInterval", "chatMessage",
@@ -1904,7 +1917,9 @@ local function validatedSettings(values)
                 local rule = numericRules[key]
                 result[key] = rule and math.clamp(incoming, rule[1], rule[2]) or baseline
             elseif type(baseline) == "string" and type(incoming) == "string" then
-                if key == "chatMessage" then
+                if key == "aimWeaponNames" then
+                    result[key] = incoming:sub(1, 400)
+                elseif key == "chatMessage" then
                     local value = incoming:gsub("[%c]", " "):gsub("^%s+", ""):gsub("%s+$", "")
                     local count = utf8.len(value)
                     if count then
@@ -3134,6 +3149,57 @@ addToggle(pages.AIM, "Aimbot", "Наведение только с экипир�
     setAimEnabled(enabled, false)
 end)
 addAimModeSelector(pages.AIM)
+-- Без знаний об оружии игры не гадаем по названиям. Игрок может один раз
+-- зарегистрировать экипированное огнестрельное Tool; только оно пройдёт фильтр.
+addToggle(pages.AIM, "Только отмеченное оружие",
+    "Строгая проверка зарегистрированных Tool", "aimOnlyRegisteredWeapons", function()
+        aimPro.reset()
+        repaintAimTouch()
+    end)
+addButton(pages.AIM, "Запомнить оружие в руках",
+    "Зарегистрировать текущий Tool для AIM", function()
+        local tool = aimPro.equipped
+        local character = LocalPlayer.Character
+        if not character or not tool or tool.Parent ~= character
+            or not tool:IsA("Tool") then
+            tell("AIM: сначала возьми оружие в руки")
+            return
+        end
+        local name = tool.Name
+        if #name > 60 or name:find("|", 1, true) then
+            tell("AIM: имя инструмента слишком длинное или содержит |")
+            return
+        end
+        local current = state.aimWeaponNames or ""
+        local padded = "|" .. current .. "|"
+        if not padded:find("|" .. name .. "|", 1, true) then
+            if #current + #name + 1 > 400 then
+                tell("AIM: список оружия заполнен")
+                return
+            end
+            state.aimWeaponNames = current == "" and name or (current .. "|" .. name)
+        end
+        state.aimOnlyRegisteredWeapons = true
+        aimPro.reset()
+        if refreshToggles.aimOnlyRegisteredWeapons then
+            refreshToggles.aimOnlyRegisteredWeapons()
+        end
+        repaintAimTouch()
+        requestSave()
+        tell("AIM: оружие " .. name .. " зарегистрировано")
+    end)
+addButton(pages.AIM, "Очистить список оружия",
+    "Убрать разрешённые Tool и выключить строгий режим", function()
+        state.aimWeaponNames = ""
+        state.aimOnlyRegisteredWeapons = false
+        aimPro.reset()
+        if refreshToggles.aimOnlyRegisteredWeapons then
+            refreshToggles.aimOnlyRegisteredWeapons()
+        end
+        repaintAimTouch()
+        requestSave()
+        tell("AIM: список оружия очищен")
+    end)
 repaintAimKeybind = addAimKeybind(pages.AIM)
 addToggle(pages.AIM, "Проверка команды", "Игнорировать союзников", "teamCheck", function()
     aimTarget = nil
