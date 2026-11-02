@@ -1,11 +1,11 @@
--- 124 Community Hub v1.1.16 | Performance Stability: tier dwell, stable ESP, frametime telemetry, opt-in diagnostics
+-- 124 Community Hub v1.1.17 | Compile-safe bootstrap, cached ESP, accurate frame metrics
 -- PlaceId: 18537079992
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.1.16",
+    Version = "1.1.17",
     PlaceId = 18537079992,
     EspRefreshSeconds = 0.75, -- Лёгкое обновление списка игроков; FPS на первом месте.
     EspMaxPlayers = 12, -- Меньше Highlight и GUI-обновлений по умолчанию.
@@ -204,6 +204,7 @@ local boosterPro = {
     queueDropped = 0, scanned = 0, repairing = false,
     repairCoveredDrops = 0, repairRetryAt = 0, repairErrors = 0,
     recoveryFailures = 0, recoveryNextAt = 0,
+    bootRoots = {}, -- Единственные ScreenGui, созданные данной копией Hub.
 }
 -- Только для исполнителей, умеющих читать/писать Terrain.Decoration.
 -- Если это недоступно, не трогаем Terrain: полноценного SmoothPlastic для него нет.
@@ -407,6 +408,11 @@ local function mk(class, properties, parent)
     local instance = Instance.new(class)
     for key, value in pairs(properties or {}) do instance[key] = value end
     instance.Parent = parent
+    -- Даже ошибка посередине построения UI не оставит несколько GUI.
+    if class == "ScreenGui" and parent == PlayerGui then
+        local roots = boosterPro.bootRoots
+        roots[#roots + 1] = instance
+    end
     return instance
 end
 
@@ -1643,6 +1649,42 @@ end
 return controller
 end)()
 
+-- Bootstrap registered BEFORE creating any new ScreenGui or UI input handlers.
+-- The UI section runs inside its own function: Luau permits 200 locals per
+-- function, and the preceding 1600-line controller already uses many.
+local function abortPartialHub()
+    alive = false
+    boosterRevision = boosterRevision + 1
+    state.esp, state.aimbot, state.booster = false, false, false
+    state.controlRecoil, state.antiAim, state.fullbright = false, false, false
+    pcall(function() recoil.shutdown() end)
+    for _, conn in ipairs(connections) do
+        pcall(function() conn:Disconnect() end)
+    end
+    table.clear(connections)
+    for _, name in ipairs({
+        aimBindingName,
+        "Army124CommunityRecoil_" .. tostring(LocalPlayer.UserId),
+        "Army124CommunityESP_" .. tostring(LocalPlayer.UserId),
+        "Army124CommunityCameraFOV_" .. tostring(LocalPlayer.UserId),
+    }) do
+        pcall(function() RunService:UnbindFromRenderStep(name) end)
+    end
+    for _, root in ipairs(boosterPro.bootRoots) do
+        pcall(function() root:Destroy() end)
+    end
+    table.clear(boosterPro.bootRoots)
+    pcall(function() restoreTerrainGrass() end)
+    pcall(function() restoreTerrainColors() end)
+    pcall(function() applyLighting() end)
+    if env.ARMY124_CLEANUP == abortPartialHub then
+        env.ARMY124_CLEANUP = nil
+    end
+    return true
+end
+env.ARMY124_CLEANUP = abortPartialHub
+
+local function initializeHubUI()
 -- 124 / RED PANEL — собственный интерфейс без внешних UI-библиотек.
 -- Две колонки на больших экранах, одна колонка на телефонах.
 local gui = mk("ScreenGui", {
@@ -5115,3 +5157,20 @@ end)
 useProfile(profileName, true)
 refreshFovRing()
 print("[124 Community Hub] " .. CONFIG.Version .. " загружен | MEMORY / SESSION DIAGNOSTICS")
+end -- initializeHubUI; isolates UI locals from root Luau limit.
+
+local initOk, initErr = xpcall(initializeHubUI, function(err)
+    return tostring(err)
+end)
+if not initOk then
+    warn("[124 Community Hub] Ошибка инициализации UI: " .. tostring(initErr))
+    local registered = env.ARMY124_CLEANUP
+    if type(registered) == "function" and registered ~= abortPartialHub then
+        local cleaned, result = pcall(registered)
+        if not cleaned or result == false then
+            pcall(abortPartialHub)
+        end
+    else
+        pcall(abortPartialHub)
+    end
+end
