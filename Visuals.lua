@@ -2701,6 +2701,21 @@ mk("TextLabel", {
     TextSize = 10, TextXAlignment = Enum.TextXAlignment.Left,
     TextTruncate = Enum.TextTruncate.AtEnd,
 }, bar)
+local pageHeader = mk("TextLabel", {
+    Name = "CurrentPageTitle", BackgroundTransparency = 1,
+    Position = UDim2.fromOffset(206, 15), Size = UDim2.new(1, -335, 0, 29),
+    Text = "Dashboard", TextColor3 = P.text, TextSize = 23,
+    Font = Enum.Font.GothamBold, TextXAlignment = Enum.TextXAlignment.Left,
+    Visible = false, TextTruncate = Enum.TextTruncate.AtEnd,
+}, bar)
+local pageSubHeader = mk("TextLabel", {
+    Name = "CurrentPageSubtitle", BackgroundTransparency = 1,
+    Position = UDim2.fromOffset(207, 46), Size = UDim2.new(1, -336, 0, 16),
+    Text = "Live game performance and optimization overview",
+    TextColor3 = P.dim, TextSize = 11, Font = Enum.Font.Gotham,
+    TextXAlignment = Enum.TextXAlignment.Left, Visible = false,
+    TextTruncate = Enum.TextTruncate.AtEnd,
+}, bar)
 local cleanup -- Обработчик выгрузки определяется ниже.
 local hide = mk("TextButton", {
     Name = "Minimize", Position = UDim2.new(1, -82, 0, 21),
@@ -2896,19 +2911,20 @@ do
         Name = "DashboardContent", BackgroundTransparency = 1,
         Position = UDim2.fromOffset(9, 0), Size = UDim2.new(1, -18, 0, 490),
     }, scroller)
-    mk("TextLabel", {
+    local dashboardTitle = mk("TextLabel", {
         Name = "DashboardTitle", BackgroundTransparency = 1,
         Position = UDim2.fromOffset(5, 2), Size = UDim2.new(1, -10, 0, 33),
         Text = "Dashboard", TextColor3 = P.text, TextSize = 25,
         Font = Enum.Font.GothamBold, TextXAlignment = Enum.TextXAlignment.Left,
     }, content)
-    mk("TextLabel", {
+    local dashboardSubtitle = mk("TextLabel", {
         BackgroundTransparency = 1, Position = UDim2.fromOffset(5, 37),
         Size = UDim2.new(1, -10, 0, 19),
         Text = "System status and live in-game optimization overview",
         TextColor3 = P.dim, TextSize = 11, Font = Enum.Font.Gotham,
         TextTruncate = Enum.TextTruncate.AtEnd, TextXAlignment = Enum.TextXAlignment.Left,
     }, content)
+    dash.titleLabel, dash.subtitleLabel = dashboardTitle, dashboardSubtitle
     local cardsFrame = mk("Frame", {
         Name = "Metrics", BackgroundTransparency = 1,
         Position = UDim2.fromOffset(0, 73), Size = UDim2.new(1, 0, 0, 105),
@@ -3039,6 +3055,14 @@ do
         tell("Performance Guard: " .. (state.performanceGuard and "ON" or "OFF"))
     end)
     action("Safety Stop", "", function()
+        -- Two deliberate presses prevent accidental unload on touch devices.
+        local now = os.clock()
+        if (dash.safeStopArmedUntil or 0) < now then
+            dash.safeStopArmedUntil = now + 4
+            tell("Safety Stop: нажми кнопку ещё раз в течение 4 секунд")
+            return
+        end
+        dash.safeStopArmedUntil = 0
         if cleanup then cleanup(true) end
     end)
     local info = mk("Frame", {
@@ -3072,6 +3096,9 @@ do
     dash.sidebarStatus = sideStatus
     dash.layout = function(wide)
         local cellH = wide and 105 or 91
+        dash.titleLabel.Visible = not wide
+        dash.subtitleLabel.Visible = not wide
+        cardsFrame.Position = UDim2.fromOffset(0, wide and 12 or 73)
         cardsFrame.Size = UDim2.new(1, 0, 0, wide and 105 or 193)
         for _, card in pairs(dash.cards) do
             local i = card.index - 1
@@ -3084,12 +3111,12 @@ do
             end
         end
         if wide then
-            chart.Position = UDim2.fromOffset(0, 200)
+            chart.Position = UDim2.fromOffset(0, 143)
             chart.Size = UDim2.new(0.66, -7, 0, 242)
-            actions.Position = UDim2.new(0.66, 7, 0, 200)
+            actions.Position = UDim2.new(0.66, 7, 0, 143)
             actions.Size = UDim2.new(0.34, -7, 0, 242)
-            info.Position = UDim2.fromOffset(0, 463)
-            content.Size = UDim2.new(1, -18, 0, 539)
+            info.Position = UDim2.fromOffset(0, 403)
+            content.Size = UDim2.new(1, -18, 0, 480)
         else
             chart.Position = UDim2.fromOffset(0, 295)
             chart.Size = UDim2.new(1, 0, 0, 190)
@@ -3167,6 +3194,7 @@ local function applyResponsiveLayout()
             boosterPro.floatingButton.Size, boosterPro.floatingButton.AnchorPoint)
     end
     wideLayout = wide
+    pageHeader.Visible, pageSubHeader.Visible = wide, wide
     if wide then
         -- Desktop: screenshot-inspired left sidebar; real contents on the right.
         tabs.Position = UDim2.fromOffset(0, 0)
@@ -3253,6 +3281,15 @@ local function showPage(key)
         repaintAimKeybind()
     end
     currentPage = key
+    local titles = {HOME = "Dashboard", ESP = "Visuals", AIM = "Aim",
+        MISC = "Performance", CFG = "Settings"}
+    local descriptions = {HOME = "Live game performance and optimization overview",
+        ESP = "Player overlays and visibility controls",
+        AIM = "Targeting, weapon filters and FOV",
+        MISC = "Client graphics, monitoring and performance",
+        CFG = "Profiles, preferences and recovery"}
+    pageHeader.Text = titles[key] or key
+    pageSubHeader.Text = descriptions[key] or ""
     for name, page in pairs(pages) do
         local selected = name == key
         page.Visible = selected
