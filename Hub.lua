@@ -1703,7 +1703,8 @@ end
 -- Chat Timer даёт уведомление о готовности; отправка ТОЛЬКО по нажатию пользователем.
 local utilityFX = {bunny = {token = 0}, chat = {
     token = 0, sent = 0, errors = 0, readyCount = 0,
-    inFlight = false, lastSentAt = -1e8, lastStatus = "Idle",
+    inFlight = false, lastSentAt = -1e8,
+    timerStatus = "OFF", sendStatus = "NOT SENT",
     repaintText = function() end, repaintStatus = function() end,
     commitText = function() return false end
 }}
@@ -1788,6 +1789,7 @@ do
 
     function chat.stop()
         chat.token = chat.token + 1
+        chat.timerStatus = "OFF"
         chat.repaintStatus()
     end
 
@@ -1795,6 +1797,8 @@ do
     function chat.sync()
         chat.stop()
         if not alive or not state.spamChat then return end
+        chat.timerStatus = "WAITING"
+        chat.repaintStatus()
         local token = chat.token
         task.spawn(function()
             local deadline = os.clock() + state.chatInterval
@@ -1802,7 +1806,7 @@ do
                 local remaining = deadline - os.clock()
                 if remaining <= 0 then
                     chat.readyCount = chat.readyCount + 1
-                    chat.lastStatus = "READY: нажмите отправить"
+                    chat.timerStatus = "READY: нажмите отправить"
                     chat.repaintStatus()
                     -- Каждая следующая готовность не вызывает SendAsync.
                     deadline = os.clock() + state.chatInterval
@@ -1813,40 +1817,27 @@ do
         end)
     end
 
+    -- Без угадывания публичности custom TextChannel: выбираем только RBXGeneral.
+    -- Наличие TextSource означает членство; CanSend — право отправки.
+    -- PlatformIntegratedChat не читается из LocalScript (RobloxScriptSecurity).
     local function currentChatChannel()
         local channels = TextChatService:FindFirstChild("TextChannels")
-        if not channels then return nil, "TextChannels отсутствует" end
-        local preferred = channels:FindFirstChild("RBXGeneral")
-        if preferred and preferred:IsA("TextChannel") then
-            return preferred
+        if not channels then return nil, "TextChannels не загружены" end
+        local channel = channels:FindFirstChild("RBXGeneral")
+        if not channel or not channel:IsA("TextChannel") then
+            return nil, "RBXGeneral недоступен; выбери стандартный чат Roblox"
         end
-        -- Custom-chat: допускаем только ЕДИНСТВЕННЫЙ доступный публичный
-        -- TextChannel, где у самого игрока есть TextSource.CanSend.
-        -- В командные/приватные/системные каналы ничего не переадресуем.
-        local found
-        for _, candidate in ipairs(channels:GetChildren()) do
-            if candidate:IsA("TextChannel")
-                and candidate.Name ~= "RBXSystem"
-                and not candidate.Name:match("^RBXWhisper")
-                and not candidate.Name:match("^RBXTeam") then
-                local canSend = false
-                for _, source in ipairs(candidate:GetChildren()) do
-                    if source:IsA("TextSource") and source.UserId == LocalPlayer.UserId
-                        and source.CanSend then
-                        canSend = true
-                        break
-                    end
-                end
-                if canSend then
-                    if found then
-                        return nil, "несколько общих каналов; выбери чат вручную"
-                    end
-                    found = candidate
-                end
+        local permitted = false
+        for _, source in ipairs(channel:GetChildren()) do
+            if source:IsA("TextSource") and source.UserId == LocalPlayer.UserId then
+                permitted = source.CanSend == true
+                break
             end
         end
-        if found then return found end
-        return nil, "нет доступного общего канала; проверь настройки чата"
+        if not permitted then
+            return nil, "нет права Send в RBXGeneral (проверь доступ к чату)"
+        end
+        return channel
     end
 
     -- Вызывать исключительно из кнопки, после ввода сообщения пользователем.
@@ -1870,7 +1861,7 @@ do
         end
         local channel, channelError = currentChatChannel()
         if not channel then
-            chat.lastStatus = channelError
+            chat.sendStatus = channelError
             chat.errors = chat.errors + 1
             chat.repaintStatus()
             tell("Chat: " .. channelError)
@@ -1879,7 +1870,7 @@ do
         local message = state.chatMessage
         chat.inFlight = true
         chat.lastSentAt = now
-        chat.lastStatus = "SENDING"
+        chat.sendStatus = "SENDING"
         chat.repaintStatus()
         -- SendAsync yields: нельзя отменить уже начатую отправку, но токен
         -- не позволяет обновлять состояние после Unload/нового включения.
@@ -1888,19 +1879,28 @@ do
         chat.inFlight = false
         if not alive or token ~= chat.token then return end
         if not ok then
-            chat.lastStatus, chat.errors = "API ERROR", chat.errors + 1
+            chat.sendStatus, chat.errors = "API ERROR", chat.errors + 1
             tell("Chat: ошибка отправки: " .. tostring(reply))
         else
-            local status = reply and reply.Status
-            chat.lastStatus = status and status.Name or "UNKNOWN"
-            if status == Enum.TextChatMessageStatus.Success then
-                chat.sent = chat.sent + 1
-                chat.errors = 0
-            else
+            -- В режиме Platform-Integrated Chat Roblox может вернуть "".
+            -- Проверять PlatformIntegratedChat из LocalScript нельзя: защищённое свойство.
+            if type(reply) ~= "userdata" and typeof(reply) ~= "Instance" then
+                chat.sendStatus = "UNSUPPORTED / EMPTY RESULT"
                 chat.errors = chat.errors + 1
+                tell("Chat: SendAsync не поддерживается в режиме этой игры; "
+                    .. "отправляй сообщения через встроенный чат Roblox")
+            else
+                local okStatus, status = pcall(function() return reply.Status end)
+                chat.sendStatus = okStatus and status and status.Name or "UNKNOWN"
+                if okStatus and status == Enum.TextChatMessageStatus.Success then
+                    chat.sent = chat.sent + 1
+                    chat.errors = 0
+                else
+                    chat.errors = chat.errors + 1
+                end
+                tell("Chat: локальный статус " .. chat.sendStatus ..
+                    " (доставку получателям проверяй на втором клиенте)")
             end
-            tell("Chat: статус " .. chat.lastStatus ..
-                " (доставка другим игрокам не гарантируется)")
         end
         chat.repaintStatus()
     end
@@ -3566,20 +3566,22 @@ round(chatStatus, 5)
 utilityFX.chat.repaintStatus = function()
     if not chatStatus.Parent then return end
     local c = utilityFX.chat
-    chatStatus.Text = (state.spamChat and "TIMER ON" or "TIMER OFF")
-        .. " | интервал " .. tostring(state.chatInterval) .. " с"
-        .. " | " .. tostring(c.lastStatus)
+    chatStatus.Text = "Timer: " .. tostring(c.timerStatus)
+        .. " | Send: " .. tostring(c.sendStatus)
+        .. " | " .. tostring(state.chatInterval) .. " с"
 end
-addButton(pages.MISC, "Отправить сообщение", "Нажми вручную; не чаще заданного интервала",
+addButton(pages.MISC, "Отправить сообщение",
+    "Ручной SendAsync; активную отправку OFF не отменяет",
     function() utilityFX.chat.sendOnce() end)
 addButton(pages.MISC, "Статус чата", "Попытки отправки и готовность таймера", function()
     local c = utilityFX.chat
     tell("Chat " .. (state.spamChat and "TIMER ON" or "TIMER OFF")
         .. " | интервал " .. tostring(state.chatInterval) .. " с"
-        .. " | подтверждений " .. tostring(c.sent)
+        .. " | локальных Success " .. tostring(c.sent)
         .. " | напоминаний " .. tostring(c.readyCount)
         .. " | ошибок " .. tostring(c.errors)
-        .. " | статус " .. tostring(c.lastStatus))
+        .. " | таймер " .. tostring(c.timerStatus)
+        .. " | отправка " .. tostring(c.sendStatus))
 end)
 utilityFX.chat.repaintStatus()
 
