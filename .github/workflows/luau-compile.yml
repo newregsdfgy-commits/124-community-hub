@@ -1,0 +1,39 @@
+name: Luau compile check (Hub.lua)
+on:
+  push:
+    branches: [v1.1.18-max-performance-test]
+    paths:
+      - 'Hub.lua'
+      - '.github/workflows/luau-compile.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  luau-compile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout Hub test branch
+        uses: actions/checkout@v4
+      - name: Checkout official Luau compiler source
+        uses: actions/checkout@v4
+        with:
+          repository: luau-lang/luau
+          ref: master
+          path: luau-source
+          persist-credentials: false
+      - name: Build Luau compiler
+        shell: bash
+        run: |
+          cmake -S luau-source -B luau-build -DCMAKE_BUILD_TYPE=Release -DLUAU_BUILD_TESTS=OFF
+          cmake --build luau-build --target Luau.Compile.CLI --parallel 2
+      - name: Parse and compile Hub.lua (optimization level 2)
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./luau-build/luau-compile --only-parse Hub.lua >/dev/null
+          ./luau-build/luau-compile -O2 -g0 --binary Hub.lua > /tmp/Army124-Hub.luauc
+          test -s /tmp/Army124-Hub.luauc
+          echo "Hub.lua parsed and compiled successfully."
