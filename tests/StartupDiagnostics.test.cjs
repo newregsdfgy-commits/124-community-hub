@@ -7,8 +7,8 @@ const hub = fs.readFileSync("Hub.lua", "utf8");
 const launcher = fs.readFileSync("Start.lua", "utf8");
 test("canonical and legacy script identical", () => {
  assert.equal(src, hub);
- assert.ok(src.includes('Version = "1.1.25"'));
- assert.ok(launcher.includes("v1.1.25-chat-permission-test"));
+ assert.ok(src.includes('Version = "1.1.26"'));
+ assert.ok(launcher.includes("v1.1.26-booster-recovery-audit-test"));
 });
 test("loader distinguishes download and execution problems", () => {
  for (const stage of ["NETWORK","DOWNLOAD","VERSION","EXECUTOR","COMPILE","RUNTIME"]) {
