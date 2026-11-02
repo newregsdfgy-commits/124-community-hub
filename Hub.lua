@@ -2878,6 +2878,261 @@ for idx, tab in ipairs(navigation) do
         }
     end
 end
+-- Dashboard visual reference: dark purple navigation + live data, never fake OS tweaks.
+-- It does not create new RenderStepped handlers, only updates from existing workers.
+do
+    local home = pages.HOME
+    local dash = {history = {}, bars = {}, cards = {}, lastSlowAt = -1e8}
+    boosterPro.dashboard = dash
+    local scroller = mk("ScrollingFrame", {
+        Name = "DashboardScroll", BackgroundTransparency = 1, BorderSizePixel = 0,
+        Size = UDim2.fromScale(1, 1), ScrollBarThickness = 3,
+        ScrollBarImageColor3 = P.accent, AutomaticCanvasSize = Enum.AutomaticSize.Y,
+        CanvasSize = UDim2.new(), ScrollingDirection = Enum.ScrollingDirection.Y,
+        Active = true,
+    }, home)
+    table.insert(scrollFrames, scroller)
+    local content = mk("Frame", {
+        Name = "DashboardContent", BackgroundTransparency = 1,
+        Position = UDim2.fromOffset(9, 0), Size = UDim2.new(1, -18, 0, 490),
+    }, scroller)
+    mk("TextLabel", {
+        Name = "DashboardTitle", BackgroundTransparency = 1,
+        Position = UDim2.fromOffset(5, 2), Size = UDim2.new(1, -10, 0, 33),
+        Text = "Dashboard", TextColor3 = P.text, TextSize = 25,
+        Font = Enum.Font.GothamBold, TextXAlignment = Enum.TextXAlignment.Left,
+    }, content)
+    mk("TextLabel", {
+        BackgroundTransparency = 1, Position = UDim2.fromOffset(5, 37),
+        Size = UDim2.new(1, -10, 0, 19),
+        Text = "System status and live in-game optimization overview",
+        TextColor3 = P.dim, TextSize = 11, Font = Enum.Font.Gotham,
+        TextTruncate = Enum.TextTruncate.AtEnd, TextXAlignment = Enum.TextXAlignment.Left,
+    }, content)
+    local cardsFrame = mk("Frame", {
+        Name = "Metrics", BackgroundTransparency = 1,
+        Position = UDim2.fromOffset(0, 73), Size = UDim2.new(1, 0, 0, 105),
+    }, content)
+    local cardSpec = {
+        {"fps", "FPS", "◈", "LIVE FRAME RATE"},
+        {"low", "1% LOW", "⌁", "FRAME STABILITY"},
+        {"ping", "NETWORK", "◇", "PING (MS)"},
+        {"esp", "VISUALS", "▣", "TRACKED PLAYERS"}
+    }
+    for index, spec in ipairs(cardSpec) do
+        local card = mk("Frame", {
+            Name = "Metric_" .. spec[1], BackgroundColor3 = P.tile,
+            BorderSizePixel = 0, Size = UDim2.fromOffset(120, 105),
+        }, cardsFrame)
+        round(card, 9)
+        mk("UIStroke", {Color = P.border, Transparency = 0.28, Thickness = 1}, card)
+        mk("TextLabel", {
+            BackgroundTransparency = 1, Position = UDim2.fromOffset(13, 9),
+            Size = UDim2.new(1, -26, 0, 17), Text = spec[3],
+            TextColor3 = P.accent, Font = Enum.Font.GothamBold,
+            TextSize = 18, TextXAlignment = Enum.TextXAlignment.Left,
+        }, card)
+        local value = mk("TextLabel", {
+            Name = "Value", BackgroundTransparency = 1,
+            Position = UDim2.fromOffset(13, 35), Size = UDim2.new(1, -26, 0, 30),
+            Text = "--", TextColor3 = P.text, Font = Enum.Font.GothamBold,
+            TextSize = 21, TextXAlignment = Enum.TextXAlignment.Left,
+            TextTruncate = Enum.TextTruncate.AtEnd,
+        }, card)
+        mk("TextLabel", {
+            BackgroundTransparency = 1,
+            Position = UDim2.fromOffset(13, 73), Size = UDim2.new(1, -26, 0, 18),
+            Text = spec[4], TextColor3 = P.dim, Font = Enum.Font.Code,
+            TextSize = 9, TextXAlignment = Enum.TextXAlignment.Left,
+            TextTruncate = Enum.TextTruncate.AtEnd,
+        }, card)
+        dash.cards[spec[1]] = {root = card, value = value, index = index}
+    end
+    local chart = mk("Frame", {
+        Name = "PerformanceHistory", BackgroundColor3 = P.panel,
+        BorderSizePixel = 0, Position = UDim2.fromOffset(0, 202),
+        Size = UDim2.new(0.66, -7, 0, 242),
+    }, content)
+    round(chart, 9)
+    mk("UIStroke", {Color = P.border, Transparency = 0.25}, chart)
+    mk("TextLabel", {
+        BackgroundTransparency = 1, Position = UDim2.fromOffset(17, 12),
+        Size = UDim2.new(1, -34, 0, 26),
+        Text = "⌁  Performance History", Font = Enum.Font.GothamBold,
+        TextColor3 = P.text, TextSize = 14, TextXAlignment = Enum.TextXAlignment.Left,
+    }, chart)
+    local chartArea = mk("Frame", {
+        Name = "FPSBars", BackgroundColor3 = P.background, BorderSizePixel = 0,
+        Position = UDim2.fromOffset(16, 51), Size = UDim2.new(1, -32, 1, -67),
+        ClipsDescendants = true,
+    }, chart)
+    round(chartArea, 6)
+    for i = 1, 16 do
+        local bar = mk("Frame", {
+            Name = "Sample" .. i, BorderSizePixel = 0,
+            AnchorPoint = Vector2.new(0, 1),
+            Position = UDim2.new((i - 1)/16, 3, 1, -7),
+            Size = UDim2.new(1/16, -6, 0.06, 0),
+            BackgroundColor3 = P.accent,
+            BackgroundTransparency = 0.15,
+        }, chartArea)
+        round(bar, 2)
+        dash.bars[i] = bar
+    end
+    local actions = mk("Frame", {
+        Name = "QuickActions", BackgroundColor3 = P.panel,
+        BorderSizePixel = 0, Position = UDim2.new(0.66, 7, 0, 202),
+        Size = UDim2.new(0.34, -7, 0, 242),
+    }, content)
+    round(actions, 9)
+    mk("UIStroke", {Color = P.border, Transparency = 0.25}, actions)
+    mk("TextLabel", {
+        BackgroundTransparency = 1, Position = UDim2.fromOffset(13, 12),
+        Size = UDim2.new(1, -26, 0, 25),
+        Text = "Quick Actions", TextColor3 = P.text,
+        TextSize = 14, Font = Enum.Font.GothamBold,
+        TextXAlignment = Enum.TextXAlignment.Left,
+    }, actions)
+    local actionList = mk("Frame", {
+        Name = "ActionList", BackgroundTransparency = 1,
+        Position = UDim2.fromOffset(12, 46), Size = UDim2.new(1, -24, 1, -58),
+    }, actions)
+    mk("UIListLayout", {SortOrder = Enum.SortOrder.LayoutOrder,
+        Padding = UDim.new(0, 7)}, actionList)
+    local function action(caption, hint, callback)
+        local button = mk("TextButton", {
+            Name = "Action_" .. caption:gsub("[^%w]", ""),
+            LayoutOrder = #actionList:GetChildren(),
+            Size = UDim2.new(1, 0, 0, 39),
+            Text = "  " .. caption .. "     ›",
+            BackgroundColor3 = P.tile, BorderSizePixel = 0,
+            AutoButtonColor = true, TextColor3 = P.text,
+            Font = Enum.Font.GothamMedium, TextSize = 11,
+            TextTruncate = Enum.TextTruncate.AtEnd,
+            TextXAlignment = Enum.TextXAlignment.Left,
+        }, actionList)
+        round(button, 6)
+        mk("UIStroke", {Color = P.border, Transparency = 0.38}, button)
+        safeActivate(button, function()
+            if not alive then return end
+            local ok, err = pcall(callback)
+            if not ok then tell("Dashboard: " .. tostring(err)) end
+        end)
+        return button
+    end
+    action("Open Performance", "", function()
+        if dash.openSettings then dash.openSettings() end
+    end)
+    action("Enable ECO", "", function()
+        state.performanceMode = "ECO"
+        pcall(repaintPerf)
+        requestSave()
+        tell("Visuals: ECO включён")
+    end)
+    action("Toggle Guard", "", function()
+        state.performanceGuard = not state.performanceGuard
+        perfCounters.guard.reset()
+        if refreshToggles.performanceGuard then
+            pcall(refreshToggles.performanceGuard)
+        end
+        requestSave()
+        tell("Performance Guard: " .. (state.performanceGuard and "ON" or "OFF"))
+    end)
+    action("Safety Stop", "", function()
+        if cleanup then cleanup(true) end
+    end)
+    local info = mk("Frame", {
+        Name = "FooterBanner", BackgroundColor3 = Color3.fromRGB(39, 10, 66),
+        Position = UDim2.fromOffset(0, 462), Size = UDim2.new(1, 0, 0, 64),
+        BorderSizePixel = 0,
+    }, content)
+    round(info, 8)
+    mk("TextLabel", {
+        BackgroundTransparency = 1, Position = UDim2.fromOffset(17, 9),
+        Size = UDim2.new(1, -30, 0, 20),
+        Text = "124 Community Visuals", Font = Enum.Font.GothamBold,
+        TextSize = 13, TextColor3 = P.text,
+        TextXAlignment = Enum.TextXAlignment.Left,
+    }, info)
+    mk("TextLabel", {
+        BackgroundTransparency = 1, Position = UDim2.fromOffset(17, 33),
+        Size = UDim2.new(1, -30, 0, 19),
+        Text = "Local Roblox stats • No system changes or simulated FPS gains",
+        TextColor3 = P.dim, Font = Enum.Font.Gotham,
+        TextSize = 10, TextXAlignment = Enum.TextXAlignment.Left,
+        TextTruncate = Enum.TextTruncate.AtEnd,
+    }, info)
+    local sideStatus = mk("TextLabel", {
+        Name = "SidebarStatus", Visible = false, BackgroundTransparency = 1,
+        Position = UDim2.new(0, 14, 1, -42), Size = UDim2.fromOffset(160, 23),
+        Text = "●  CLIENT ACTIVE", TextColor3 = Color3.fromRGB(96, 209, 148),
+        Font = Enum.Font.GothamMedium, TextSize = 10,
+        TextXAlignment = Enum.TextXAlignment.Left,
+    }, tabs)
+    dash.sidebarStatus = sideStatus
+    dash.layout = function(wide)
+        local cellH = wide and 105 or 91
+        cardsFrame.Size = UDim2.new(1, 0, 0, wide and 105 or 193)
+        for _, card in pairs(dash.cards) do
+            local i = card.index - 1
+            if wide then
+                card.root.Position = UDim2.new(i / 4, 0, 0, 0)
+                card.root.Size = UDim2.new(0.25, -8, 0, cellH)
+            else
+                card.root.Position = UDim2.new(i % 2 / 2, 0, 0, math.floor(i / 2) * 100)
+                card.root.Size = UDim2.new(0.5, -7, 0, cellH)
+            end
+        end
+        if wide then
+            chart.Position = UDim2.fromOffset(0, 200)
+            chart.Size = UDim2.new(0.66, -7, 0, 242)
+            actions.Position = UDim2.new(0.66, 7, 0, 200)
+            actions.Size = UDim2.new(0.34, -7, 0, 242)
+            info.Position = UDim2.fromOffset(0, 463)
+            content.Size = UDim2.new(1, -18, 0, 539)
+        else
+            chart.Position = UDim2.fromOffset(0, 295)
+            chart.Size = UDim2.new(1, 0, 0, 190)
+            actions.Position = UDim2.fromOffset(0, 495)
+            actions.Size = UDim2.new(1, 0, 0, 237)
+            info.Position = UDim2.fromOffset(0, 746)
+            content.Size = UDim2.new(1, -18, 0, 823)
+        end
+        sideStatus.Visible = wide
+    end
+    dash.push = function(fps)
+        local history = dash.history
+        if #history >= 16 then table.remove(history, 1) end
+        history[#history + 1] = math.clamp(fps, 0, 240)
+        if home.Visible and panel.Visible then
+            for i = 1, 16 do
+                local value = history[i] or 0
+                dash.bars[i].Size = UDim2.new(1/16, -6,
+                    math.clamp(value / 120, 0.06, 0.96), 0)
+            end
+        end
+    end
+    dash.update = function()
+        if not alive or not panel.Visible or not home.Visible then return end
+        dash.cards.fps.value.Text = tostring(measuredFps) .. " FPS"
+        dash.cards.esp.value.Text = tostring(perfCounters.espCount) .. " active"
+        local ok, ping = pcall(function() return LocalPlayer:GetNetworkPing() end)
+        dash.cards.ping.value.Text = ok and type(ping) == "number"
+            and (tostring(math.floor(ping * 1000 + 0.5)) .. " ms") or "-- ms"
+        if os.clock() - dash.lastSlowAt >= 3 then
+            dash.lastSlowAt = os.clock()
+            local summary = perfCounters.frametime.summary()
+            local low = summary:match("1%% Low (%d+) FPS")
+            dash.cards.low.value.Text = low and (low .. " FPS") or "-- FPS"
+        end
+        for i = 1, 16 do
+            local value = dash.history[i] or 0
+            dash.bars[i].Size = UDim2.new(1/16, -6,
+                math.clamp(value / 120, 0.06, 0.96), 0)
+        end
+    end
+end
+
 -- Каждый элемент сохраняет свой логический столбец. После поворота телефона
 -- элементы безопасно переподключаются, сохраняя LayoutOrder и обработчики.
 local sectionSides = {
