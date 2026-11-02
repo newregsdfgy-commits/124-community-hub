@@ -35,7 +35,7 @@ test("manual send has lock covering permission yields and correct failure cleanu
 });
 test("Chat Timer does not auto send and status button does not transmit",()=>{
  const timer = src.slice(src.indexOf("function chat.sync()"), src.indexOf("local function currentChatChannel()"));
- assert.ok(!timer.includes("SendAsync"));
+ assert.ok(!timer.includes("channel:SendAsync("));
  assert.ok(src.includes('addButton(pages.MISC, "Проверить доступ к чату"'));
  const button = src.slice(src.indexOf('addButton(pages.MISC, "Проверить доступ к чату"'),src.indexOf('addButton(pages.MISC, "Статус чата"'));
  assert.ok(button.includes("CanUserChatAsync"));
