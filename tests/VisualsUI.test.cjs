@@ -36,7 +36,7 @@ test("desktop gets real sidebar; mobile retains five-button bottom bar", () => {
   assert.match(visuals, /tabs\.Size = UDim2\.new\(0, 188, 1, 0\)/);
   assert.match(visuals, /navigationLayout\.FillDirection = Enum\.FillDirection\.Vertical/);
   assert.match(visuals, /navigationLayout\.FillDirection = Enum\.FillDirection\.Horizontal/);
-  assert.match(visuals, /button\.Size = UDim2\.new\(0\.2, -7, 1, 0\)/);
+  assert.match(visuals, /button\.Size = UDim2\.new\(0\.2, -9, 0, 40\)/);
   assert.match(visuals, /if info then/);
   assert.match(visuals, /showPage\("HOME"\)/);
 });
