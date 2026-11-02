@@ -1691,8 +1691,10 @@ do
         if bunny.appliedSpeed and math.abs(hum.WalkSpeed - bunny.appliedSpeed) >= 0.05 then
             return
         end
-        local speed = math.min(bunny.originalSpeed * state.bhopSpeedMultiplier,
-            CONFIG.BhopWalkSpeedCap)
+        -- Если у игры исходная скорость выше лимита, не замедляем её.
+        local speed = math.max(bunny.originalSpeed,
+            math.min(bunny.originalSpeed * state.bhopSpeedMultiplier,
+                CONFIG.BhopWalkSpeedCap))
         local ok = pcall(function() hum.WalkSpeed = speed end)
         if ok then bunny.appliedSpeed = speed end
     end
@@ -1765,11 +1767,25 @@ do
                     local channel = channels and channels:FindFirstChild("RBXGeneral")
                     if channel and channel:IsA("TextChannel") then
                         -- Только штатный API. Фильтры и ограничения Roblox не обходим.
-                        local ok = pcall(function() channel:SendAsync(message) end)
+                        local ok, reply = pcall(function() return channel:SendAsync(message) end)
                         if ok then
                             chat.sent = chat.sent + 1 -- Попытка; не гарантия доставки другим.
-                            chat.errors = 0
+                            local status = reply and reply.Status
+                            chat.lastStatus = status and status.Name or "Unknown"
+                            if status == Enum.TextChatMessageStatus.Floodchecked
+                                or status == Enum.TextChatMessageStatus.InvalidPrivacySettings
+                                or status == Enum.TextChatMessageStatus.InvalidTextChannelPermissions
+                                or status == Enum.TextChatMessageStatus.ModerationTimeout then
+                                -- Прекращаем попытки при серверных ограничениях.
+                                chat.errors = 2
+                            elseif status == Enum.TextChatMessageStatus.Success
+                                or status == Enum.TextChatMessageStatus.Sending then
+                                chat.errors = 0
+                            else
+                                chat.errors = chat.errors + 1
+                            end
                         else
+                            chat.lastStatus = "API error"
                             chat.errors = chat.errors + 1
                         end
                     else
@@ -3340,7 +3356,8 @@ addButton(pages.MISC, "Статус чата", "Диагностика попы�
     tell("Chat " .. (state.spamChat and "ON" or "OFF")
         .. " | Интервал " .. tostring(state.chatInterval) .. " сек"
         .. " | Попыток " .. tostring(utilityFX.chat.sent)
-        .. " | Ошибок подряд " .. tostring(utilityFX.chat.errors))
+        .. " | Ошибок подряд " .. tostring(utilityFX.chat.errors)
+        .. " | Статус " .. tostring(utilityFX.chat.lastStatus or "н/д"))
 end)
 
 addButton(pages.MISC, "Reset Character", "Локальный сброс Humanoid", function()
