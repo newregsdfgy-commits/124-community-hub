@@ -61,7 +61,7 @@ local CONFIG = {
     PerfTierBalancedDwell = 15, -- Возврат осторожный, без постоянных качелей.
     PerfEcoLowSamples = 2,
     PerfBalancedRecoverySamples = 5,
-    FrameTimeWindow = 240, -- Кольцевой буфер, не растёт со временем.
+    FrameTimeWindow = 240, -- Скользящее окно; 1% low — по худшим кадрам.
     FrameTimeSpikeMs = 50,
     BhopMinInterval = 0.08, -- Частота проверок прыжка; физика ограничивает реальный BHOP.
     BhopMaxInterval = 0.60,
@@ -292,9 +292,11 @@ end
 perfCounters.frametime = {data = {}, cursor = 1, count = 0, scratch = {},
     lastUpdated = 0, label = nil, lastShown = ""}
 function perfCounters.frametime.observe(dt)
-    if type(dt) ~= "number" or dt <= 0 or dt > 2 then return end
+    if type(dt) ~= "number" or dt <= 0 or dt ~= dt then return end
     local ft = perfCounters.frametime
-    ft.data[ft.cursor] = dt * 1000
+    -- Показываем даже долгие зависания, не теряя >2 с. 10-секундный
+    -- потолок защищает расчёты от Inf/экстремальных значений.
+    ft.data[ft.cursor] = math.min(dt * 1000, 10000)
     ft.cursor = ft.cursor % CONFIG.FrameTimeWindow + 1
     ft.count = math.min(ft.count + 1, CONFIG.FrameTimeWindow)
 end
@@ -312,7 +314,14 @@ function perfCounters.frametime.summary()
     end
     table.sort(ordered)
     local p99ms = ordered[math.max(1, math.ceil(ft.count * 0.99))]
-    local low = math.floor(1000 / math.max(p99ms, 0.01) + 0.5)
+    -- 1% low: обратное среднему времени худших 1% кадров в окне,
+    -- а не обратное одному p99-кадру.
+    local worstCount = math.max(1, math.ceil(ft.count * 0.01))
+    local worstSum = 0
+    for i = ft.count - worstCount + 1, ft.count do
+        worstSum = worstSum + ordered[i]
+    end
+    local low = math.floor(1000 / math.max(worstSum / worstCount, 0.01) + 0.5)
     return string.format("1%% Low %d FPS | p99 %.0f ms | Max %.0f ms | 50ms+ %d/%d",
         low, p99ms, worst, spikes, ft.count)
 end
@@ -1666,7 +1675,7 @@ local function abortPartialHub()
         aimBindingName,
         "Army124CommunityRecoil_" .. tostring(LocalPlayer.UserId),
         "Army124CommunityESP_" .. tostring(LocalPlayer.UserId),
-        "Army124CommunityCameraFOV_" .. tostring(LocalPlayer.UserId),
+        "Army124CameraFov_" .. tostring(LocalPlayer.UserId),
     }) do
         pcall(function() RunService:UnbindFromRenderStep(name) end)
     end
