@@ -1873,6 +1873,8 @@ local textRules = {
 defaultSettings = {}
 for _, key in ipairs(storedKeys) do defaultSettings[key] = state[key] end
 local profiles = {CUSTOM = {}} -- Только CUSTOM записывается на диск.
+-- Текст и интервал чата — глобальные настройки, независимо от LEGIT/RAGE/CUSTOM.
+local chatPreferences = {}
 local presetData = {
     LEGIT = {aimFovPixels = 95, aimSmoothness = 8, visibleCheck = true,
         targetLock = true, prediction = false, aimRangeMeters = 85},
@@ -1924,8 +1926,11 @@ local function validatedSettings(values)
 end
 
 local function writeProfileFile()
+    chatPreferences.chatMessage = state.chatMessage
+    chatPreferences.chatInterval = state.chatInterval
     local data = {version = 1, current = profileName,
-        profiles = {CUSTOM = profiles.CUSTOM or {}}}
+        profiles = {CUSTOM = profiles.CUSTOM or {}},
+        chatPreferences = chatPreferences}
     env.ARMY124_CONFIG_V09 = data
     if type(writefile) == "function" then
         local ok, err = pcall(function()
@@ -1972,6 +1977,14 @@ local function readProfileFile()
         end
     end
     if type(loaded) == "table" and loaded.version == 1 then
+        if type(loaded.chatPreferences) == "table" then
+            local prefs = validatedSettings({
+                chatMessage = loaded.chatPreferences.chatMessage,
+                chatInterval = loaded.chatPreferences.chatInterval,
+            })
+            chatPreferences.chatMessage = prefs.chatMessage
+            chatPreferences.chatInterval = prefs.chatInterval
+        end
         if type(loaded.profiles) == "table" then
             if loaded.profiles.CUSTOM then
                 profiles.CUSTOM = validatedSettings(loaded.profiles.CUSTOM)
@@ -2071,6 +2084,12 @@ local function useProfile(name, autoLoad)
         for k, v in pairs(profiles.CUSTOM or {}) do values[k] = v end
     else
         for k, v in pairs(presetData[name]) do values[k] = v end
+    end
+    if type(chatPreferences.chatMessage) == "string" then
+        values.chatMessage = chatPreferences.chatMessage
+    end
+    if type(chatPreferences.chatInterval) == "number" then
+        values.chatInterval = chatPreferences.chatInterval
     end
     applySettings(values, autoLoad)
     if not autoLoad then
@@ -3534,6 +3553,10 @@ do
         if state.esp then table.insert(risks, "ESP / Visuals") end
         if state.fullbright then table.insert(risks, "FullBright") end
         if state.antiAfk then table.insert(risks, "AntiAFK") end
+        if state.bunnyHop then table.insert(risks, "Bunny Hop") end
+        if state.spamChat then table.insert(risks, "Chat Timer") end
+        if state.booster then table.insert(risks, "FPS Booster") end
+        if state.cameraFovEnabled then table.insert(risks, "Camera FOV") end
         return risks
     end
     -- v1.1.4: выдержанный интерфейс вместо типовой яркой карточки.
@@ -3705,6 +3728,16 @@ do
         state.espSkeleton = false
         state.fullbright = false
         state.antiAfk = false
+        state.bunnyHop = false
+        state.spamChat = false
+        utilityFX.bunny.stop()
+        utilityFX.chat.stop()
+        if state.booster then
+            state.booster = false
+            setBooster(false)
+        end
+        state.cameraFovEnabled = false
+        memoryFX.camera.reset()
         recoil.reset()
         memoryFX.spin.reset()
         releaseAntiAfk()
