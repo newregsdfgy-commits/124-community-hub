@@ -1,11 +1,11 @@
--- 124 Community Hub v1.1.13 | Audit Fixes: safe Chat Timer, BHOP, cleanup, Booster retries, profiles
+-- 124 Community Hub v1.1.14 | Verified audit hardening: lifecycle, Booster, AIM, chat, BHOP
 -- PlaceId: 18537079992
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.1.13",
+    Version = "1.1.14",
     PlaceId = 18537079992,
     EspRefreshSeconds = 0.55,
     EspMaxPlayers = 16, -- Ограничение количества Highlight для слабых телефонов.
@@ -100,13 +100,25 @@ if type(getgenv) == "function" then
     local ok, result = pcall(getgenv)
     if ok and type(result) == "table" then env = result end
 end
+-- Старый экземпляр ДОЛЖЕН освободить UI, BindToRenderStep и свойства.
+-- Старые версии возвращают nil при успехе, поэтому проверяем освобождение
+-- env.ARMY124_CLEANUP, а не только возвращаемое значение.
 if type(env.ARMY124_CLEANUP) == "function" then
-    pcall(env.ARMY124_CLEANUP)
+    local previous = env.ARMY124_CLEANUP
+    local ok, result = pcall(previous)
+    if not ok or result == false or env.ARMY124_CLEANUP == previous then
+        warn("[124 Community Hub] Старый Hub не выгружен полностью; "
+            .. "новый запуск отменён: " .. tostring(result))
+        return
+    end
 end
--- Если прошлый Hub не смог восстановить защищённое свойство, повторяем
--- откат ДО новой инициализации (и не теряем старый оригинал).
 if type(env.ARMY124_RECOVERY) == "function" then
-    pcall(env.ARMY124_RECOVERY)
+    local ok, restored = pcall(env.ARMY124_RECOVERY)
+    if not ok or restored ~= true then
+        warn("[124 Community Hub] Прежняя графика/камера не восстановлены. "
+            .. "Новый запуск отменён, сохранён callback восстановления.")
+        return
+    end
 end
 
 local state = {
@@ -1019,6 +1031,7 @@ local function setBooster(enabled, keepBaseline)
     boosterPro.complete = false
     boosterPro.readyAt = nil
     boosterPro.restoreFailures = 0
+    boosterPro.failed = nil
     boosterPro.guardLowSince = nil
     boosterPro.guardLastCheck = 0
     -- Discard old queued descendants. New events belong to the new revision.
@@ -1045,6 +1058,7 @@ local function setBooster(enabled, keepBaseline)
             whitenTerrain()
         end
         task.spawn(function()
+            local ok, err = pcall(function()
             -- Сначала синхронизируем старые снимки: это важно при ULTRA -> BALANCED.
             local n, phaseStarted = 0, os.clock()
             for obj in pairs(savedGraphics) do
@@ -1066,6 +1080,20 @@ local function setBooster(enabled, keepBaseline)
             boosterPro.readyAt = os.clock() + 1.5
             tell("FPS Booster Pro: " .. state.boosterMode .. " применён; просмотрено "
                 .. tostring(boosterPro.scanned) .. " объектов; измеряем FPS")
+            end)
+            if not ok and alive and revision == boosterRevision and state.booster then
+                boosterPro.complete = false
+                boosterPro.failed = tostring(err)
+                warn("[124 Community Hub] Booster: ошибка полного обхода: " .. boosterPro.failed)
+                tell("FPS Booster остановлен: ошибка обработки карты; восстановление графики")
+                state.booster = false
+                local restored, restoreErr = pcall(setBooster, false)
+                if not restored then
+                    warn("[124 Community Hub] Ошибка запуска отката Booster: " .. tostring(restoreErr))
+                end
+                if refreshToggles.booster then pcall(refreshToggles.booster) end
+                requestSave()
+            end
         end)
     else
         restoreTerrainGrass()
@@ -4641,6 +4669,7 @@ cleanup = function(safeStop)
     pcall(function() if shapeGui then shapeGui:Destroy() end end)
     pcall(function() if fovGui then fovGui:Destroy() end end)
     if env.ARMY124_CLEANUP == cleanup then env.ARMY124_CLEANUP = nil end
+    return true
 end
 
 env.ARMY124_CLEANUP = cleanup
