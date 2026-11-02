@@ -57,9 +57,10 @@ local CONFIG = {
     EspShapeQualityLimit = 20,
     PerfEcoEnterFps = 44,
     PerfEcoExitFps = 54, -- Гистерезис без прыгания ECO/BALANCED каждый замер.
-    PerfTierMinDwellSeconds = 10, -- AUTO не переключается раз в секунду.
+    PerfTierEcoEnterDwell = 2, -- Быстрый переход в ECO при просадках FPS.
+    PerfTierBalancedDwell = 15, -- Возврат осторожный, без постоянных качелей.
     PerfEcoLowSamples = 2,
-    PerfBalancedRecoverySamples = 4,
+    PerfBalancedRecoverySamples = 5,
     FrameTimeWindow = 240, -- Кольцевой буфер, не растёт со временем.
     FrameTimeSpikeMs = 50,
     BhopMinInterval = 0.08, -- Частота проверок прыжка; физика ограничивает реальный BHOP.
@@ -224,14 +225,14 @@ local measuredFps = 60
 local perfCounters = {espCount = 0, shapeCount = 0, aimScanMs = 0}
 -- Покадровый рендер ESP (после Camera/AIM/Recoil); НЕ сканируем игроков каждый кадр.
 perfCounters.espVisual = {bound = false, bindingName = "Army124CommunityESP_" .. tostring(LocalPlayer.UserId),
-    errorAt = 0, active = {}, projected = {}, ordered = {}}
+    errorAt = 0, active = {}, projected = {}, ordered = {}, candidatePool = {}}
 -- Логи отключены без подписки. Игровые события могут приходить сотнями/сек.
 -- Подписка создаётся только после явного включения пользователем.
-local sessionKeywords = {"anti-cheat", "anticheat", "exploit detected",
-    "suspicious activity", "kick", "ban", "античит", "нарушение"}
 perfCounters.session = {
     messages = 0, warnings = 0, errors = 0, keywordHits = 0,
     listening = false, label = nil, lastShown = "", connection = nil,
+    keywords = {"anti-cheat", "anticheat", "exploit detected",
+        "suspicious activity", "kick", "ban", "античит", "нарушение"},
 }
 function perfCounters.session.observe(message, level)
     if type(message) ~= "string" then return end
@@ -247,7 +248,7 @@ function perfCounters.session.observe(message, level)
     end
     -- Совпадение ключевого слова НЕ доказывает наличие античита.
     local lower = string.lower(message)
-    for _, keyword in ipairs(sessionKeywords) do
+    for _, keyword in ipairs(record.keywords) do
         if string.find(lower, keyword, 1, true) then
             record.keywordHits = record.keywordHits + 1
             break
@@ -453,8 +454,8 @@ end
 -- AUTO определяем только один раз на измерение FPS. Гистерезис предотвращает
 -- резкую смену количества ESP-объектов при 42–55 FPS.
 local autoPerformanceTier = UserInputService.TouchEnabled and "ECO" or "BALANCED"
-local autoTierChangedAt = os.clock()
-local autoTierStableCount = 0
+perfCounters.autoTierChangedAt = os.clock()
+perfCounters.autoTierStableCount = 0
 local function perfTier()
     if state.performanceMode == "ECO" then return "ECO" end
     if state.performanceMode == "QUALITY" then return "QUALITY" end
@@ -464,7 +465,7 @@ local function updateAutoPerformanceTier()
     -- Only AUTO may change its own tier. Require sustained readings AND
     -- minimum dwell to prevent repeated Highlight/Billboard destruction.
     if state.performanceMode ~= "AUTO" then
-        autoTierStableCount = 0
+        perfCounters.autoTierStableCount = 0
         return
     end
     local candidate
@@ -477,15 +478,17 @@ local function updateAutoPerformanceTier()
         candidate, needed = "BALANCED", CONFIG.PerfBalancedRecoverySamples
     end
     if not candidate then
-        autoTierStableCount = 0
+        perfCounters.autoTierStableCount = 0
         return
     end
-    autoTierStableCount = autoTierStableCount + 1
-    if autoTierStableCount >= needed
-        and os.clock() - autoTierChangedAt >= CONFIG.PerfTierMinDwellSeconds then
+    perfCounters.autoTierStableCount = perfCounters.autoTierStableCount + 1
+    local dwell = candidate == "ECO" and CONFIG.PerfTierEcoEnterDwell
+        or CONFIG.PerfTierBalancedDwell
+    if perfCounters.autoTierStableCount >= needed
+        and os.clock() - perfCounters.autoTierChangedAt >= dwell then
         autoPerformanceTier = candidate
-        autoTierChangedAt = os.clock()
-        autoTierStableCount = 0
+        perfCounters.autoTierChangedAt = os.clock()
+        perfCounters.autoTierStableCount = 0
     end
 end
 local function espLimit()
@@ -631,7 +634,6 @@ local function sameTeamESP(player)
 end
 
 local espCandidateScratch = {}
-local espCandidatePool = {} -- Pooled records: no allocation per player on every scan.
 local espKeepScratch = {}
 local function refreshESP()
     if not state.esp then
@@ -662,10 +664,11 @@ local function refreshESP()
                 local maxStuds = state.espRangeMeters / CONFIG.StudMeters
                 if dist2 <= maxStuds * maxStuds then
                     local index = #candidates + 1
-                    local entry = espCandidatePool[index]
+                    local pool = perfCounters.espVisual.candidatePool
+                    local entry = pool[index]
                     if not entry then
                         entry = {}
-                        espCandidatePool[index] = entry
+                        pool[index] = entry
                     end
                     entry.player, entry.distanceSquared = player, dist2
                     candidates[index] = entry
