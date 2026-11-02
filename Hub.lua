@@ -1,11 +1,11 @@
--- 124 Community Hub v1.1.9 | FPS Booster frame-budget / streaming queue / ESP visual limiter
+-- 124 Community Hub v1.1.10 | AIM equipped-tool gate / idle scan fix / LOS optimization
 -- PlaceId: 18537079992
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.1.9",
+    Version = "1.1.10",
     PlaceId = 18537079992,
     EspRefreshSeconds = 0.55,
     EspMaxPlayers = 16, -- Ограничение количества Highlight для слабых телефонов.
@@ -23,7 +23,11 @@ local CONFIG = {
     AimSmoothnessBaseline = 33, -- Smoothness=3 эквивалентен скорости v0.3 (11).
     AimKeyDefault = "F6", -- По умолчанию назначена F6, можно выбрать другую клавишу.
     AimKeyFile = "124_community_aim_key.txt", -- Необязательное локальное сохранение.
-    AimScanInterval = 0.12, -- Захват обновляется с ограничением частоты.
+    AimScanInterval = 0.12, -- Таймер действует и при отсутствии целей.
+    AimLostRescanSeconds = 0.06,
+    AimLosBalancedSeconds = 0.045,
+    AimLosEcoSeconds = 0.075,
+    AimLosQualitySeconds = 0.02,
     RecoilShotGraceSeconds = 0.20, -- Поздний откат камеры после отпускания спуска.
     RecoilFireWindowSeconds = 0.40, -- Короткий выстрел (в т.ч. на телефоне).
     RecoilMaxHoldSeconds = 3.50, -- Предохранитель, если Tool.Deactivated не пришло.
@@ -219,6 +223,30 @@ local requestSave = function() end
 local lightingApplying = false
 local aimTarget = nil
 local aimNextScan = 0
+-- Общий кеш экипированного Tool; Recoil уже отслеживает ChildAdded/ChildRemoved.
+local aimPro = {
+    equipped = nil,
+    nextLos = 0,
+    rayParams = RaycastParams.new(),
+    rayIgnore = {},
+    candidates = {},
+    changed = function() end,
+}
+aimPro.rayParams.FilterType = Enum.RaycastFilterType.Exclude
+aimPro.rayParams.IgnoreWater = true
+function aimPro.reset()
+    aimTarget = nil
+    aimNextScan = 0
+    aimPro.nextLos = 0
+end
+function aimPro.equippedTool()
+    local tool = aimPro.equipped
+    local character = LocalPlayer.Character
+    if not character or not character.Parent or not tool or tool.Parent ~= character then
+        return nil
+    end
+    return tool
+end
 local tracerGui = nil
 local fovGui = nil
 
@@ -1250,13 +1278,18 @@ local function equipRecoilTool(tool)
     disconnectRecoilConnections(recoilToolConnections)
     recoilTool = nil
     resetRecoilTracking()
-    if not tool or not tool:IsA("Tool") then return end
-    recoilTool = tool
-    recoilToolConnections[#recoilToolConnections + 1] = tool.Activated:Connect(markRecoilShot)
-    recoilToolConnections[#recoilToolConnections + 1] = tool.Deactivated:Connect(function()
-        recoilHolding = false
-        recoilFireUntil = math.max(recoilFireUntil, os.clock() + CONFIG.RecoilShotGraceSeconds)
-    end)
+    if tool and tool:IsA("Tool") and tool.Parent == LocalPlayer.Character then
+        recoilTool = tool
+        recoilToolConnections[#recoilToolConnections + 1] = tool.Activated:Connect(markRecoilShot)
+        recoilToolConnections[#recoilToolConnections + 1] = tool.Deactivated:Connect(function()
+            recoilHolding = false
+            recoilFireUntil = math.max(recoilFireUntil, os.clock() + CONFIG.RecoilShotGraceSeconds)
+        end)
+    end
+    -- Без Tool в руках AIM перестаёт управлять камерой и сбрасывает захват.
+    aimPro.equipped = recoilTool
+    aimPro.reset()
+    aimPro.changed()
 end
 
 local function bindRecoilCharacter(character)
@@ -1278,6 +1311,11 @@ local function shutdownRecoilControl()
 end
 
 connect(LocalPlayer.CharacterAdded, bindRecoilCharacter)
+connect(LocalPlayer.CharacterRemoving, function(character)
+    if aimPro.equipped and aimPro.equipped.Parent == character then
+        equipRecoilTool(nil)
+    end
+end)
 bindRecoilCharacter(LocalPlayer.Character)
 
 local function recoilFrame(dt)
@@ -2787,7 +2825,7 @@ addToggle(pages.ESP, "Дистанция", "Расстояние в метрах
 addToggle(pages.ESP, "Цвет команд", "Расцветка согласно TeamColor", "teamColors")
 
 addSection(pages.AIM, "TARGETING", "Точка наведения и управление")
-addToggle(pages.AIM, "Aimbot", "Включить наведение камеры", "aimbot", function(enabled)
+addToggle(pages.AIM, "Aimbot", "Наведение только с экипированным Tool", "aimbot", function(enabled)
     setAimEnabled(enabled, false)
 end)
 addAimModeSelector(pages.AIM)
@@ -2838,7 +2876,7 @@ addSlider(pages.AIM, "Дистанция AIM", "5–180 метров, грани
 addSlider(pages.AIM, "Скорость AIM", "0 = максимум · 10 = плавно", "aimSmoothness",
     0, 10, 1,
     function(value) return value == 0 and "MAX" or "Smooth " .. tostring(value) end)
-addButton(pages.AIM, "Управление", "ПКМ: удерживать | клавиша: ON/OFF | телефон: AIM", function()
+addButton(pages.AIM, "Управление", "ПКМ: удерживать | клавиша: ON/OFF | телефон: AIM | нужен Tool", function()
     tell("AIM: клавиша " .. state.aimKeyName .. " | FOV " .. state.aimFovPixels
         .. "px | Visible Check " .. (state.visibleCheck and "ON" or "OFF"))
 end)
@@ -3635,10 +3673,12 @@ round(aimTouchButton, 5)
 repaintAimTouch = function()
     if not aimTouchButton.Parent then return end
     local active = state.aimbot and aimHeldTouch
-    aimTouchButton.Text = active and "AIM: ON" or "AIM: OFF"
+    aimTouchButton.Text = active and (aimPro.equippedTool() and "AIM: ON" or "AIM: NO TOOL")
+        or "AIM: OFF"
     aimTouchButton.BackgroundColor3 = active and CONFIG.Accent or Color3.fromRGB(47, 48, 45)
     aimTouchButton.TextColor3 = active and CONFIG.Window or Color3.fromRGB(230, 224, 207)
 end
+aimPro.changed = function() if alive then repaintAimTouch() end end
 connect(aimTouchButton.Activated, function()
     if not state.aimbot then return end
     aimHeldTouch = not aimHeldTouch
