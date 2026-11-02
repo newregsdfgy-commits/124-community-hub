@@ -1,11 +1,11 @@
--- 124 Community Hub v1.1.12 | Bunny Hop speed/cadence and configurable Chat Sender
+-- 124 Community Hub v1.1.13 | Audit Fixes: safe Chat Timer, BHOP, cleanup, Booster retries, profiles
 -- PlaceId: 18537079992
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.1.12",
+    Version = "1.1.13",
     PlaceId = 18537079992,
     EspRefreshSeconds = 0.55,
     EspMaxPlayers = 16, -- Ограничение количества Highlight для слабых телефонов.
@@ -1661,10 +1661,14 @@ function memoryFX.spin.frame(dt)
     end
 end
 
--- MOVEMENT / CHAT: отдельный контроллер; нет новых RenderStepped обработчиков.
--- Ограниченный worker BHOP и один worker отправки чата, работающие только при ON.
-local utilityFX = {bunny = {token = 0}, chat = {token = 0, sent = 0, errors = 0,
-    repaintText = function() end}}
+-- MOVEMENT / CHAT: отдельный контроллер, без RenderStepped и автоматической рассылки.
+-- Chat Timer даёт уведомление о готовности; отправка ТОЛЬКО по нажатию пользователем.
+local utilityFX = {bunny = {token = 0}, chat = {
+    token = 0, sent = 0, errors = 0, readyCount = 0,
+    inFlight = false, lastSentAt = -1e8, lastStatus = "Idle",
+    repaintText = function() end, repaintStatus = function() end,
+    commitText = function() return false end
+}}
 do
     local bunny = utilityFX.bunny
     local chat = utilityFX.chat
@@ -1681,14 +1685,18 @@ do
             end)
         end
         bunny.humanoid, bunny.originalSpeed, bunny.appliedSpeed = nil, nil, nil
+        bunny.suspended = false
     end
 
     function bunny.applySpeed()
         local hum = bunny.humanoid
         if not alive or not state.bunnyHop or not hum or not hum.Parent then return end
         if not bunny.originalSpeed or bunny.originalSpeed <= 0 then return end
-        -- Если игра изменила скорость сама, не подавляем её собственные механики.
+        -- Внешнее управление скоростью (спринт, стан, форма) приоритетнее Hub.
+        -- При конфликте не пытаемся каждую итерацию перезаписывать WalkSpeed.
+        if bunny.suspended then return end
         if bunny.appliedSpeed and math.abs(hum.WalkSpeed - bunny.appliedSpeed) >= 0.05 then
+            bunny.suspended = true
             return
         end
         -- Если у игры исходная скорость выше лимита, не замедляем её.
@@ -1718,8 +1726,10 @@ do
                         bunny.humanoid = hum
                         bunny.originalSpeed = hum.WalkSpeed
                         bunny.appliedSpeed = nil
+                        bunny.suspended = false
                         bunny.applySpeed()
                     end
+                    bunny.applySpeed()
                     if hum.MoveDirection.Magnitude > 0.08
                         and hum.FloorMaterial ~= Enum.Material.Air
                         and not hum.Sit and not hum.PlatformStand then
@@ -1736,72 +1746,99 @@ do
 
     function chat.stop()
         chat.token = chat.token + 1
+        chat.repaintStatus()
     end
 
+    -- Пользовательский таймер напоминания (НЕ отправка по таймеру).
     function chat.sync()
         chat.stop()
         if not alive or not state.spamChat then return end
-        if type(state.chatMessage) ~= "string" or state.chatMessage:match("^%s*$") then
-            state.spamChat = false
-            if refreshToggles.spamChat then refreshToggles.spamChat() end
-            tell("Spam Chat: сначала введи текст сообщения")
-            return
-        end
-        chat.errors = 0
         local token = chat.token
         task.spawn(function()
+            local deadline = os.clock() + state.chatInterval
             while alive and state.spamChat and token == chat.token do
-                -- Первая отправка после задержки: можно спокойно выключить переключатель.
-                local began = os.clock()
-                while alive and state.spamChat and token == chat.token do
-                    local remaining = state.chatInterval - (os.clock() - began)
-                    if remaining <= 0 then break end
-                    task.wait(math.min(0.25, remaining))
-                end
-                if not alive or not state.spamChat or token ~= chat.token then break end
-                local message = state.chatMessage
-                if not message or message:match("^%s*$") then
-                    chat.errors = 2
-                elseif UserInputService:GetFocusedTextBox() == nil then
-                    local channels = TextChatService:FindFirstChild("TextChannels")
-                    local channel = channels and channels:FindFirstChild("RBXGeneral")
-                    if channel and channel:IsA("TextChannel") then
-                        -- Только штатный API. Фильтры и ограничения Roblox не обходим.
-                        local ok, reply = pcall(function() return channel:SendAsync(message) end)
-                        if ok then
-                            chat.sent = chat.sent + 1 -- Попытка; не гарантия доставки другим.
-                            local status = reply and reply.Status
-                            chat.lastStatus = status and status.Name or "Unknown"
-                            if status == Enum.TextChatMessageStatus.Floodchecked
-                                or status == Enum.TextChatMessageStatus.InvalidPrivacySettings
-                                or status == Enum.TextChatMessageStatus.InvalidTextChannelPermissions
-                                or status == Enum.TextChatMessageStatus.ModerationTimeout then
-                                -- Прекращаем попытки при серверных ограничениях.
-                                chat.errors = 2
-                            elseif status == Enum.TextChatMessageStatus.Success
-                                or status == Enum.TextChatMessageStatus.Sending then
-                                chat.errors = 0
-                            else
-                                chat.errors = chat.errors + 1
-                            end
-                        else
-                            chat.lastStatus = "API error"
-                            chat.errors = chat.errors + 1
-                        end
-                    else
-                        chat.errors = chat.errors + 1
-                    end
-                end
-                if chat.errors >= 2 then
-                    state.spamChat = false
-                    if refreshToggles.spamChat then refreshToggles.spamChat() end
-                    requestSave()
-                    tell("Spam Chat остановлен: чат недоступен или отправка отклонена")
-                    break
+                local remaining = deadline - os.clock()
+                if remaining <= 0 then
+                    chat.readyCount = chat.readyCount + 1
+                    chat.lastStatus = "READY: нажмите отправить"
+                    chat.repaintStatus()
+                    -- Каждая следующая готовность не вызывает SendAsync.
+                    deadline = os.clock() + state.chatInterval
+                else
+                    task.wait(math.min(0.5, remaining))
                 end
             end
         end)
     end
+
+    local function currentChatChannel()
+        local channels = TextChatService:FindFirstChild("TextChannels")
+        if not channels then return nil, "TextChannels отсутствует" end
+        local preferred = channels:FindFirstChild("RBXGeneral")
+        if preferred and preferred:IsA("TextChannel") then
+            return preferred
+        end
+        -- Не отправляем в произвольные приватные каналы.
+        return nil, "RBXGeneral отсутствует; требуется штатный канал чата"
+    end
+
+    -- Вызывать исключительно из кнопки, после ввода сообщения пользователем.
+    function chat.sendOnce()
+        if not alive then return end
+        if chat.inFlight then
+            tell("Chat: предыдущая отправка ещё выполняется")
+            return
+        end
+        local okText = chat.commitText()
+        if not okText then
+            tell("Chat: введи сообщение (до 160 символов)")
+            return
+        end
+        local now = os.clock()
+        local waitTime = state.chatInterval - (now - chat.lastSentAt)
+        if waitTime > 0 then
+            tell("Chat: повторная отправка доступна через "
+                .. tostring(math.ceil(waitTime)) .. " с")
+            return
+        end
+        local channel, channelError = currentChatChannel()
+        if not channel then
+            chat.lastStatus = channelError
+            chat.errors = chat.errors + 1
+            chat.repaintStatus()
+            tell("Chat: " .. channelError)
+            return
+        end
+        local message = state.chatMessage
+        chat.inFlight = true
+        chat.lastSentAt = now
+        chat.lastStatus = "SENDING"
+        chat.repaintStatus()
+        -- SendAsync yields: нельзя отменить уже начатую отправку, но токен
+        -- не позволяет обновлять состояние после Unload/нового включения.
+        local token = chat.token
+        local ok, reply = pcall(function() return channel:SendAsync(message) end)
+        chat.inFlight = false
+        if not alive or token ~= chat.token then return end
+        if not ok then
+            chat.lastStatus, chat.errors = "API ERROR", chat.errors + 1
+            tell("Chat: ошибка отправки: " .. tostring(reply))
+        else
+            local status = reply and reply.Status
+            chat.lastStatus = status and status.Name or "UNKNOWN"
+            if status == Enum.TextChatMessageStatus.Success then
+                chat.sent = chat.sent + 1
+                chat.errors = 0
+            else
+                chat.errors = chat.errors + 1
+            end
+            tell("Chat: статус " .. chat.lastStatus ..
+                " (доставка другим игрокам не гарантируется)")
+        end
+        chat.repaintStatus()
+    end
+end
+
 end
 
 -- Сохраняем только ограниченный набор настроек; код из JSON никогда не выполняется.
