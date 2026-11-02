@@ -154,7 +154,7 @@ local state = {
     aimKeyName = CONFIG.AimKeyDefault,
     aimMode = "body", -- head / body / legs; сохраняем прежний режим по умолчанию.
     teamCheck = true,
-    aimOnlyRegisteredWeapons = false, -- Реальные Tool регистрируются игроком.
+    aimOnlyRegisteredWeapons = true, -- Без подтверждения оружия AIM не наводится.
     aimWeaponNames = "", -- Храним список точных имён через "|", без угадывания.
     antiAfk = false,
     bunnyHop = false, -- По умолчанию выключено, работает при движении по земле.
@@ -268,6 +268,7 @@ local aimPro = {
     rayParams = RaycastParams.new(),
     rayIgnore = {},
     candidates = {},
+    allowedNames = {}, allowedNamesSource = nil,
     changed = function() end,
 }
 aimPro.rayParams.FilterType = Enum.RaycastFilterType.Exclude
@@ -284,10 +285,16 @@ function aimPro.equippedTool()
         return nil
     end
     if state.aimOnlyRegisteredWeapons then
-        local allowed = "|" .. (state.aimWeaponNames or "") .. "|"
-        if not string.find(allowed, "|" .. tool.Name .. "|", 1, true) then
-            return nil
+        local names = state.aimWeaponNames or ""
+        if aimPro.allowedNamesSource ~= names then
+            local set = {}
+            for name in string.gmatch(names, "[^|]+") do
+                set[name] = true
+            end
+            aimPro.allowedNames = set
+            aimPro.allowedNamesSource = names
         end
+        if not aimPro.allowedNames[tool.Name] then return nil end
     end
     return tool
 end
@@ -1733,7 +1740,16 @@ do
         if not bunny.originalSpeed or bunny.originalSpeed <= 0 then return end
         -- Внешнее управление скоростью (спринт, стан, форма) приоритетнее Hub.
         -- При конфликте не пытаемся каждую итерацию перезаписывать WalkSpeed.
-        if bunny.suspended then return end
+        if bunny.suspended then
+            -- Возобновляем ТОЛЬКО когда игра вернула исходный WalkSpeed
+            -- после спринта/стана, без вмешательства в новую игровую скорость.
+            if math.abs(hum.WalkSpeed - bunny.originalSpeed) < 0.05 then
+                bunny.suspended = false
+                bunny.appliedSpeed = nil
+            else
+                return
+            end
+        end
         if bunny.appliedSpeed and math.abs(hum.WalkSpeed - bunny.appliedSpeed) >= 0.05 then
             bunny.suspended = true
             return
@@ -2095,6 +2111,9 @@ local function applySettings(incoming, autoLoad)
     -- Даже если в сохранённом CUSTOM antiAim=true, старт остаётся безопасным.
     if autoLoad then
         state.aimbot = false
+        -- Старая сохраненная версия не включает AIM с любым Tool.
+        -- Первую регистрацию оружия пользователь делает вручную в AIM.
+        state.aimOnlyRegisteredWeapons = true
         state.antiAfk = false
         state.antiAim = false
         state.bunnyHop = false
@@ -3223,7 +3242,7 @@ addAimModeSelector(pages.AIM)
 -- Без знаний об оружии игры не гадаем по названиям. Игрок может один раз
 -- зарегистрировать экипированное огнестрельное Tool; только оно пройдёт фильтр.
 addToggle(pages.AIM, "Только отмеченное оружие",
-    "Строгая проверка зарегистрированных Tool", "aimOnlyRegisteredWeapons", function()
+    "ON по умолчанию; сначала запомни реальное оружие", "aimOnlyRegisteredWeapons", function()
         aimPro.reset()
         repaintAimTouch()
     end)
@@ -3479,7 +3498,7 @@ addButton(pages.MISC, "Статус Bunny Hop", "Проверить текущу
         .. " | " .. tostring(state.bhopJumpInterval) .. " сек"
         .. " | x" .. tostring(state.bhopSpeedMultiplier)
         .. " | WalkSpeed " .. (hum and tostring(hum.WalkSpeed) or "н/д")
-        .. (b.suspended and " | PAUSED: игра изменила скорость" or ""))
+        .. (b.suspended and " | PAUSED: ждем исходный WalkSpeed" or ""))
 end)
 
 -- CHAT: обычный TextChannel. Применяется штатная фильтрация и лимиты Roblox.
