@@ -4959,7 +4959,7 @@ task.spawn(function()
             end
             stats.Text = string.format("%s | FPS %d | %sms", os.date("%H:%M:%S"), measuredFps, ping)
         end
-        task.wait(state.hud or state.activeHud and 1.0 or 1.5)
+        task.wait((state.hud or state.activeHud) and 1.0 or 1.5)
     end
 end)
 
