@@ -3354,10 +3354,12 @@ addSlider(pages.AIM, "Скорость AIM", "0 = максимум · 10 = пл�
     0, 10, 1,
     function(value) return value == 0 and "MAX" or "Smooth " .. tostring(value) end)
 addButton(pages.AIM, "Управление", "ПКМ: удерживать | клавиша: ON/OFF | телефон: AIM | нужен Tool", function()
-    local tool = aimPro.equippedTool()
+    local tool = aimPro.equipped
+    local eligible = aimPro.equippedTool() ~= nil
     tell("AIM: клавиша " .. state.aimKeyName .. " | FOV " .. state.aimFovPixels
         .. "px | Visible Check " .. (state.visibleCheck and "ON" or "OFF")
         .. " | Tool: " .. (tool and tool.Name or "НЕТ")
+        .. " | Режим оружия: " .. (eligible and "OK" or "НЕТ / запомни Tool")
         .. " | Scan: " .. tostring(perfCounters.aimScanMs) .. " мс")
 end)
 
@@ -4293,7 +4295,7 @@ round(aimTouchButton, 5)
 repaintAimTouch = function()
     if not aimTouchButton.Parent then return end
     local active = state.aimbot and aimHeldTouch
-    aimTouchButton.Text = active and (aimPro.equippedTool() and "AIM: ON" or "AIM: NO TOOL")
+    aimTouchButton.Text = active and (aimPro.equippedTool() and "AIM: ON" or "AIM: NO GUN")
         or "AIM: OFF"
     aimTouchButton.BackgroundColor3 = active and CONFIG.Accent or Color3.fromRGB(47, 48, 45)
     aimTouchButton.TextColor3 = active and CONFIG.Window or Color3.fromRGB(230, 224, 207)
