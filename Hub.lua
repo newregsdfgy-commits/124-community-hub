@@ -244,7 +244,9 @@ end
 function perfCounters.guard.update(fps, spikes)
     local g = perfCounters.guard
     if not state.performanceGuard then
-        if g.level ~= 0 then g.reset() end
+        if g.level ~= 0 or g.low ~= 0 or g.critical ~= 0 or g.good ~= 0 then
+            g.reset()
+        end
         return
     end
     if type(fps) ~= "number" or fps <= 0 then return end
@@ -278,7 +280,8 @@ function perfCounters.guard.description()
 end
 -- Optional per-call wall-time instrumentation. No timers, tracing or
 -- collections when disabled. Samples are not a whole-process CPU percentage.
-perfCounters.cpu = {entries = {}, keys = {"AIM", "Recoil", "ESP Draw", "ESP Scan"},
+perfCounters.cpu = {entries = {}, keys = {
+    "AIM", "Recoil", "ESP Draw", "ESP Scan", "Booster Q", "HUD"},
     wrapped = {}, lastSummary = ""}
 function perfCounters.cpu.reset()
     table.clear(perfCounters.cpu.entries)
@@ -5012,6 +5015,10 @@ task.spawn(function()
                     break
                 end
             end
+            if state.moduleCpuMonitor then
+                -- Includes property processing within this queue batch.
+                perfCounters.cpu.record("Booster Q", (os.clock() - sliceStarted) * 1000)
+            end
         end
         -- Если StreamingEnabled переполнил кольцевую очередь,
         -- один фоновый повторный проход восстановит пропущенные детали.
@@ -5320,6 +5327,7 @@ end)
 
 task.spawn(function()
     while alive do
+        local hudStart = state.moduleCpuMonitor and os.clock() or nil
         -- Отложенный откат после временного отказа записи API: до полной успешности
         -- не забываем исходные свойства. Не восстанавливаем Terrain при WHITE/ULTRA.
         if not state.fullbright and not state.booster
@@ -5412,6 +5420,9 @@ task.spawn(function()
                 ping = tostring(math.floor(value * 1000 + 0.5))
             end
             stats.Text = string.format("%s | FPS %d | %sms", os.date("%H:%M:%S"), measuredFps, ping)
+        end
+        if hudStart then
+            perfCounters.cpu.record("HUD", (os.clock() - hudStart) * 1000)
         end
         task.wait((state.hud or state.activeHud) and 1.0 or 1.5)
     end
