@@ -1,14 +1,14 @@
--- 124 Community Hub v1.1.14 | Verified audit hardening: lifecycle, Booster, AIM, chat, BHOP
+-- 124 Community Hub v1.1.15 | Low-overhead idle loops, adaptive ESP, mobile ECO, optional air scan
 -- PlaceId: 18537079992
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.1.14",
+    Version = "1.1.15",
     PlaceId = 18537079992,
-    EspRefreshSeconds = 0.55,
-    EspMaxPlayers = 16, -- Ограничение количества Highlight для слабых телефонов.
+    EspRefreshSeconds = 0.75, -- Лёгкое обновление списка игроков; FPS на первом месте.
+    EspMaxPlayers = 12, -- Меньше Highlight и GUI-обновлений по умолчанию.
     StudMeters = 0.28, -- Стандартный масштаб Roblox: 1 stud ≈ 0.28 м.
     ConfigFile = "124_community_settings_v09.json",
     MenuKey = Enum.KeyCode.RightShift,
@@ -50,8 +50,13 @@ local CONFIG = {
     BoosterLowFpsSliceMs = 0.9, -- При низком FPS защищаем время отрисовки.
     BoosterQueueBatch = 144, -- Новые объекты StreamingEnabled.
     BoosterQueueSliceMs = 1.1,
-    EspVisualBalancedHz = 40, -- ESP-рамки/скелеты, AIM остаётся покадровым.
-    EspVisualEcoHz = 20,
+    EspVisualBalancedHz = 30, -- ESP обновляется реже; AIM сохраняет полную частоту.
+    EspVisualEcoHz = 15,
+    EspShapeEcoLimit = 6,
+    EspShapeBalancedLimit = 10,
+    EspShapeQualityLimit = 20,
+    PerfEcoEnterFps = 44,
+    PerfEcoExitFps = 54, -- Гистерезис без прыгания ECO/BALANCED каждый замер.
     BhopMinInterval = 0.08, -- Частота проверок прыжка; физика ограничивает реальный BHOP.
     BhopMaxInterval = 0.60,
     BhopSpeedMultiplierCap = 2.0,
@@ -163,7 +168,7 @@ local state = {
     spamChat = false, -- Не запускается автоматически после загрузки.
     chatInterval = 8, -- Минимум CONFIG.ChatMinInterval.
     chatMessage = "", -- Пользовательский текст, без готовых фраз.
-    airAlerts = true, -- Консервативное предупреждение о необычном перемещении.
+    airAlerts = false, -- Опционально: без фоновых Raycast/сканов игроков по умолчанию.
     booster = false,
     boosterMode = "BALANCED", -- BALANCED / WHITE / ULTRA
     cameraFovEnabled = false, -- Отдельный FOV камеры; не совпадает с пиксельным AIM FOV.
@@ -382,16 +387,24 @@ local function getPlayerColor(player)
     return CONFIG.Neutral
 end
 
+-- AUTO определяем только один раз на измерение FPS. Гистерезис предотвращает
+-- резкую смену количества ESP-объектов при 42–55 FPS.
+local autoPerformanceTier = UserInputService.TouchEnabled and "ECO" or "BALANCED"
 local function perfTier()
     if state.performanceMode == "ECO" then return "ECO" end
     if state.performanceMode == "QUALITY" then return "QUALITY" end
-    if measuredFps < 26 then return "ECO" end
-    return "BALANCED"
+    return autoPerformanceTier
 end
-
+local function updateAutoPerformanceTier()
+    if autoPerformanceTier == "BALANCED" then
+        if measuredFps < CONFIG.PerfEcoEnterFps then autoPerformanceTier = "ECO" end
+    elseif measuredFps >= CONFIG.PerfEcoExitFps then
+        autoPerformanceTier = "BALANCED"
+    end
+end
 local function espLimit()
     local tier = perfTier()
-    if tier == "ECO" then return 8 end
+    if tier == "ECO" then return 6 end
     if tier == "QUALITY" then return 20 end
     return CONFIG.EspMaxPlayers
 end
@@ -531,6 +544,8 @@ local function sameTeamESP(player)
         and player.Team == LocalPlayer.Team
 end
 
+local espCandidateScratch = {}
+local espKeepScratch = {}
 local function refreshESP()
     if not state.esp then
         for player in pairs(renderData) do deleteRender(player) end
@@ -545,7 +560,8 @@ local function refreshESP()
         return
     end
     -- Рисуем ближайших, чтобы не создавать десятки дорогих Highlight.
-    local candidates = {}
+    local candidates = espCandidateScratch
+    table.clear(candidates)
     for _, player in ipairs(Players:GetPlayers()) do
         if player ~= LocalPlayer and (not state.espEnemyOnly or not sameTeamESP(player)) then
             local ch = player.Character
@@ -560,7 +576,8 @@ local function refreshESP()
         end
     end
     table.sort(candidates, function(a, b) return a.distance < b.distance end)
-    local keep = {}
+    local keep = espKeepScratch
+    table.clear(keep)
     for i = 1, math.min(#candidates, espLimit()) do
         local player = candidates[i].player
         keep[player] = true
