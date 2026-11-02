@@ -1,11 +1,11 @@
--- 124 Community Visuals v1.1.25 | chat permission guard and booster stutter-control
+-- 124 Community Visuals v1.1.26 | booster recovery, safe frame pacing and full source audit
 -- PlaceId: 18537079992
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.1.25",
+    Version = "1.1.26",
     PlaceId = 18537079992,
     EspRefreshSeconds = 0.75, -- Лёгкое обновление списка игроков; FPS на первом месте.
     EspMaxPlayers = 12, -- Меньше Highlight и GUI-обновлений по умолчанию.
@@ -45,13 +45,13 @@ local CONFIG = {
     RecoilMinPitchDegrees = 0.045, -- Не реагируем на микродрожание камеры.
     RecoilMaxPitchDegrees = 5.0, -- Не воспринимаем резкий разворот как отдачу.
     RecoilMaxCorrectionDegrees = 1.60, -- Ограничение коррекции за кадр.
-    BoosterBatch = 48, -- Меньше изменений деталей в одной порции.
-    BoosterSliceMs = 0.55, -- Меньше CPU и GPU-пересборок за проход.
-    BoosterLowFpsSliceMs = 0.22, -- Консервативный бюджет при просадках.
-    BoosterInitialDelay = 0.050, BoosterLowFpsDelay = 0.100,
-    BoosterQueueBatch = 24, -- При StreamingEnabled избегаем пачек 144.
-    BoosterQueueSliceMs = 0.35,
-    BoosterQueueDelay = 0.080, BoosterQueueLowFpsDelay = 0.150,
+    BoosterBatch = 96, -- Средний пакет вместо слишком медленных 48 и старых 320.
+    BoosterSliceMs = 0.90, -- Мягкий CPU budget для первого обхода.
+    BoosterLowFpsSliceMs = 0.45, -- Делаем один небольшой пакет за низкий FPS.
+    BoosterInitialDelay = 0.015, BoosterLowFpsDelay = 0.035,
+    BoosterQueueBatch = 48, -- StreamingEnabled: до 48 новых объектов за проход.
+    BoosterQueueSliceMs = 0.65,
+    BoosterQueueDelay = 0.040, BoosterQueueLowFpsDelay = 0.075,
     BoosterRepairCooldown = 45, -- Нет повторного обхода каждые 12 секунд.
     BoosterRepairIdleSeconds = 3, -- Сначала даём стримингу завершиться.
     EspVisualBalancedHz = 24, -- ESP снижает нагрузку; AIM сохраняет свою частоту.
@@ -265,6 +265,7 @@ local boosterPro = {
     queueDropped = 0, scanned = 0, repairing = false,
     repairCoveredDrops = 0, repairRetryAt = 0, repairErrors = 0,
     queueLastAt = 0, slicePeakMs = 0, queuePeakMs = 0,
+    changedProperties = 0, phase = "OFF", lastError = nil,
     recoveryFailures = 0, recoveryNextAt = 0,
     bootRoots = {}, -- Единственные ScreenGui, созданные данной копией Hub.
 }
@@ -1258,6 +1259,7 @@ local function optimizeObject(obj, alreadyScreened)
         if read and current ~= target then
             local wrote = pcall(function() obj[key] = target end)
             if wrote then
+                boosterPro.changedProperties = boosterPro.changedProperties + 1
                 if not snap then snap = {}; savedGraphics[obj] = snap end
                 if snap[key] == nil then snap[key] = current end
             end
@@ -1350,6 +1352,8 @@ function boosterPro.readout()
     local phase = state.booster and not boosterPro.complete
         and (" | Деталей: " .. tostring(boosterPro.scanned)) or ""
     return "До: " .. before .. " FPS  |  После: " .. after .. delta .. phase
+        .. " | Записано свойств: " .. tostring(boosterPro.changedProperties)
+        .. " | " .. tostring(boosterPro.phase)
 end
 
 function boosterPro.restoreObject(obj, snapshot)
@@ -1406,9 +1410,12 @@ local function setBooster(enabled, keepBaseline)
     boosterPro.queueDropped, boosterPro.scanned = 0, 0
     boosterPro.queueLastAt = 0
     boosterPro.slicePeakMs, boosterPro.queuePeakMs = 0, 0
+    boosterPro.changedProperties = 0
+    boosterPro.phase = enabled and "SCANNING" or "RESTORING"
     boosterPro.repairing = false
     boosterPro.repairCoveredDrops, boosterPro.repairRetryAt, boosterPro.repairErrors = 0, 0, 0
     if enabled then
+        boosterPro.lastError = nil
         boosterPro.after = nil
         boosterPro.afterFPS = {}
         boosterPro.guardWarned = false
@@ -1426,7 +1433,8 @@ local function setBooster(enabled, keepBaseline)
             end
         end)
         if not setupOk then
-            warn("[124 Community Visuals] Booster: ошибка подготовки графики: "
+            boosterPro.lastError = tostring(setupErr)
+            warn("[124 Community Visuals] Booster: ошибка подготовки графики: 
                 .. tostring(setupErr))
             state.booster = false
             local rollbackOk, rollbackErr = pcall(setBooster, false)
@@ -1461,14 +1469,22 @@ local function setBooster(enabled, keepBaseline)
             if not optimizeHierarchy(Lighting, revision) then return end
             if revision ~= boosterRevision or not state.booster then return end
             boosterPro.complete = true
+            boosterPro.phase = "READY"
             boosterPro.readyAt = os.clock() + 1.5
-            tell("FPS Booster Pro: " .. state.boosterMode .. " применён; просмотрено "
+            -- Compare FPS only after optimization actually finishes; earlier
+            -- samples include initial workload and would trigger a false auto-rollback.
+            boosterPro.afterFPS = {}
+            boosterPro.after = nil
+            boosterPro.guardLowSince = nil
+            tell("FPS Booster Pro:  .. state.boosterMode .. " применён; просмотрено "
                 .. tostring(boosterPro.scanned) .. " объектов; измеряем FPS")
             end)
             if not ok and alive and revision == boosterRevision and state.booster then
                 boosterPro.complete = false
+                boosterPro.phase = "FAILED"
                 boosterPro.failed = tostring(err)
-                warn("[124 Community Visuals] Booster: ошибка полного обхода: " .. boosterPro.failed)
+                boosterPro.lastError = boosterPro.failed
+                warn("[124 Community Visuals] Booster: ошибка полного обхода:  .. boosterPro.failed)
                 tell("FPS Booster остановлен: ошибка обработки карты; восстановление графики")
                 state.booster = false
                 local restored, restoreErr = pcall(setBooster, false)
@@ -1503,8 +1519,9 @@ local function setBooster(enabled, keepBaseline)
                 for obj, snapshot in pairs(savedGraphics) do
                     if obj.Parent and next(snapshot) ~= nil then remaining = remaining + 1 end
                 end
+                boosterPro.phase = remaining > 0 and "RESTORE PENDING" or "OFF"
                 if remaining > 0 or boosterPro.restoreFailures > 0 then
-                    tell("FPS Booster Pro: частичный откат, ошибок "
+                    tell("FPS Booster Pro: частичный откат, ошибок 
                         .. tostring(boosterPro.restoreFailures) .. ", объектов с остатком "
                         .. tostring(remaining))
                 else
@@ -4306,9 +4323,10 @@ boosterPro.autoRollback = function()
         type(avg) ~= "number" or #boosterPro.afterFPS < 4 then return end
     local now = os.clock()
     -- В том числе ДО окончания перекраски, если карта очень большая.
-    local guardReady = boosterPro.complete and boosterPro.readyAt
-        or (boosterPro.startedAt and boosterPro.startedAt + 8)
-    if not guardReady or now < guardReady + (boosterPro.complete and 4 or 0) then return end
+    -- A slow scan must never turn Booster off before it applies to the map.
+    if not boosterPro.complete then return end
+    local guardReady = boosterPro.readyAt
+    if not guardReady or now < guardReady + 6 then return end
     -- Prevent several checks within the same measurement second.
     if now - boosterPro.guardLastCheck < 0.8 then return end
     boosterPro.guardLastCheck = now
@@ -4343,7 +4361,7 @@ boosterPro.label = mk("TextLabel", {
 }, columnFor(pages.MISC))
 registerWidget(pages.MISC, boosterPro.label)
 round(boosterPro.label, 6)
-addButton(pages.MISC, "Сравнение FPS", "Нужны реальные замеры до и после включения", function()
+addButton(pages.MISC, "Сравнение FPS", "Реальные замеры после окончания обработки", function()
     tell("Booster Pro [" .. state.boosterMode .. "]: " .. boosterPro.readout()
         .. " | Проверено: " .. tostring(boosterPro.scanned)
         .. " | Очередь: " .. tostring(boosterPro.queueCount)
@@ -4351,6 +4369,18 @@ addButton(pages.MISC, "Сравнение FPS", "Нужны реальные з�
         .. " | CPU max init/queue: "
         .. string.format("%.2f/%.2f ms", boosterPro.slicePeakMs,
             boosterPro.queuePeakMs))
+end)
+addButton(pages.MISC, "Диагностика Booster", "Режим, прогресс, изменения и ошибки обработки", function()
+    local errorText = boosterPro.lastError and tostring(boosterPro.lastError):sub(1, 110)
+        or "нет"
+    tell("BOOSTER " .. tostring(boosterPro.phase)
+        .. " | Включён: " .. tostring(state.booster)
+        .. " | Режим: " .. tostring(state.boosterMode)
+        .. " | Просмотрено: " .. tostring(boosterPro.scanned)
+        .. " | Записано свойств: " .. tostring(boosterPro.changedProperties)
+        .. " | Очередь: " .. tostring(boosterPro.queueCount)
+        .. " | Переполнение: " .. tostring(boosterPro.queueDropped)
+        .. " | Ошибка: " .. errorText)
 end)
 addToggle(pages.MISC, "FullBright", "Осветлить сцену локально", "fullbright", function() applyLighting() end)
 addToggle(pages.MISC, "Часы / FPS / Ping", "Информационный блок экрана", "hud")
