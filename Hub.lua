@@ -3625,6 +3625,20 @@ local perfLabel = mk("TextLabel", {Name = "PerfDiagnostics", BackgroundColor3 = 
     TextSize = 10, Font = Enum.Font.Code}, columnFor(pages.MISC))
 registerWidget(pages.MISC, perfLabel)
 round(perfLabel, 6)
+perfCounters.frametime.label = mk("TextLabel", {
+    Name = "FrameTimeDiagnostics",
+    Size = UDim2.new(1, 0, 0, 38),
+    BackgroundColor3 = CONFIG.Surface, BorderSizePixel = 0,
+    Text = "1% Low: замер... | p99: замер...",
+    TextColor3 = CONFIG.Muted, TextSize = 10,
+    Font = Enum.Font.Code, TextWrapped = true,
+}, columnFor(pages.MISC))
+registerWidget(pages.MISC, perfCounters.frametime.label)
+round(perfCounters.frametime.label, 6)
+addButton(pages.MISC, "Проверка микрофризов",
+    "Показать 1% Low, p99, худший кадр и число задержек от 50 мс", function()
+        tell(perfCounters.frametime.summary())
+    end)
 addSection(pages.MISC, "CAMERA FOV", "Угол обзора, не радиус AIM")
 addToggle(pages.MISC, "Camera FOV", "Переопределить вертикальный угол обзора", "cameraFovEnabled", function()
     memoryFX.camera.apply()
@@ -4984,6 +4998,7 @@ end
 local frames, accumulated = 0, 0
 connect(RunService.RenderStepped, function(dt)
     if not alive then return end
+    perfCounters.frametime.observe(dt) -- O(1); статистика вычисляется только в MISC.
     frames = frames + 1
     accumulated = accumulated + math.max(dt, 0)
     if accumulated >= 1 then
@@ -5041,6 +5056,18 @@ task.spawn(function()
                 measuredFps, perfCounters.espCount, perfCounters.shapeCount,
                 perfCounters.aimScanMs, perfTier())
             if perfLabel.Text ~= display then perfLabel.Text = display end
+        end
+        -- O(N log N) percentile work only when the PERFORMANCE page is visible,
+        -- and no more than once every three seconds. Never in RenderStepped.
+        if pages.MISC.Visible and os.clock() - perfCounters.frametime.lastUpdated >= 3 then
+            perfCounters.frametime.lastUpdated = os.clock()
+            local summary = perfCounters.frametime.summary()
+            if summary ~= perfCounters.frametime.lastShown then
+                perfCounters.frametime.lastShown = summary
+                if perfCounters.frametime.label and perfCounters.frametime.label.Parent then
+                    perfCounters.frametime.label.Text = summary
+                end
+            end
         end
         activeInfo.Visible = state.activeHud
         if state.activeHud then
