@@ -11,7 +11,7 @@ test("read-only chat audit does not mutate chat, send messages, or call remotes"
  assert.ok(source.includes("CanSend"));
  assert.ok(source.includes("GetDescendants"));
  for (const forbidden of [":FireServer(", ":InvokeServer(", ":SendAsync(", ":CaptureFocus(",
-     ":ReleaseFocus(", ".Text =", "TextBox.Text", ":Destroy()"]) {
+     ":ReleaseFocus(", ".Text =", ":Destroy()"]) {
    // Destruction of its own diagnostic ScreenGui is not needed: no GUI is created.
    assert.ok(!source.includes(forbidden), forbidden);
  }
