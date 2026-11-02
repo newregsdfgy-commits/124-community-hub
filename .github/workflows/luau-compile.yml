@@ -1,10 +1,11 @@
 name: 124 Community Visuals Luau compile
 on:
   push:
-    branches: [v1.1.19-community-visuals-ui-test, v1.1.20-performance-budget-test, v1.1.21-operator-ui-stability-test]
+    branches: [v1.1.19-community-visuals-ui-test, v1.1.20-performance-budget-test, v1.1.21-operator-ui-stability-test, v1.1.22-startup-check-test]
     paths:
       - 'Visuals.lua'
       - 'Hub.lua'
+      - 'Start.lua'
       - 'tests/**'
       - '.github/workflows/luau-compile.yml'
   workflow_dispatch:
@@ -41,6 +42,8 @@ jobs:
           cmp -s Visuals.lua Hub.lua
           ./luau-build/luau-compile --only-parse Visuals.lua >/dev/null
           ./luau-build/luau-compile -O2 -g0 --binary Visuals.lua > /tmp/Army124-Visuals.luauc
+          ./luau-build/luau-compile --only-parse Start.lua >/dev/null
+          ./luau-build/luau-compile -O2 -g0 --binary Start.lua > /tmp/Army124-Start.luauc
           ./luau-build/luau-compile --only-parse Hub.lua >/dev/null
           ./luau-build/luau-compile -O2 -g0 --binary Hub.lua > /tmp/Army124-Hub.luauc
           test -s /tmp/Army124-Visuals.luauc
