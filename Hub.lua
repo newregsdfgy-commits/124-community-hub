@@ -2168,6 +2168,7 @@ local function applySettings(incoming, autoLoad)
         -- Старая сохраненная версия не включает AIM с любым Tool.
         -- Первую регистрацию оружия пользователь делает вручную в AIM.
         state.aimOnlyRegisteredWeapons = true
+        state.airAlerts = false -- Высокая нагрузка фонового мониторинга, ON только вручную.
         state.antiAfk = false
         state.antiAim = false
         state.bunnyHop = false
@@ -4259,7 +4260,8 @@ do
     end)
     task.spawn(function()
         while alive do
-            task.wait(mon.sampleInterval)
+            -- Без фонового мониторинга скрипт не просыпается каждые 0.45 сек.
+            task.wait(state.airAlerts and mon.sampleInterval or 1.5)
             if not alive then break end
             if state.airAlerts then
                 local ok, err = pcall(mon.scan)
@@ -4624,7 +4626,9 @@ task.spawn(function()
                 end
             end)
         end
-        task.wait(state.booster and boosterPro.complete and boosterPro.queueCount > 0 and 0 or 0.12)
+        task.wait((not state.booster and 0.75)
+            or (boosterPro.complete and boosterPro.queueCount > 0 and 0)
+            or 0.12)
     end
 end)
 
@@ -4810,7 +4814,7 @@ task.spawn(function()
             if not ok then warn("[124 Community Hub] ESP: " .. tostring(err)) end
         end
         local tier = perfTier()
-        local interval = tier == "ECO" and 1.0 or tier == "QUALITY" and 0.35
+        local interval = tier == "ECO" and 1.25 or tier == "QUALITY" and 0.45
             or CONFIG.EspRefreshSeconds
         task.wait(interval)
     end
@@ -4873,6 +4877,7 @@ connect(RunService.RenderStepped, function(dt)
     accumulated = accumulated + math.max(dt, 0)
     if accumulated >= 1 then
         measuredFps = math.floor(frames / math.max(accumulated, 0.01) + 0.5)
+        updateAutoPerformanceTier()
         boosterPro.measure(measuredFps)
         frames, accumulated = 0, 0
     end
@@ -4920,9 +4925,12 @@ task.spawn(function()
                 perfCounters.session.lastShown = summary
             end
         end
-        perfLabel.Text = string.format("FPS %d | ESP %d | Shape %d | Scan %.1f ms | %s",
-            measuredFps, perfCounters.espCount, perfCounters.shapeCount,
-            perfCounters.aimScanMs, perfTier())
+        if state.hud or state.activeHud then
+            local display = string.format("FPS %d | ESP %d | Shape %d | Scan %.1f ms | %s",
+                measuredFps, perfCounters.espCount, perfCounters.shapeCount,
+                perfCounters.aimScanMs, perfTier())
+            if perfLabel.Text ~= display then perfLabel.Text = display end
+        end
         activeInfo.Visible = state.activeHud
         if state.activeHud then
             local features = {}
@@ -4951,7 +4959,7 @@ task.spawn(function()
             end
             stats.Text = string.format("%s | FPS %d | %sms", os.date("%H:%M:%S"), measuredFps, ping)
         end
-        task.wait(0.8)
+        task.wait(state.hud or state.activeHud and 1.0 or 1.5)
     end
 end)
 
