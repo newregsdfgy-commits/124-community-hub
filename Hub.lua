@@ -1439,7 +1439,7 @@ local function setBooster(enabled, keepBaseline)
         end)
         if not setupOk then
             boosterPro.lastError = tostring(setupErr)
-            warn("[124 Community Visuals] Booster: ошибка подготовки графики: 
+            warn("[124 Community Visuals] Booster: ошибка подготовки графики: "
                 .. tostring(setupErr))
             state.booster = false
             local rollbackOk, rollbackErr = pcall(setBooster, false)
@@ -1481,7 +1481,7 @@ local function setBooster(enabled, keepBaseline)
             boosterPro.afterFPS = {}
             boosterPro.after = nil
             boosterPro.guardLowSince = nil
-            tell("FPS Booster Pro:  .. state.boosterMode .. " применён; просмотрено "
+            tell("FPS Booster Pro: " .. state.boosterMode .. " применён; просмотрено "
                 .. tostring(boosterPro.scanned) .. " объектов; измеряем FPS")
             end)
             if not ok and alive and revision == boosterRevision and state.booster then
@@ -1489,7 +1489,7 @@ local function setBooster(enabled, keepBaseline)
                 boosterPro.phase = "FAILED"
                 boosterPro.failed = tostring(err)
                 boosterPro.lastError = boosterPro.failed
-                warn("[124 Community Visuals] Booster: ошибка полного обхода:  .. boosterPro.failed)
+                warn("[124 Community Visuals] Booster: ошибка полного обхода: " .. boosterPro.failed)
                 tell("FPS Booster остановлен: ошибка обработки карты; восстановление графики")
                 state.booster = false
                 local restored, restoreErr = pcall(setBooster, false)
@@ -1526,7 +1526,7 @@ local function setBooster(enabled, keepBaseline)
                 end
                 boosterPro.phase = remaining > 0 and "RESTORE PENDING" or "OFF"
                 if remaining > 0 or boosterPro.restoreFailures > 0 then
-                    tell("FPS Booster Pro: частичный откат, ошибок 
+                    tell("FPS Booster Pro: частичный откат, ошибок "
                         .. tostring(boosterPro.restoreFailures) .. ", объектов с остатком "
                         .. tostring(remaining))
                 else
