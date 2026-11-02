@@ -5,7 +5,7 @@
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.1.7",
+    Version = "1.1.8",
     PlaceId = 18537079992,
     EspRefreshSeconds = 0.55,
     EspMaxPlayers = 16, -- Ограничение количества Highlight для слабых телефонов.
@@ -31,7 +31,7 @@ local CONFIG = {
     RecoilMinPitchDegrees = 0.045, -- Не реагируем на микродрожание камеры.
     RecoilMaxPitchDegrees = 5.0, -- Не воспринимаем резкий разворот как отдачу.
     RecoilMaxCorrectionDegrees = 1.60, -- Ограничение коррекции за кадр.
-    BoosterBatch = 80,
+    BoosterBatch = 64, -- More frequent yields on low-power phones.
     FullBrightBrightness = 2.1,
     FullBrightAmbient = Color3.fromRGB(170, 170, 170),
     FullBrightOutdoorAmbient = Color3.fromRGB(175, 175, 175),
@@ -138,6 +138,10 @@ local boosterPro = {
     originalFPS = {}, afterFPS = {}, baseline = nil, after = nil,
     complete = false, readyAt = nil, running = false,
     label = nil, revision = 0, mode = nil, restoreFailures = 0,
+    guardLowSince = nil, guardLastCheck = 0, guardWarned = false,
+    queued = {}, queuedSeen = setmetatable({}, {__mode = "k"}),
+    queueHead = 1, queueTail = 0, queueCount = 0, queueCap = 2048,
+    queueDropped = 0,
 }
 -- Только для исполнителей, умеющих читать/писать Terrain.Decoration.
 -- Если это недоступно, не трогаем Terrain: полноценного SmoothPlastic для него нет.
@@ -739,9 +743,9 @@ end
 
 -- Не перезаписываем исходный снимок при переходе BALANCED -> WHITE -> ULTRA.
 -- При возврате на менее жёсткий режим ненужные изменения сразу откатываются.
-local function optimizeObject(obj)
+local function optimizeObject(obj, alreadyScreened)
     if not alive or not state.booster then return end
-    if boosterPro.isProtected(obj) then return end
+    if not alreadyScreened and boosterPro.isProtected(obj) then return end
     local desired = graphicsProperty(obj) or {}
     local snap = savedGraphics[obj]
     if snap then
@@ -784,7 +788,7 @@ local function optimizeHierarchy(root, revision)
         else
             level.index = level.index + 1
             if not boosterPro.isProtected(obj) then
-                optimizeObject(obj)
+                optimizeObject(obj, true)
                 local children = obj:GetChildren()
                 if #children > 0 then
                     stack[#stack + 1] = {items = children, index = 1}
@@ -817,7 +821,12 @@ function boosterPro.measure(value)
         target[#target + 1] = value
         if #target > 6 then table.remove(target, 1) end
     end
-    if state.booster then boosterPro.after = boosterPro.average(boosterPro.afterFPS) end
+    if state.booster then
+        boosterPro.after = boosterPro.average(boosterPro.afterFPS)
+        -- After the warmup, detect a sustained drop against pre-Booster FPS.
+        -- The rollback function is installed after the UI and config handlers exist.
+        if boosterPro.autoRollback then boosterPro.autoRollback() end
+    end
 end
 function boosterPro.readout()
     local before = boosterPro.baseline and tostring(boosterPro.baseline) or "н/д"
@@ -872,11 +881,20 @@ local function setBooster(enabled, keepBaseline)
     boosterPro.complete = false
     boosterPro.readyAt = nil
     boosterPro.restoreFailures = 0
+    boosterPro.guardLowSince = nil
+    boosterPro.guardLastCheck = 0
+    -- Discard old queued descendants. New events belong to the new revision.
+    boosterPro.queued = {}
+    boosterPro.queuedSeen = setmetatable({}, {__mode = "k"})
+    boosterPro.queueHead, boosterPro.queueTail, boosterPro.queueCount = 1, 0, 0
+    boosterPro.queueDropped = 0
     if enabled then
         boosterPro.after = nil
         boosterPro.afterFPS = {}
+        boosterPro.guardWarned = false
         if not keepBaseline then boosterPro.baseline = boosterPro.average(boosterPro.originalFPS) end
         boosterPro.mode = state.boosterMode
+        boosterPro.startedAt = os.clock()
         applyLighting()
         if state.boosterMode == "BALANCED" then
             restoreTerrainGrass()
@@ -1621,6 +1639,9 @@ local function applySettings(incoming, autoLoad)
         state.aimbot = false
         state.antiAfk = false
         state.antiAim = false
+        -- Prevent an old saved profile from activating Booster before a baseline.
+        -- The user may still enable it manually after loading the game.
+        state.booster = false
         -- Аварийная загрузка после Safety Stop: старая файловая копия
         -- (при ошибке writefile) не должна снова включать опасные функции.
         if env.ARMY124_SAFE_BOOT == true then
@@ -2805,6 +2826,34 @@ addToggle(pages.MISC, "AntiAFK", "VirtualUser при событии Idled", "ant
     if not on then releaseAntiAfk() end
 end)
 addToggle(pages.MISC, "FPS Booster Pro", "Графика в 3 режимах, с откатом", "booster", setBooster)
+-- FPS Guard does not claim a performance gain: when the measured FPS stays
+-- noticeably worse than the pre-Booster baseline, it disables and rolls back.
+-- This is only available after at least three actual pre-Booster samples.
+boosterPro.autoRollback = function()
+    if not alive or not state.booster or not boosterPro.complete then return end
+    local baseline = boosterPro.baseline
+    local avg = boosterPro.after
+    if type(baseline) ~= "number" or baseline < 35 or
+        type(avg) ~= "number" or #boosterPro.afterFPS < 4 then return end
+    local now = os.clock()
+    if not boosterPro.readyAt or now < boosterPro.readyAt + 10 then return end
+    -- Prevent several checks within the same measurement second.
+    if now - boosterPro.guardLastCheck < 0.8 then return end
+    boosterPro.guardLastCheck = now
+    local bad = avg <= baseline * 0.70 and baseline - avg >= 12
+    if not bad then
+        boosterPro.guardLowSince = nil
+        return
+    end
+    if not boosterPro.guardLowSince then boosterPro.guardLowSince = now; return end
+    if now - boosterPro.guardLowSince < 12 then return end
+    state.booster = false
+    setBooster(false)
+    if refreshToggles.booster then pcall(refreshToggles.booster) end
+    requestSave()
+    tell("FPS Guard: Booster выключен — FPS упал с " .. tostring(baseline)
+        .. " до " .. tostring(avg) .. ". Возвращаем графику.")
+end
 addSection(pages.MISC, "GRAPHICS QUALITY", "Выбери степень оптимизации")
 boosterPro.repaint = addChoice(pages.MISC, "Режим графики", {
     {value = "BALANCED", label = "BALANCED"},
@@ -2823,7 +2872,9 @@ boosterPro.label = mk("TextLabel", {
 registerWidget(pages.MISC, boosterPro.label)
 round(boosterPro.label, 6)
 addButton(pages.MISC, "Сравнение FPS", "Нужны реальные замеры до и после включения", function()
-    tell("Booster Pro [" .. state.boosterMode .. "]: " .. boosterPro.readout())
+    tell("Booster Pro [" .. state.boosterMode .. "]: " .. boosterPro.readout()
+        .. " | Очередь: " .. tostring(boosterPro.queueCount)
+        .. " | Пропущено: " .. tostring(boosterPro.queueDropped))
 end)
 addToggle(pages.MISC, "FullBright", "Осветлить сцену локально", "fullbright", function() applyLighting() end)
 addToggle(pages.MISC, "Часы / FPS / Ping", "Информационный блок экрана", "hud")
@@ -3119,9 +3170,11 @@ do
         return remaining
     end
     function warning.show()
-        if not alive or warning.visible then return end
+        -- Only once per script execution; later menu collapses stay uninterrupted.
+        if not alive or warning.visible or warning.shownOnce then return end
         local risks = risksEnabled()
         if #risks == 0 then return end
+        warning.shownOnce = true
         warning.serial = warning.serial + 1
         local serial = warning.serial
         warning.unlockAt = clockNow() + 5
@@ -3722,21 +3775,52 @@ connect(LocalPlayer.Idled, function()
     if not ok and alive then tell("AntiAFK: VirtualUser недоступен — " .. tostring(err)) end
 end)
 
+-- StreamingEnabled can add hundreds of descendants in one frame. Do NOT spawn
+-- a coroutine for every instance: a bounded FIFO lets the client keep rendering.
+function boosterPro.queueObject(obj)
+    if not alive or not state.booster or boosterPro.queuedSeen[obj] then return end
+    if boosterPro.queueCount >= boosterPro.queueCap then
+        boosterPro.queueDropped = boosterPro.queueDropped + 1
+        return -- Graphics optimizations are optional; dropping beats freezing.
+    end
+    boosterPro.queueTail = boosterPro.queueTail % boosterPro.queueCap + 1
+    boosterPro.queued[boosterPro.queueTail] = obj
+    boosterPro.queuedSeen[obj] = true
+    boosterPro.queueCount = boosterPro.queueCount + 1
+end
 connect(Workspace.DescendantAdded, function(obj)
     if not alive or not state.booster then return end
-    -- Поздно загруженный Humanoid/торс: сперва возвращаем уже изменённые части.
+    -- A late avatar must not be recolored; restore already captured originals.
     local parent = obj.Parent
     if parent and parent:IsA("Model") and
         (obj:IsA("Humanoid") or obj.Name == "HumanoidRootPart"
             or obj.Name == "UpperTorso" or obj.Name == "Torso") and
         boosterPro.isProtected(obj) then
         boosterPro.restoreProtectedTree(parent)
+        return
     end
-    task.defer(function() optimizeObject(obj) end)
+    boosterPro.queueObject(obj)
 end)
-connect(Lighting.DescendantAdded, function(obj)
-    if alive and state.booster then
-        task.defer(function() optimizeObject(obj) end)
+connect(Lighting.DescendantAdded, boosterPro.queueObject)
+task.spawn(function()
+    while alive do
+        if state.booster and boosterPro.queueCount > 0 then
+            local revision = boosterRevision
+            local count = math.min(32, boosterPro.queueCount)
+            for _ = 1, count do
+                if not alive or not state.booster or revision ~= boosterRevision then break end
+                local index = boosterPro.queueHead
+                local obj = boosterPro.queued[index]
+                boosterPro.queued[index] = nil
+                boosterPro.queueHead = index % boosterPro.queueCap + 1
+                boosterPro.queueCount = boosterPro.queueCount - 1
+                if obj then
+                    boosterPro.queuedSeen[obj] = nil
+                    if obj.Parent then optimizeObject(obj) end
+                end
+            end
+        end
+        task.wait(0.12)
     end
 end)
 
