@@ -1478,20 +1478,25 @@ end)
 bindRecoilCharacter(LocalPlayer.Character)
 
 local function recoilFrame(dt)
+    -- OFF: нулевые вычисления углов камеры.
+    -- После включения первый кадр записывает базу, не компенсируя
+    -- несуществующий скачок на границе состояний.
+    if not alive or not state.controlRecoil or state.recoilStrength <= 0
+        or recoilTool == nil or recoilTool.Parent ~= LocalPlayer.Character then
+        recoilLastCamera, recoilLastPitch = nil, nil
+        return
+    end
     local camera = Workspace.CurrentCamera
-    if not alive or not camera then
-        recoilLastCamera = nil
-        recoilLastPitch = nil
+    if not camera then
+        recoilLastCamera, recoilLastPitch = nil, nil
         return
     end
     local currentPitch = camera.CFrame:ToOrientation()
     local previousPitch = recoilLastPitch
     local sameCamera = recoilLastCamera == camera
     recoilLastCamera = camera
-    recoilLastPitch = currentPitch -- Обновляем базу даже при выключенной функции.
+    recoilLastPitch = currentPitch
     if not sameCamera or previousPitch == nil then return end
-    if not state.controlRecoil or state.recoilStrength <= 0 or recoilTool == nil
-        or recoilTool.Parent ~= LocalPlayer.Character then return end
     if isRobloxMenuOpen() or UserInputService:GetFocusedTextBox() ~= nil then return end
     -- AIM уже стабилизирует активную цель. Второе управление CFrame вызвало бы конфликт.
     if state.aimbot and (aimHeldMouse or aimHeldTouch or aimHeldKey) and aimTarget then return end
@@ -1611,6 +1616,9 @@ end
 
 function memoryFX.camera.apply()
     local controller = memoryFX.camera
+    if not alive or (not state.cameraFovEnabled and next(controller.saved) == nil) then
+        return -- OFF: не обращаемся к камере без ожидающего отката.
+    end
     local camera = Workspace.CurrentCamera
     if state.cameraFovEnabled and camera then
         -- Старую камеру восстанавливаем даже после ошибки первой попытки.
@@ -1681,11 +1689,24 @@ function memoryFX.spin.reset()
     spin.character, spin.humanoid, spin.joint = nil, nil, nil
     spin.originalAuto, spin.originalC0 = nil, nil
     spin.nextJointSearch = 0
+    spin.nextPendingRetry = 0
     return next(spin.pending) == nil
 end
 
 function memoryFX.spin.frame(dt)
-    memoryFX.spin.restorePending()
+    local spin = memoryFX.spin
+    if not alive then return end
+    if not state.antiAim and not spin.character and next(spin.pending) == nil then
+        return -- OFF: никакой инспекции позы или C0.
+    end
+    -- При отказе C0/AutoRotate повторяем раз в секунду, не 60 раз.
+    if next(spin.pending) ~= nil then
+        local now = os.clock()
+        if now >= (spin.nextPendingRetry or 0) then
+            spin.nextPendingRetry = now + 1.0
+            spin.restorePending()
+        end
+    end
     -- При незавершённом откате не перезаписываем C0/AutoRotate новой позой.
     if not alive or not state.antiAim or next(memoryFX.spin.pending) ~= nil then
         if memoryFX.spin.character then memoryFX.spin.reset() end
@@ -2753,6 +2774,10 @@ local function refreshShapes()
         return
     end
     local activeCount, active = 0, perfCounters.espVisual.active
+    local tier = perfTier()
+    local shapeBudget = tier == "ECO" and CONFIG.EspShapeEcoLimit
+        or tier == "QUALITY" and CONFIG.EspShapeQualityLimit
+        or CONFIG.EspShapeBalancedLimit
     table.clear(active)
     -- Повторное использование таблиц уменьшает выделение памяти на каждом кадре.
     local projected = perfCounters.espVisual.projected
@@ -2761,7 +2786,8 @@ local function refreshShapes()
         local head = char and char:FindFirstChild("Head")
         local root = char and char:FindFirstChild("HumanoidRootPart")
         local hum = char and char:FindFirstChildOfClass("Humanoid")
-        if player.Parent == Players and head and root and hum and hum.Health > 0
+        if activeCount < shapeBudget
+            and player.Parent == Players and head and root and hum and hum.Health > 0
             and player.Character == char and (not state.espEnemyOnly or not sameTeamESP(player))
             and (root.Position - myRoot.Position).Magnitude * CONFIG.StudMeters <= state.espRangeMeters then
             active[player] = true
