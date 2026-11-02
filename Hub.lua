@@ -1172,37 +1172,45 @@ local function isRobloxMenuOpen()
 end
 
 local function aimFrame(dt)
-    -- Не опрашиваем GuiService каждый кадр, если AIM не включён/не удерживается.
-    if not alive or not state.aimbot or not (aimHeldMouse or aimHeldTouch or aimHeldKey) then
+    -- Отсутствие Tool — абсолютный запрет движения камеры, даже при F6/ПКМ/touch.
+    if not alive or not state.aimbot or not (aimHeldMouse or aimHeldTouch or aimHeldKey)
+        or not aimPro.equippedTool() then
         aimTarget = nil
         return
     end
-    -- Останавливаем наведение при открытом меню, сбрасываем кэш и пересканируем
-    -- цель после закрытия. Состояние тумблера AIM сохраняется намеренно.
     if isRobloxMenuOpen() then
-        aimTarget = nil
-        aimNextScan = 0
+        aimPro.reset()
         return
     end
     if UserInputService:GetFocusedTextBox() ~= nil then return end
     local camera = Workspace.CurrentCamera
-    if not camera then return end
+    if not camera then aimTarget = nil; return end
     local now = os.clock()
+    local tier = perfTier()
+    local scanEvery = tier == "ECO" and 0.24
+        or tier == "QUALITY" and 0.08 or CONFIG.AimScanInterval
+    local losInterval = tier == "ECO" and CONFIG.AimLosEcoSeconds
+        or tier == "QUALITY" and CONFIG.AimLosQualitySeconds
+        or CONFIG.AimLosBalancedSeconds
     local scannedThisFrame = false
     if now >= aimNextScan then
-        local tier = perfTier()
-        local scanEvery = tier == "ECO" and 0.24
-            or tier == "QUALITY" and 0.08 or CONFIG.AimScanInterval
         aimNextScan = now + scanEvery
         aimTarget = findAimTarget(camera)
         scannedThisFrame = true
+        if aimTarget then
+            -- Новый поиск уже сделал LOS при включённом Visible Check.
+            aimPro.nextLos = now + losInterval
+        end
     end
     local current = aimTarget
-    local part = current and current.part
+    -- Отсутствие цели НЕ обнуляет таймер поиска (было до 60 сканов/с).
+    if not current then return end
+    local part = current.part
     if not part or not part.Parent or not current.player
-        or current.player.Character ~= current.character or sameTeam(current.player) then
+        or current.player.Character ~= current.character or sameTeam(current.player)
+        or not current.humanoid or current.humanoid.Health <= 0 then
         aimTarget = nil
-        aimNextScan = 0
+        aimNextScan = math.min(aimNextScan, now + CONFIG.AimLostRescanSeconds)
         return
     end
     local origin = camera.CFrame.Position
@@ -1212,24 +1220,23 @@ local function aimFrame(dt)
     if not myRoot or (point - origin).Magnitude <= 0.05
         or (point - myRoot.Position).Magnitude * CONFIG.StudMeters > state.aimRangeMeters then
         aimTarget = nil
-        aimNextScan = 0
+        aimNextScan = math.min(aimNextScan, now + CONFIG.AimLostRescanSeconds)
         return
     end
-    -- AIM-LOS-01: между плановыми сканами повторно проверяем живую цель.
-    -- В кадре нового скана Raycast уже был, повторять его не нужно.
-    -- При потере видимости камера НЕ меняется и следующий кадр ищет новую цель.
-    -- Максимум CONFIG.AimVisibleRaycastChecks raycast за кадр сопровождения.
-    if state.visibleCheck and not scannedThisFrame
-        and not canSee(camera, point, current.character) then
-        aimTarget = nil
-        aimNextScan = 0
-        return
+    -- Проверка видимости прицеливания остаётся активной, но Raycast реже.
+    if state.visibleCheck and not scannedThisFrame and now >= aimPro.nextLos then
+        if not canSee(camera, point, current.character) then
+            aimTarget = nil
+            aimNextScan = math.min(aimNextScan, now + CONFIG.AimLostRescanSeconds)
+            return
+        end
+        aimPro.nextLos = now + losInterval
     end
     local goal = CFrame.lookAt(origin, predictedPoint(part))
     if state.aimSmoothness == 0 then
         camera.CFrame = goal
     else
-        -- Независимое сглаживание углов по X/Y, сохраняем roll исходной камеры.
+        -- Не меняем уже проверенную формулу поворота и плавности.
         local cx, cy, cz = camera.CFrame:ToOrientation()
         local gx, gy = goal:ToOrientation()
         local speed = CONFIG.AimSmoothnessBaseline / state.aimSmoothness
