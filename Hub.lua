@@ -726,7 +726,7 @@ local graphicsClouds = {Cover = 0, Density = 0}
 
 local function graphicsProperty(obj)
     local level = state.boosterMode
-    local white = level ~= "BALANCED"
+    local white = level == "WHITE" or level == "ULTRA"
     local ultra = level == "ULTRA"
     if obj:IsA("Terrain") then
         return ultra and graphicsWater or nil
