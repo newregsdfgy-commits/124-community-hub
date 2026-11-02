@@ -225,10 +225,13 @@ local perfCounters = {espCount = 0, shapeCount = 0, aimScanMs = 0}
 -- Покадровый рендер ESP (после Camera/AIM/Recoil); НЕ сканируем игроков каждый кадр.
 perfCounters.espVisual = {bound = false, bindingName = "Army124CommunityESP_" .. tostring(LocalPlayer.UserId),
     errorAt = 0, active = {}, projected = {}, ordered = {}}
--- Только пассивная диагностика клиентских событий: это НЕ обход античита и НЕ антибан.
+-- Логи отключены без подписки. Игровые события могут приходить сотнями/сек.
+-- Подписка создаётся только после явного включения пользователем.
+local sessionKeywords = {"anti-cheat", "anticheat", "exploit detected",
+    "suspicious activity", "kick", "ban", "античит", "нарушение"}
 perfCounters.session = {
     messages = 0, warnings = 0, errors = 0, keywordHits = 0,
-    listening = false, label = nil, lastShown = "",
+    listening = false, label = nil, lastShown = "", connection = nil,
 }
 function perfCounters.session.observe(message, level)
     if type(message) ~= "string" then return end
@@ -244,8 +247,7 @@ function perfCounters.session.observe(message, level)
     end
     -- Совпадение ключевого слова НЕ доказывает наличие античита.
     local lower = string.lower(message)
-    for _, keyword in ipairs({"anti-cheat", "anticheat", "exploit detected",
-        "suspicious activity", "kick", "ban", "античит", "нарушение"}) do
+    for _, keyword in ipairs(sessionKeywords) do
         if string.find(lower, keyword, 1, true) then
             record.keywordHits = record.keywordHits + 1
             break
@@ -255,7 +257,62 @@ end
 function perfCounters.session.summary()
     local r = perfCounters.session
     return string.format("Logs %s | Warn %d | Err %d | Keywords %d",
-        r.listening and "ON" or "N/A", r.warnings, r.errors, r.keywordHits)
+        r.listening and "ON" or "OFF", r.warnings, r.errors, r.keywordHits)
+end
+function perfCounters.session.setEnabled(enabled)
+    local record = perfCounters.session
+    if not enabled or not alive then
+        if record.connection then
+            pcall(function() record.connection:Disconnect() end)
+            record.connection = nil
+        end
+        record.listening = false
+        record.lastShown = ""
+        return
+    end
+    if record.connection then return end
+    local ok, connection = pcall(function()
+        return game:GetService("LogService").MessageOut:Connect(record.observe)
+    end)
+    if ok and connection then
+        record.connection = connection
+        record.listening = true
+    else
+        record.listening = false
+        state.sessionDiagnostics = false
+        warn("[124 Community Hub] Log diagnostics unavailable: " .. tostring(connection))
+    end
+    record.lastShown = ""
+end
+
+-- Fixed-size ring buffer for frametime. O(1) work, no allocations per frame.
+-- Percentile/sort only when diagnostics are requested or MISC is visible.
+perfCounters.frametime = {data = {}, cursor = 1, count = 0, scratch = {},
+    lastUpdated = 0, label = nil, lastShown = ""}
+function perfCounters.frametime.observe(dt)
+    if type(dt) ~= "number" or dt <= 0 or dt > 2 then return end
+    local ft = perfCounters.frametime
+    ft.data[ft.cursor] = dt * 1000
+    ft.cursor = ft.cursor % CONFIG.FrameTimeWindow + 1
+    ft.count = math.min(ft.count + 1, CONFIG.FrameTimeWindow)
+end
+function perfCounters.frametime.summary()
+    local ft = perfCounters.frametime
+    if ft.count < 60 then return "Frame Time: собираем минимум 60 кадров" end
+    local ordered = ft.scratch
+    table.clear(ordered)
+    local worst, spikes = 0, 0
+    for i = 1, ft.count do
+        local ms = ft.data[i]
+        ordered[i] = ms
+        if ms > worst then worst = ms end
+        if ms >= CONFIG.FrameTimeSpikeMs then spikes = spikes + 1 end
+    end
+    table.sort(ordered)
+    local p99ms = ordered[math.max(1, math.ceil(ft.count * 0.99))]
+    local low = math.floor(1000 / math.max(p99ms, 0.01) + 0.5)
+    return string.format("1%% Low %d FPS | p99 %.0f ms | Max %.0f ms | 50ms+ %d/%d",
+        low, p99ms, worst, spikes, ft.count)
 end
 local shapeGui, activeInfo
 local defaultSettings = nil
@@ -2031,6 +2088,7 @@ local HttpService = game:GetService("HttpService")
 local storedKeys = {
     "esp", "tracers", "names", "health", "distance", "teamColors", "espBox", "espSkeleton",
     "espEnemyOnly", "espRangeMeters", "espColorPreset", "espLineThickness", "performanceMode",
+    "sessionDiagnostics",
     "aimbot", "aimRangeMeters", "aimSmoothness", "aimSmoothX", "aimSmoothY",
     "prediction", "predictionSeconds", "targetLock", "aimFovPixels", "aimMode",
     "aimOnlyRegisteredWeapons", "aimWeaponNames",
@@ -2219,6 +2277,7 @@ local function applySettings(incoming, autoLoad)
         -- Первую регистрацию оружия пользователь делает вручную в AIM.
         state.aimOnlyRegisteredWeapons = true
         state.airAlerts = false -- Высокая нагрузка фонового мониторинга, ON только вручную.
+        state.sessionDiagnostics = false -- Анализ логов только по ручному запросу.
         state.antiAfk = false
         state.antiAim = false
         state.bunnyHop = false
@@ -2257,6 +2316,7 @@ local function applySettings(incoming, autoLoad)
     pcall(applyLighting)
     setAimEnabled(state.aimbot, false)
     recoil.reset()
+    perfCounters.session.setEnabled(state.sessionDiagnostics)
     utilityFX.bunny.sync()
     utilityFX.chat.sync()
     utilityFX.chat.repaintText()
@@ -3468,10 +3528,15 @@ addButton(pages.MISC, "Нагрузка Air Watch", "Игроки / замеры
     if mon and mon.diagnostics then tell(mon.diagnostics()) end
 end)
 addSection(pages.MISC, "SESSION DIAGNOSTICS", "Клиентские события, без обхода античита")
+addToggle(pages.MISC, "Анализ логов",
+    "OFF по умолчанию: LogService не обрабатывается в фоне",
+    "sessionDiagnostics", function(enabled)
+        perfCounters.session.setEnabled(enabled)
+    end)
 perfCounters.session.label = mk("TextLabel", {
     Name = "ClientSessionDiagnostics", BackgroundColor3 = CONFIG.Surface,
     BorderSizePixel = 0, Size = UDim2.new(1, 0, 0, 38),
-    Text = "Logs N/A | Warn 0 | Err 0 | Keywords 0",
+    Text = "Logs OFF | Warn 0 | Err 0 | Keywords 0",
     TextColor3 = CONFIG.Muted, Font = Enum.Font.Code,
     TextSize = 10, TextWrapped = true,
 }, columnFor(pages.MISC))
@@ -4734,6 +4799,7 @@ cleanup = function(safeStop)
     utilityFX.bunny.stop() -- Сразу возвращаем исходную скорость при Unload.
     utilityFX.chat.stop() -- Прерываем ожидающую отправку и не посылаем сообщений.
     recoil.shutdown()
+    perfCounters.session.setEnabled(false)
     memoryFX.spin.reset()
     state.cameraFovEnabled = false
     memoryFX.camera.reset()
@@ -4811,15 +4877,8 @@ cleanup = function(safeStop)
 end
 
 env.ARMY124_CLEANUP = cleanup
--- LogService предоставляет только локально видимые сообщения.
--- Никаких перехватов Kick, RemoteEvent или попыток скрыть скрипт.
-do
-    local ok, result = pcall(function()
-        local logs = game:GetService("LogService")
-        return connect(logs.MessageOut, perfCounters.session.observe)
-    end)
-    perfCounters.session.listening = ok and result ~= nil
-end
+-- LogService не подписывается при загрузке: включается только из MISC.
+perfCounters.session.setEnabled(state.sessionDiagnostics)
 connect(close.Activated, function() if cleanup then cleanup() end end)
 connect(Players.PlayerRemoving, deleteRender)
 
