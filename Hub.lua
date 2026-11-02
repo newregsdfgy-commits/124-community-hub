@@ -652,6 +652,9 @@ local function refreshESP()
     end
     -- Рисуем ближайших, чтобы не создавать десятки дорогих Highlight.
     local candidates = espCandidateScratch
+    local pool = perfCounters.espVisual.candidatePool
+    local maxStuds = state.espRangeMeters / CONFIG.StudMeters
+    local maxDistanceSquared = maxStuds * maxStuds
     table.clear(candidates)
     for _, player in ipairs(Players:GetPlayers()) do
         if player ~= LocalPlayer and (not state.espEnemyOnly or not sameTeamESP(player)) then
@@ -661,10 +664,8 @@ local function refreshESP()
             if root and hum and hum.Health > 0 then
                 local offset = root.Position - myRoot.Position
                 local dist2 = offset:Dot(offset)
-                local maxStuds = state.espRangeMeters / CONFIG.StudMeters
-                if dist2 <= maxStuds * maxStuds then
+                if dist2 <= maxDistanceSquared then
                     local index = #candidates + 1
-                    local pool = perfCounters.espVisual.candidatePool
                     local entry = pool[index]
                     if not entry then
                         entry = {}
@@ -675,6 +676,10 @@ local function refreshESP()
                 end
             end
         end
+    end
+    -- Discard stale Player references after population shrinks; reuse records.
+    for i = #candidates + 1, #pool do
+        pool[i].player = nil
     end
     table.sort(candidates, function(a, b)
         if a.distanceSquared ~= b.distanceSquared then
