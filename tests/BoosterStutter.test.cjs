@@ -11,8 +11,8 @@ function setting(name) {
 }
 test("booster test branch files and startup match",()=>{
  assert.equal(src,hub);
- assert.ok(src.includes('Version = "1.1.23"'));
- assert.ok(fs.readFileSync("Start.lua", "utf8").includes("v1.1.23-booster-stutter-test"));
+ assert.ok(src.includes('Version = "1.1.25"'));
+ assert.ok(fs.readFileSync("Start.lua", "utf8").includes("v1.1.25-chat-permission-test"));
 });
 test("foreground traversal has smaller CPU and batch budgets",()=>{
  assert.ok(setting("BoosterBatch") <= 64);
