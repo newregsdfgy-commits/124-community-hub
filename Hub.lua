@@ -1,11 +1,11 @@
--- 124 Community Hub v1.1.11 | Compact ESP: slim outlines, independent small labels, distance scaling
+-- 124 Community Hub v1.1.12 | Bunny Hop speed/cadence and configurable Chat Sender
 -- PlaceId: 18537079992
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.1.11",
+    Version = "1.1.12",
     PlaceId = 18537079992,
     EspRefreshSeconds = 0.55,
     EspMaxPlayers = 16, -- Ограничение количества Highlight для слабых телефонов.
@@ -52,6 +52,13 @@ local CONFIG = {
     BoosterQueueSliceMs = 1.1,
     EspVisualBalancedHz = 40, -- ESP-рамки/скелеты, AIM остаётся покадровым.
     EspVisualEcoHz = 20,
+    BhopMinInterval = 0.08, -- Частота проверок прыжка; физика ограничивает реальный BHOP.
+    BhopMaxInterval = 0.60,
+    BhopSpeedMultiplierCap = 2.0,
+    BhopWalkSpeedCap = 32, -- Не разгоняем локальный WalkSpeed без ограничений.
+    ChatMinInterval = 5, -- Уважаем штатные ограничения Roblox.
+    ChatMaxInterval = 120,
+    ChatMaxGraphemes = 160,
     FullBrightBrightness = 2.1,
     FullBrightAmbient = Color3.fromRGB(170, 170, 170),
     FullBrightOutdoorAmbient = Color3.fromRGB(175, 175, 175),
@@ -136,6 +143,12 @@ local state = {
     aimMode = "body", -- head / body / legs; сохраняем прежний режим по умолчанию.
     teamCheck = true,
     antiAfk = false,
+    bunnyHop = false, -- По умолчанию выключено, работает при движении по земле.
+    bhopJumpInterval = 0.22, -- Пауза между попытками прыжка (сек).
+    bhopSpeedMultiplier = 1.2, -- Множитель локального WalkSpeed.
+    spamChat = false, -- Не запускается автоматически после загрузки.
+    chatInterval = 8, -- Минимум CONFIG.ChatMinInterval.
+    chatMessage = "", -- Пользовательский текст, без готовых фраз.
     airAlerts = true, -- Консервативное предупреждение о необычном перемещении.
     booster = false,
     boosterMode = "BALANCED", -- BALANCED / WHITE / ULTRA
@@ -1648,6 +1661,133 @@ function memoryFX.spin.frame(dt)
     end
 end
 
+-- MOVEMENT / CHAT: отдельный контроллер; нет новых RenderStepped обработчиков.
+-- Ограниченный worker BHOP и один worker отправки чата, работающие только при ON.
+local utilityFX = {bunny = {token = 0}, chat = {token = 0, sent = 0, errors = 0,
+    repaintText = function() end}}
+do
+    local bunny = utilityFX.bunny
+    local chat = utilityFX.chat
+    local TextChatService = game:GetService("TextChatService")
+
+    -- Восстанавливаем только собственный WalkSpeed, не перетираем изменения игры.
+    function bunny.restore()
+        local hum = bunny.humanoid
+        if hum and hum.Parent and bunny.originalSpeed and bunny.appliedSpeed then
+            pcall(function()
+                if math.abs(hum.WalkSpeed - bunny.appliedSpeed) < 0.05 then
+                    hum.WalkSpeed = bunny.originalSpeed
+                end
+            end)
+        end
+        bunny.humanoid, bunny.originalSpeed, bunny.appliedSpeed = nil, nil, nil
+    end
+
+    function bunny.applySpeed()
+        local hum = bunny.humanoid
+        if not alive or not state.bunnyHop or not hum or not hum.Parent then return end
+        if not bunny.originalSpeed or bunny.originalSpeed <= 0 then return end
+        -- Если игра изменила скорость сама, не подавляем её собственные механики.
+        if bunny.appliedSpeed and math.abs(hum.WalkSpeed - bunny.appliedSpeed) >= 0.05 then
+            return
+        end
+        local speed = math.min(bunny.originalSpeed * state.bhopSpeedMultiplier,
+            CONFIG.BhopWalkSpeedCap)
+        local ok = pcall(function() hum.WalkSpeed = speed end)
+        if ok then bunny.appliedSpeed = speed end
+    end
+
+    function bunny.stop()
+        bunny.token = bunny.token + 1
+        bunny.restore()
+    end
+
+    function bunny.sync()
+        bunny.stop()
+        if not alive or not state.bunnyHop then return end
+        local token = bunny.token
+        task.spawn(function()
+            while alive and state.bunnyHop and token == bunny.token do
+                local char = LocalPlayer.Character
+                local hum = char and char:FindFirstChildOfClass("Humanoid")
+                if hum and hum.Parent and hum.Health > 0 then
+                    if bunny.humanoid ~= hum then
+                        bunny.restore()
+                        bunny.humanoid = hum
+                        bunny.originalSpeed = hum.WalkSpeed
+                        bunny.appliedSpeed = nil
+                        bunny.applySpeed()
+                    end
+                    if hum.MoveDirection.Magnitude > 0.08
+                        and hum.FloorMaterial ~= Enum.Material.Air
+                        and not hum.Sit and not hum.PlatformStand then
+                        hum.Jump = true
+                    end
+                elseif bunny.humanoid then
+                    bunny.restore()
+                end
+                task.wait(math.clamp(state.bhopJumpInterval,
+                    CONFIG.BhopMinInterval, CONFIG.BhopMaxInterval))
+            end
+        end)
+    end
+
+    function chat.stop()
+        chat.token = chat.token + 1
+    end
+
+    function chat.sync()
+        chat.stop()
+        if not alive or not state.spamChat then return end
+        if type(state.chatMessage) ~= "string" or state.chatMessage:match("^%s*$") then
+            state.spamChat = false
+            if refreshToggles.spamChat then refreshToggles.spamChat() end
+            tell("Spam Chat: сначала введи текст сообщения")
+            return
+        end
+        chat.errors = 0
+        local token = chat.token
+        task.spawn(function()
+            while alive and state.spamChat and token == chat.token do
+                -- Первая отправка после задержки: можно спокойно выключить переключатель.
+                local began = os.clock()
+                while alive and state.spamChat and token == chat.token do
+                    local remaining = state.chatInterval - (os.clock() - began)
+                    if remaining <= 0 then break end
+                    task.wait(math.min(0.25, remaining))
+                end
+                if not alive or not state.spamChat or token ~= chat.token then break end
+                local message = state.chatMessage
+                if not message or message:match("^%s*$") then
+                    chat.errors = 2
+                elseif UserInputService:GetFocusedTextBox() == nil then
+                    local channels = TextChatService:FindFirstChild("TextChannels")
+                    local channel = channels and channels:FindFirstChild("RBXGeneral")
+                    if channel and channel:IsA("TextChannel") then
+                        -- Только штатный API. Фильтры и ограничения Roblox не обходим.
+                        local ok = pcall(function() channel:SendAsync(message) end)
+                        if ok then
+                            chat.sent = chat.sent + 1 -- Попытка; не гарантия доставки другим.
+                            chat.errors = 0
+                        else
+                            chat.errors = chat.errors + 1
+                        end
+                    else
+                        chat.errors = chat.errors + 1
+                    end
+                end
+                if chat.errors >= 2 then
+                    state.spamChat = false
+                    if refreshToggles.spamChat then refreshToggles.spamChat() end
+                    requestSave()
+                    tell("Spam Chat остановлен: чат недоступен или отправка отклонена")
+                    break
+                end
+            end
+        end)
+    end
+end
+
 -- Сохраняем только ограниченный набор настроек; код из JSON никогда не выполняется.
 local HttpService = game:GetService("HttpService")
 local storedKeys = {
@@ -1657,6 +1797,7 @@ local storedKeys = {
     "prediction", "predictionSeconds", "targetLock", "aimFovPixels", "aimMode",
     "fovVisible", "fovThickness", "visibleCheck", "teamCheck", "fullbright", "booster",
     "antiAfk", "airAlerts", "hud", "activeHud", "aimKeyName", "controlRecoil", "recoilStrength", "boosterMode",
+    "bunnyHop", "bhopJumpInterval", "bhopSpeedMultiplier", "spamChat", "chatInterval", "chatMessage",
     "cameraFovEnabled", "cameraFovDegrees", "antiAim", "antiAimSpeed", "antiAimTilt",
 }
 local numericRules = {
@@ -1665,6 +1806,9 @@ local numericRules = {
     aimSmoothX = {1, 10}, aimSmoothY = {1, 10},
     predictionSeconds = {0, 0.25}, aimFovPixels = {40, 400},
     fovThickness = {1, 4}, recoilStrength = {0, 100},
+    bhopJumpInterval = {CONFIG.BhopMinInterval, CONFIG.BhopMaxInterval},
+    bhopSpeedMultiplier = {1, CONFIG.BhopSpeedMultiplierCap},
+    chatInterval = {CONFIG.ChatMinInterval, CONFIG.ChatMaxInterval},
     cameraFovDegrees = {55, 110}, antiAimSpeed = {180, 1440}, antiAimTilt = {0, 25},
 }
 local textRules = {
@@ -1705,7 +1849,17 @@ local function validatedSettings(values)
                 local rule = numericRules[key]
                 result[key] = rule and math.clamp(incoming, rule[1], rule[2]) or baseline
             elseif type(baseline) == "string" and type(incoming) == "string" then
-                if key == "aimKeyName" then
+                if key == "chatMessage" then
+                    local value = incoming:gsub("[%c]", " "):gsub("^%s+", ""):gsub("%s+$", "")
+                    local count = utf8.len(value)
+                    if count then
+                        if count > CONFIG.ChatMaxGraphemes then
+                            local stopAt = utf8.offset(value, CONFIG.ChatMaxGraphemes + 1)
+                            if stopAt then value = value:sub(1, stopAt - 1) end
+                        end
+                        result[key] = value
+                    end
+                elseif key == "aimKeyName" then
                     if validAimKeyName(incoming) then result[key] = incoming end
                 elseif textRules[key] and textRules[key][incoming] then
                     result[key] = incoming
@@ -1797,6 +1951,8 @@ local function applySettings(incoming, autoLoad)
         state.aimbot = false
         state.antiAfk = false
         state.antiAim = false
+        state.bunnyHop = false
+        state.spamChat = false
         -- Prevent an old saved profile from activating Booster before a baseline.
         -- The user may still enable it manually after loading the game.
         state.booster = false
@@ -1808,6 +1964,8 @@ local function applySettings(incoming, autoLoad)
             state.espBox = false
             state.espSkeleton = false
             state.controlRecoil = false
+            state.bunnyHop = false
+            state.spamChat = false
             state.fullbright = false
             state.booster = false
             state.cameraFovEnabled = false
@@ -1829,6 +1987,9 @@ local function applySettings(incoming, autoLoad)
     pcall(applyLighting)
     setAimEnabled(state.aimbot, false)
     recoil.reset()
+    utilityFX.bunny.sync()
+    utilityFX.chat.sync()
+    utilityFX.chat.repaintText()
     memoryFX.spin.reset()
     memoryFX.camera.apply()
     aimTarget = nil
@@ -2146,6 +2307,7 @@ local sectionSides = {
     ["FOV EDITOR"] = "right", ["CONTROL"] = "right", ["RECOIL CONTROL"] = "right",
     ["UTILITY"] = "left", ["PERFORMANCE"] = "right",
     ["CAMERA FOV"] = "left", ["ANTI-AIM"] = "right",
+    ["BUNNY HOP"] = "left", ["CHAT TOOLS"] = "right",
     ["PROFILES"] = "left", ["CONFIG TOOLS"] = "right", ["WINDOW"] = "right",
 }
 local function columnFor(page)
@@ -4047,6 +4209,8 @@ cleanup = function(safeStop)
         state.espSkeleton = false
         state.fullbright = false
         state.antiAfk = false
+        state.bunnyHop = false
+        state.spamChat = false
         state.booster = false
         state.cameraFovEnabled = false
         -- Если запись файла запрещена, защита на следующем запуске
@@ -4055,6 +4219,8 @@ cleanup = function(safeStop)
     end
     pcall(flushConfig) -- Safety Stop сохраняет уже выключенные переключатели.
     releaseAntiAfk()
+    utilityFX.bunny.stop() -- Сразу возвращаем исходную скорость при Unload.
+    utilityFX.chat.stop() -- Прерываем ожидающую отправку и не посылаем сообщений.
     recoil.shutdown()
     memoryFX.spin.reset()
     state.cameraFovEnabled = false
@@ -4067,6 +4233,8 @@ cleanup = function(safeStop)
     aimHeldKey = false
     captureAimKey = false
     state.antiAfk = false
+    state.bunnyHop = false
+    state.spamChat = false
     state.booster = false
     state.fullbright = false
     boosterRevision = boosterRevision + 1
@@ -4299,6 +4467,8 @@ task.spawn(function()
             if state.cameraFovEnabled then table.insert(features, "FOV") end
             if state.booster then table.insert(features, "BOOST") end
             if state.fullbright then table.insert(features, "LIGHT") end
+            if state.bunnyHop then table.insert(features, "BHOP") end
+            if state.spamChat then table.insert(features, "CHAT") end
             activeInfo.Text = #features > 0 and table.concat(features, " | ") or "124 / IDLE"
         end
         aimTouchButton.Visible = state.aimbot and UserInputService.TouchEnabled
