@@ -1057,13 +1057,28 @@ local function setBooster(enabled, keepBaseline)
         if not keepBaseline then boosterPro.baseline = boosterPro.average(boosterPro.originalFPS) end
         boosterPro.mode = state.boosterMode
         boosterPro.startedAt = os.clock()
-        applyLighting()
-        if state.boosterMode == "BALANCED" then
-            restoreTerrainGrass()
-            restoreTerrainColors()
-        else
-            hideTerrainGrass()
-            whitenTerrain()
+        local setupOk, setupErr = pcall(function()
+            applyLighting()
+            if state.boosterMode == "BALANCED" then
+                restoreTerrainGrass()
+                restoreTerrainColors()
+            else
+                hideTerrainGrass()
+                whitenTerrain()
+            end
+        end)
+        if not setupOk then
+            warn("[124 Community Hub] Booster: ошибка подготовки графики: "
+                .. tostring(setupErr))
+            state.booster = false
+            local rollbackOk, rollbackErr = pcall(setBooster, false)
+            if not rollbackOk then
+                warn("[124 Community Hub] Booster: ошибка запуска отката: "
+                    .. tostring(rollbackErr))
+            end
+            if refreshToggles.booster then pcall(refreshToggles.booster) end
+            requestSave()
+            return
         end
         task.spawn(function()
             local ok, err = pcall(function()
