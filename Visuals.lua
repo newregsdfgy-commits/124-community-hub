@@ -1,11 +1,11 @@
--- 124 Community Visuals v1.1.19 | Purple dashboard, responsive sidebar and original feature modules
+-- 124 Community Visuals v1.1.20 | cached roster, adaptive ESP budget and dashboard draw
 -- PlaceId: 18537079992
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.1.19",
+    Version = "1.1.20",
     PlaceId = 18537079992,
     EspRefreshSeconds = 0.75, -- Лёгкое обновление списка игроков; FPS на первом месте.
     EspMaxPlayers = 12, -- Меньше Highlight и GUI-обновлений по умолчанию.
@@ -50,8 +50,10 @@ local CONFIG = {
     BoosterLowFpsSliceMs = 0.9, -- При низком FPS защищаем время отрисовки.
     BoosterQueueBatch = 144, -- Новые объекты StreamingEnabled.
     BoosterQueueSliceMs = 1.1,
-    EspVisualBalancedHz = 30, -- ESP обновляется реже; AIM сохраняет полную частоту.
-    EspVisualEcoHz = 15,
+    EspVisualBalancedHz = 24, -- ESP снижает нагрузку; AIM сохраняет свою частоту.
+    EspVisualEcoHz = 12,
+    EspLowFps = 42, EspLowHz = 12,
+    EspCriticalFps = 30, EspCriticalHz = 8,
     EspShapeEcoLimit = 6,
     EspShapeBalancedLimit = 10,
     EspShapeQualityLimit = 20,
@@ -512,6 +514,30 @@ local function connect(signal, fn)
     return c
 end
 
+-- Единый roster без выделения массива на каждом AIM/ESP скане.
+-- Удаление через swap-with-last сохраняет плотность массива.
+perfCounters.roster = Players:GetPlayers()
+perfCounters.rosterIndex = {}
+for index, player in ipairs(perfCounters.roster) do
+    perfCounters.rosterIndex[player] = index
+end
+connect(Players.PlayerAdded, function(player)
+    if perfCounters.rosterIndex[player] then return end
+    local index = #perfCounters.roster + 1
+    perfCounters.roster[index] = player
+    perfCounters.rosterIndex[player] = index
+end)
+connect(Players.PlayerRemoving, function(player)
+    local roster, indices = perfCounters.roster, perfCounters.rosterIndex
+    local index = indices[player]
+    if not index then return end
+    local last = roster[#roster]
+    roster[index] = last
+    roster[#roster] = nil
+    indices[player] = nil
+    if last and last ~= player then indices[last] = index end
+end)
+
 local function mk(class, properties, parent)
     local instance = Instance.new(class)
     for key, value in pairs(properties or {}) do instance[key] = value end
@@ -713,6 +739,8 @@ local function updatePlayer(player, myRoot)
         item = nil
     end
     if not item then item = createRender(player, character, head) end
+    -- Кешируем части, которые рендерятся чаще, чем обновляется список игроков.
+    item.head, item.root, item.humanoid = head, root, hum
     -- Повторно активируем готовые Highlights вместо Destroy/Instance.new.
     item.inactiveSince = nil
     setIfDifferent(item.highlight, "Enabled", true)
@@ -783,7 +811,7 @@ local function refreshESP()
     local maxStuds = state.espRangeMeters / CONFIG.StudMeters
     local maxDistanceSquared = maxStuds * maxStuds
     table.clear(candidates)
-    for _, player in ipairs(Players:GetPlayers()) do
+    for _, player in ipairs(perfCounters.roster) do
         if player ~= LocalPlayer and (not state.espEnemyOnly or not sameTeamESP(player)) then
             local ch = player.Character
             local root = ch and ch:FindFirstChild("HumanoidRootPart")
@@ -1066,7 +1094,7 @@ function boosterPro.watchPlayer(person)
         end)
     end
 end
-for _, person in ipairs(Players:GetPlayers()) do boosterPro.watchPlayer(person) end
+for _, person in ipairs(perfCounters.roster) do boosterPro.watchPlayer(person) end
 if Players.PlayerAdded then connect(Players.PlayerAdded, boosterPro.watchPlayer) end
 
 -- Проверять каждую родительскую модель для каждой детали дорого.
@@ -1538,7 +1566,7 @@ local function findAimTarget(camera)
     local candidates = aimPro.candidates
     table.clear(candidates)
     local best = nil
-    for _, player in ipairs(Players:GetPlayers()) do
+    for _, player in ipairs(perfCounters.roster) do
         if player ~= LocalPlayer and player.Character and not sameTeam(player) then
             local part = targetPart(player.Character)
             if part then
@@ -3131,13 +3159,7 @@ do
         local history = dash.history
         if #history >= 16 then table.remove(history, 1) end
         history[#history + 1] = math.clamp(fps, 0, 240)
-        if home.Visible and panel.Visible then
-            for i = 1, 16 do
-                local value = history[i] or 0
-                dash.bars[i].Size = UDim2.new(1/16, -6,
-                    math.clamp(value / 120, 0.06, 0.96), 0)
-            end
-        end
+        dash.historyVersion = (dash.historyVersion or 0) + 1
     end
     dash.update = function()
         if not alive or not panel.Visible or not home.Visible then return end
@@ -3152,10 +3174,13 @@ do
             local low = summary:match("1%% Low (%d+) FPS")
             dash.cards.low.value.Text = low and (low .. " FPS") or "-- FPS"
         end
-        for i = 1, 16 do
-            local value = dash.history[i] or 0
-            dash.bars[i].Size = UDim2.new(1/16, -6,
-                math.clamp(value / 120, 0.06, 0.96), 0)
+        if dash.drawnVersion ~= dash.historyVersion then
+            for i = 1, 16 do
+                local value = dash.history[i] or 0
+                dash.bars[i].Size = UDim2.new(1/16, -6,
+                    math.clamp(value / 120, 0.06, 0.96), 0)
+            end
+            dash.drawnVersion = dash.historyVersion
         end
     end
 end
@@ -3358,13 +3383,12 @@ local function refreshTracers()
     if not myRoot then clearTracers(); return end
     for player, data in pairs(renderData) do
         local ch = data.character
-        local head = ch and ch:FindFirstChild("Head")
-        local root = ch and ch:FindFirstChild("HumanoidRootPart")
+        local head, root, hum = data.head, data.root, data.humanoid
         local visible = false
         local screenPosition
-        local hum = ch and ch:FindFirstChildOfClass("Humanoid")
         if data.inactiveSince == nil and player.Parent == Players and ch == player.Character
-            and hum and hum.Health > 0 and head and root
+            and hum and hum.Parent == ch and hum.Health > 0
+            and head and head.Parent == ch and root and root.Parent == ch
             and (not state.espEnemyOnly or not sameTeamESP(player))
             and (root.Position - myRoot.Position).Magnitude * CONFIG.StudMeters <= state.espRangeMeters then
             local point, onScreen = camera:WorldToViewportPoint(head.Position + Vector3.new(0, 1.8, 0))
@@ -3382,11 +3406,12 @@ local function refreshTracers()
             local goal2d = Vector2.new(screenPosition.X, screenPosition.Y)
             local vector = goal2d - source
             local length = vector.Magnitude
-            data.tracer.Visible = length > 2
+            setIfDifferent(data.tracer, "Visible", length > 2)
             if length > 2 then
                 setIfDifferent(data.tracer, "Size", UDim2.fromOffset(length, 1))
-                data.tracer.Position = UDim2.fromOffset((goal2d.X + source.X) / 2, (goal2d.Y + source.Y) / 2)
-                data.tracer.Rotation = math.deg(math.atan2(vector.Y, vector.X))
+                setIfDifferent(data.tracer, "Position",
+                    UDim2.fromOffset((goal2d.X + source.X) / 2, (goal2d.Y + source.Y) / 2))
+                setIfDifferent(data.tracer, "Rotation", math.deg(math.atan2(vector.Y, vector.X)))
                 setIfDifferent(data.tracer, "BackgroundColor3", getPlayerColor(player))
             end
         elseif data.tracer then
@@ -3492,11 +3517,11 @@ local function refreshShapes()
         if activeCount >= shapeBudget then break end
         local info = renderData[player]
         local char = info and info.character
-        local head = char and char:FindFirstChild("Head")
-        local root = char and char:FindFirstChild("HumanoidRootPart")
-        local hum = char and char:FindFirstChildOfClass("Humanoid")
-        if info and player.Parent == Players and head and root and hum and hum.Health > 0
-            and player.Character == char and (not state.espEnemyOnly or not sameTeamESP(player))
+        local head, root, hum = info and info.head, info and info.root, info and info.humanoid
+        if info and player.Parent == Players and head and head.Parent == char
+            and root and root.Parent == char and hum and hum.Parent == char
+            and hum.Health > 0 and player.Character == char
+            and (not state.espEnemyOnly or not sameTeamESP(player))
             and (root.Position - myRoot.Position).Magnitude * CONFIG.StudMeters <= state.espRangeMeters then
             active[player] = true
             local item = shapeItem(player, char)
@@ -4961,7 +4986,7 @@ do
         mon.probes = 0
         local candidates = {}
         -- Фильтровать дешёво всех: дальние и незагруженные НЕ тратят бюджет.
-        for _, other in ipairs(Players:GetPlayers()) do
+        for _, other in ipairs(perfCounters.roster) do
             if other ~= LocalPlayer and other.Parent == Players then
                 local ch = other.Character
                 local root = ch and ch:FindFirstChild("HumanoidRootPart")
@@ -5619,14 +5644,24 @@ perfCounters.espVisual.frame = function(dt)
         local tier = visualPerfTier()
         local hz = tier == "ECO" and CONFIG.EspVisualEcoHz
             or tier == "QUALITY" and 120 or CONFIG.EspVisualBalancedHz
+        -- При просадках сразу ограничиваем ТОЛЬКО ESP GUI, AIM не затрагиваем.
+        if state.performanceMode == "AUTO" then
+            if measuredFps < CONFIG.EspCriticalFps then
+                hz = math.min(hz, CONFIG.EspCriticalHz)
+            elseif measuredFps < CONFIG.EspLowFps then
+                hz = math.min(hz, CONFIG.EspLowHz)
+            end
+        end
         if state.performanceGuard and perfCounters.guard.level == 2 then
             hz = math.min(hz, CONFIG.GuardVisualHzL2)
         elseif state.performanceGuard and perfCounters.guard.level == 1 then
             hz = math.min(hz, CONFIG.GuardVisualHzL1)
         end
         espVisualElapsed = espVisualElapsed + math.min(dt, 0.12)
-        if espVisualElapsed < 1 / hz then return end
-        espVisualElapsed = 0
+        local period = 1 / hz
+        if espVisualElapsed < period then return end
+        -- Не теряем дробную часть времени; не догоняем пропущенные кадры.
+        espVisualElapsed = math.min(espVisualElapsed - period, period)
     end
     if state.tracers then
         local ok, err = pcall(refreshTracers)
