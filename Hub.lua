@@ -148,7 +148,7 @@ local boosterPro = {
     queued = {}, queuedSeen = setmetatable({}, {__mode = "k"}),
     queueHead = 1, queueTail = 0, queueCount = 0, queueCap = 8192,
     queuedProcessed = setmetatable({}, {__mode = "k"}),
-    queueDropped = 0, scanned = 0,
+    queueDropped = 0, scanned = 0, repairing = false, repaired = false,
 }
 -- Только для исполнителей, умеющих читать/писать Terrain.Decoration.
 -- Если это недоступно, не трогаем Terrain: полноценного SmoothPlastic для него нет.
@@ -290,10 +290,12 @@ local function deleteRender(player)
     renderData[player] = nil
 end
 
+local cachedGreen = Color3.fromRGB(93, 210, 152)
+local cachedWhite = Color3.fromRGB(229, 229, 223)
 local function getPlayerColor(player)
     if state.espColorPreset == "GOLD" then return CONFIG.EspGold end
-    if state.espColorPreset == "GREEN" then return Color3.fromRGB(93, 210, 152) end
-    if state.espColorPreset == "WHITE" then return Color3.fromRGB(229, 229, 223) end
+    if state.espColorPreset == "GREEN" then return cachedGreen end
+    if state.espColorPreset == "WHITE" then return cachedWhite end
     if state.teamColors and player.Team ~= nil then
         return player.TeamColor.Color
     end
@@ -896,9 +898,16 @@ end
 -- Инициируется CharacterAdded или поступлением Humanoid/частей тела.
 function boosterPro.restoreProtectedTree(character)
     if not character then return end
-    for obj, snapshot in pairs(savedGraphics) do
-        if obj == character or obj:IsDescendantOf(character) then
-            boosterPro.restoreObject(obj, snapshot)
+    -- Раньше перебирались ВСЕ сохранённые детали карты на каждое появление
+    -- персонажа. Теперь проверяем только его собственное дерево.
+    local stack = {character}
+    while #stack > 0 do
+        local obj = stack[#stack]
+        stack[#stack] = nil
+        local snap = savedGraphics[obj]
+        if snap then boosterPro.restoreObject(obj, snap) end
+        for _, child in ipairs(obj:GetChildren()) do
+            stack[#stack + 1] = child
         end
     end
 end
@@ -918,6 +927,7 @@ local function setBooster(enabled, keepBaseline)
     boosterPro.queuedProcessed = setmetatable({}, {__mode = "k"})
     boosterPro.queueHead, boosterPro.queueTail, boosterPro.queueCount = 1, 0, 0
     boosterPro.queueDropped, boosterPro.scanned = 0, 0
+    boosterPro.repairing, boosterPro.repaired = false, false
     if enabled then
         boosterPro.after = nil
         boosterPro.afterFPS = {}
@@ -3850,7 +3860,7 @@ connect(Lighting.DescendantAdded, boosterPro.queueObject)
 task.spawn(function()
     while alive do
         -- Во время первичного обхода не обрабатываем одни и те же детали дважды.
-        if state.booster and boosterPro.complete and boosterPro.queueCount > 0 then
+        if state.booster and boosterPro.complete and not boosterPro.repairing and boosterPro.queueCount > 0 then
             local revision = boosterRevision
             local sliceStarted = os.clock()
             local count = math.min(CONFIG.BoosterQueueBatch, boosterPro.queueCount)
@@ -3873,6 +3883,29 @@ task.spawn(function()
                     break
                 end
             end
+        end
+        -- Если StreamingEnabled переполнил кольцевую очередь,
+        -- один фоновый повторный проход восстановит пропущенные детали.
+        -- Проход ограничен тем же миллисекундным бюджетом; не бесконечный цикл.
+        if state.booster and boosterPro.complete and boosterPro.queueCount == 0
+            and boosterPro.queueDropped > 0 and not boosterPro.repaired
+            and not boosterPro.repairing then
+            boosterPro.repairing, boosterPro.repaired = true, true
+            local repairRevision = boosterRevision
+            task.spawn(function()
+                local ok, result = pcall(function()
+                    return optimizeHierarchy(Workspace, repairRevision)
+                        and optimizeHierarchy(Lighting, repairRevision)
+                end)
+                boosterPro.repairing = false
+                if alive and state.booster and repairRevision == boosterRevision then
+                    if ok and result then
+                        tell("Booster: восстановлена обработка пропущенных при подгрузке объектов")
+                    else
+                        warn("[124 Community Hub] Booster: повторная проверка подгрузки не завершена")
+                    end
+                end
+            end)
         end
         task.wait(state.booster and boosterPro.complete and boosterPro.queueCount > 0 and 0 or 0.12)
     end
