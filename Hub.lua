@@ -63,6 +63,8 @@ local CONFIG = {
     PerfBalancedRecoverySamples = 5,
     FrameTimeWindow = 240, -- Скользящее окно; 1% low — по худшим кадрам.
     FrameTimeSpikeMs = 50,
+    EspCacheIdleSeconds = 3.5, -- Коротко переиспользуем GUI за пределами TOP N.
+    EspCacheMaxExtra = 4, -- Всего не более 4 скрытых Highlight сверх лимита.
     BhopMinInterval = 0.08, -- Частота проверок прыжка; физика ограничивает реальный BHOP.
     BhopMaxInterval = 0.60,
     BhopSpeedMultiplierCap = 2.0,
@@ -575,7 +577,8 @@ local function createRender(player, character, head)
         Text = "",
     }, bb)
     local item = {character = character, highlight = hl, billboard = bb,
-        nameLabel = nameLabel, healthLabel = healthLabel, distanceLabel = distanceLabel}
+        nameLabel = nameLabel, healthLabel = healthLabel, distanceLabel = distanceLabel,
+        inactiveSince = nil}
     renderData[player] = item
     return item
 end
@@ -604,6 +607,9 @@ local function updatePlayer(player, myRoot)
         item = nil
     end
     if not item then item = createRender(player, character, head) end
+    -- Повторно активируем готовые Highlights вместо Destroy/Instance.new.
+    item.inactiveSince = nil
+    setIfDifferent(item.highlight, "Enabled", true)
     local color = getPlayerColor(player)
     local meters = myRoot and math.floor(
         (root.Position - myRoot.Position).Magnitude * CONFIG.StudMeters + 0.5
@@ -713,8 +719,25 @@ local function refreshESP()
         updatePlayer(player, myRoot)
         if renderData[player] then ordered[#ordered + 1] = player end
     end
-    for player in pairs(renderData) do
-        if not keep[player] then deleteRender(player) end
+    local now, cached = os.clock(), 0
+    for player, item in pairs(renderData) do
+        if not keep[player] then
+            local invalid = player.Parent ~= Players or item.character ~= player.Character
+                or not isLive(item.highlight) or not isLive(item.billboard)
+            local expired = item.inactiveSince
+                and (now - item.inactiveSince >= CONFIG.EspCacheIdleSeconds)
+            if invalid or expired or cached >= CONFIG.EspCacheMaxExtra then
+                deleteRender(player)
+            else
+                -- Скрытые объекты сохраняют только невидимый кэш на 3.5 сек.
+                -- Не должны оставаться линии/подсветка вне выбранного TOP N.
+                if not item.inactiveSince then item.inactiveSince = now end
+                cached = cached + 1
+                setIfDifferent(item.highlight, "Enabled", false)
+                setIfDifferent(item.billboard, "Enabled", false)
+                if item.tracer then setIfDifferent(item.tracer, "Visible", false) end
+            end
+        end
     end
     perfCounters.espCount = #ordered
 end
@@ -2835,7 +2858,7 @@ local function refreshTracers()
         local visible = false
         local screenPosition
         local hum = ch and ch:FindFirstChildOfClass("Humanoid")
-        if player.Parent == Players and ch == player.Character
+        if data.inactiveSince == nil and player.Parent == Players and ch == player.Character
             and hum and hum.Health > 0 and head and root
             and (not state.espEnemyOnly or not sameTeamESP(player))
             and (root.Position - myRoot.Position).Magnitude * CONFIG.StudMeters <= state.espRangeMeters then
@@ -2964,6 +2987,7 @@ local function refreshShapes()
             and (root.Position - myRoot.Position).Magnitude * CONFIG.StudMeters <= state.espRangeMeters then
             active[player] = true
             local item = shapeItem(player, char)
+            item.inactiveSince = nil
             local color = getPlayerColor(player)
             local top, on1 = camera:WorldToViewportPoint(head.Position + Vector3.new(0, head.Size.Y * 0.5 + 0.25, 0))
             local bottom, on2 = camera:WorldToViewportPoint(root.Position - Vector3.new(0, 3, 0))
@@ -3025,10 +3049,21 @@ local function refreshShapes()
             end
         end
     end
+    local now, cached = os.clock(), 0
     for player, item in pairs(shapeData) do
         if not active[player] then
-            pcall(function() item.container:Destroy() end)
-            shapeData[player] = nil
+            hideShape(item)
+            local invalid = player.Parent ~= Players or item.character ~= player.Character
+                or not renderData[player] or not item.container.Parent
+            local expired = item.inactiveSince
+                and (now - item.inactiveSince >= CONFIG.EspCacheIdleSeconds)
+            if invalid or expired or cached >= CONFIG.EspCacheMaxExtra then
+                pcall(function() item.container:Destroy() end)
+                shapeData[player] = nil
+            else
+                if not item.inactiveSince then item.inactiveSince = now end
+                cached = cached + 1
+            end
         end
     end
     perfCounters.shapeCount = activeCount
