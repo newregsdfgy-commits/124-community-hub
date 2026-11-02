@@ -1841,8 +1841,6 @@ do
     end
 end
 
-end
-
 -- Сохраняем только ограниченный набор настроек; код из JSON никогда не выполняется.
 local HttpService = game:GetService("HttpService")
 local storedKeys = {
