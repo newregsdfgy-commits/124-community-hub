@@ -1,5 +1,5 @@
--- 124 Community Visuals v1.1.24 / CUSTOM CHAT AUDIT (read-only)
--- Does not send chat messages, interact with remotes or modify game UI.
+-- 124 Community Visuals v1.1.24 / CUSTOM CHAT AUDIT (on-screen)
+-- Does not send chat messages or invoke remotes; only owns its report panel.
 local Players = game:GetService("Players")
 local TextChatService = game:GetService("TextChatService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -7,6 +7,112 @@ local player = Players.LocalPlayer
 if not player then warn("[CHAT AUDIT] LocalPlayer missing"); return end
 local gui = player:FindFirstChildOfClass("PlayerGui") or player:WaitForChild("PlayerGui", 10)
 if not gui then warn("[CHAT AUDIT] PlayerGui missing"); return end
+-- Dedicated in-game report: external Xeno console doesn't always display Luau prints.
+local previousPanel = gui:FindFirstChild("Army124ChatAuditPanel")
+if previousPanel then previousPanel:Destroy() end
+local panelGui = Instance.new("ScreenGui")
+panelGui.Name = "Army124ChatAuditPanel"
+panelGui.ResetOnSpawn = false
+panelGui.IgnoreGuiInset = false
+panelGui.DisplayOrder = 20000
+panelGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+local window = Instance.new("Frame")
+window.Name = "AuditWindow"
+window.AnchorPoint = Vector2.new(0.5, 0.5)
+window.Position = UDim2.fromScale(0.5, 0.5)
+window.Size = UDim2.new(0.94, 0, 0.82, 0)
+window.BackgroundColor3 = Color3.fromRGB(22, 27, 32)
+window.BorderSizePixel = 0
+window.Parent = panelGui
+local widthLimit = Instance.new("UISizeConstraint")
+widthLimit.MinSize = Vector2.new(250, 205)
+widthLimit.MaxSize = Vector2.new(620, 560)
+widthLimit.Parent = window
+local windowStroke = Instance.new("UIStroke")
+windowStroke.Color = Color3.fromRGB(77, 87, 96)
+windowStroke.Thickness = 1
+windowStroke.Parent = window
+local title = Instance.new("TextLabel")
+title.Name = "AuditTitle"
+title.BackgroundTransparency = 1
+title.Position = UDim2.fromOffset(13, 7)
+title.Size = UDim2.new(1, -26, 0, 24)
+title.Text = "124 / CHAT AUDIT   |   ЗАГРУЗКА..."
+title.Font = Enum.Font.GothamBold
+title.TextSize = 13
+title.TextColor3 = Color3.fromRGB(223, 227, 231)
+title.TextXAlignment = Enum.TextXAlignment.Left
+title.Parent = window
+local instructions = Instance.new("TextLabel")
+instructions.BackgroundTransparency = 1
+instructions.Position = UDim2.fromOffset(13, 31)
+instructions.Size = UDim2.new(1, -26, 0, 20)
+instructions.Text = "Только чтение. Сообщения не отправляются."
+instructions.TextSize = 11
+instructions.Font = Enum.Font.Gotham
+instructions.TextColor3 = Color3.fromRGB(150, 161, 172)
+instructions.TextXAlignment = Enum.TextXAlignment.Left
+instructions.Parent = window
+local scroller = Instance.new("ScrollingFrame")
+scroller.Name = "AuditResults"
+scroller.BackgroundColor3 = Color3.fromRGB(15, 18, 21)
+scroller.BorderSizePixel = 0
+scroller.Position = UDim2.fromOffset(12, 58)
+scroller.Size = UDim2.new(1, -24, 1, -112)
+scroller.ScrollBarThickness = 5
+scroller.ScrollingDirection = Enum.ScrollingDirection.Y
+scroller.AutomaticCanvasSize = Enum.AutomaticSize.Y
+scroller.CanvasSize = UDim2.new(0, 0, 0, 0)
+scroller.Parent = window
+local outputLabel = Instance.new("TextLabel")
+outputLabel.Name = "ReportText"
+outputLabel.BackgroundTransparency = 1
+outputLabel.Position = UDim2.fromOffset(8, 8)
+outputLabel.Size = UDim2.new(1, -24, 0, 0)
+outputLabel.AutomaticSize = Enum.AutomaticSize.Y
+outputLabel.Text = "[CHAT AUDIT] Считываю настройки и интерфейс игры..."
+outputLabel.TextColor3 = Color3.fromRGB(221, 226, 230)
+outputLabel.Font = Enum.Font.Code
+outputLabel.TextSize = 12
+outputLabel.TextWrapped = true
+outputLabel.TextXAlignment = Enum.TextXAlignment.Left
+outputLabel.TextYAlignment = Enum.TextYAlignment.Top
+outputLabel.Parent = scroller
+local copy = Instance.new("TextButton")
+copy.Name = "CopyReport"
+copy.Position = UDim2.new(0, 12, 1, -45)
+copy.Size = UDim2.new(0.55, -16, 0, 34)
+copy.Text = "СКОПИРОВАТЬ ОТЧЁТ"
+copy.Font = Enum.Font.GothamMedium
+copy.TextSize = 11
+copy.TextColor3 = Color3.fromRGB(242, 242, 242)
+copy.BackgroundColor3 = Color3.fromRGB(56, 67, 76)
+copy.BorderSizePixel = 0
+copy.Parent = window
+local close = Instance.new("TextButton")
+close.Name = "CloseAudit"
+close.Position = UDim2.new(0.55, 2, 1, -45)
+close.Size = UDim2.new(0.45, -14, 0, 34)
+close.Text = "ЗАКРЫТЬ"
+close.Font = Enum.Font.GothamMedium
+close.TextSize = 11
+close.TextColor3 = Color3.fromRGB(236, 237, 239)
+close.BackgroundColor3 = Color3.fromRGB(46, 51, 57)
+close.BorderSizePixel = 0
+close.Parent = window
+local reportOutput = ""
+close.Activated:Connect(function() panelGui:Destroy() end)
+copy.Activated:Connect(function()
+    if type(setclipboard) ~= "function" then
+        instructions.Text = "Нет функции копирования. Сделай скриншот окна."
+        return
+    end
+    local ok = pcall(setclipboard, reportOutput)
+    instructions.Text = ok and "Отчёт скопирован." or
+        "Не получилось скопировать. Сделай скриншот."
+end)
+panelGui.Parent = gui
+
 local report = {}
 local function line(text)
     report[#report + 1] = "[CHAT AUDIT] " .. tostring(text)
@@ -119,6 +225,11 @@ if type(getgenv) == "function" then
     if ok and type(result) == "table" then env = result end
 end
 env.ARMY124_CHAT_AUDIT = output
+reportOutput = output
+if panelGui.Parent and outputLabel.Parent then
+    outputLabel.Text = output
+    title.Text = "124 / CHAT AUDIT   |   ГОТОВО"
+end
 print(output)
 print("[CHAT AUDIT] Copy console output, or run: print(getgenv().ARMY124_CHAT_AUDIT)")
 return output
