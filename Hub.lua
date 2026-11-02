@@ -5236,7 +5236,8 @@ task.spawn(function()
             local ok, err = pcall(perfCounters.cpu.wrapped.ESPScan)
             if not ok then warn("[124 Community Hub] ESP: " .. tostring(err)) end
         end
-        local tier = perfTier()
+        -- Visual guard may slow roster refresh independently of AIM scans.
+        local tier = visualPerfTier()
         local interval = tier == "ECO" and 1.25 or tier == "QUALITY" and 0.45
             or CONFIG.EspRefreshSeconds
         task.wait(interval)
