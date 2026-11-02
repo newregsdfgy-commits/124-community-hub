@@ -2,7 +2,7 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 const fs = require("node:fs");
-const src = fs.readFileSync("Hub.lua", "utf8");
+const src = fs.readFileSync("Visuals.lua", "utf8");
 
 function setting(name) {
   const m = src.match(new RegExp(name + "\\s*=\\s*(\\d+)"));
@@ -34,8 +34,8 @@ function modelGuard(sequence, initialLevel = 0) {
   return trace;
 }
 
-test("release is isolated to v1.1.18 test branch", () => {
-  assert.match(src, /Version\s*=\s*"1\.1\.18"/);
+test("release is isolated to v1.1.19 test branch", () => {
+  assert.match(src, /Version\s*=\s*"1\.1\.19"/);
   assert.match(src, /PlaceId\s*=\s*18537079992/);
   assert.match(src, /xpcall\(initializeHubUI/);
   assert.match(src, /env\.ARMY124_CLEANUP = abortPartialHub/);
