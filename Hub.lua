@@ -3250,6 +3250,99 @@ addButton(pages.MISC, "Сбросить Anti-Aim", "Выключить вращ�
     requestSave()
     tell("Anti-Aim: отключён, исходная анимация восстановлена")
 end)
+-- MOVEMENT: BHOP только при движении, оба параметра меняются без RenderStepped.
+addSection(pages.MISC, "BUNNY HOP", "Прыжки на земле и настройка скорости")
+addToggle(pages.MISC, "Bunny Hop", "Автопрыжки при движении, без телепортов", "bunnyHop", function()
+    utilityFX.bunny.sync()
+end)
+addSlider(pages.MISC, "Задержка прыжков", "Меньше секунд = чаще попытки", "bhopJumpInterval",
+    CONFIG.BhopMinInterval, CONFIG.BhopMaxInterval, 0.02,
+    function(v) return string.format("%.2f сек", v) end)
+addSlider(pages.MISC, "Скорость BHOP", "Локальная скорость движения (1.0–2.0x)", "bhopSpeedMultiplier",
+    1, CONFIG.BhopSpeedMultiplierCap, 0.1,
+    function(v) return string.format("%.1fx", v) end, function()
+        utilityFX.bunny.applySpeed()
+    end)
+addButton(pages.MISC, "Статус Bunny Hop", "Проверить текущую скорость и переключатель", function()
+    local b = utilityFX.bunny
+    local hum = b.humanoid
+    tell("BHOP " .. (state.bunnyHop and "ON" or "OFF")
+        .. " | " .. tostring(state.bhopJumpInterval) .. " сек"
+        .. " | x" .. tostring(state.bhopSpeedMultiplier)
+        .. " | WalkSpeed " .. (hum and tostring(hum.WalkSpeed) or "н/д"))
+end)
+
+-- CHAT: обычный TextChannel. Применяется штатная фильтрация и лимиты Roblox.
+addSection(pages.MISC, "CHAT TOOLS", "Свой текст, интервал и включение")
+local chatTextFrame = mk("Frame", {
+    Name = "ChatCustomTextFrame", Size = UDim2.new(1, 0, 0, 78),
+    BackgroundColor3 = CONFIG.Surface, BorderSizePixel = 0,
+}, columnFor(pages.MISC))
+registerWidget(pages.MISC, chatTextFrame)
+round(chatTextFrame, 7)
+mk("UIStroke", {Color = P.border, Transparency = 0.48, Thickness = 1}, chatTextFrame)
+mk("TextLabel", {
+    BackgroundTransparency = 1, Position = UDim2.fromOffset(10, 5),
+    Size = UDim2.new(1, -20, 0, 18), Text = "Текст сообщения",
+    TextColor3 = P.text, TextSize = 12, Font = Enum.Font.GothamMedium,
+    TextXAlignment = Enum.TextXAlignment.Left,
+}, chatTextFrame)
+local chatTextBox = mk("TextBox", {
+    Name = "CustomChatMessage",
+    Position = UDim2.fromOffset(10, 28),
+    Size = UDim2.new(1, -20, 0, 39),
+    BackgroundColor3 = P.background,
+    TextColor3 = P.text,
+    PlaceholderColor3 = CONFIG.Muted,
+    PlaceholderText = "Введи сообщение (до 160 символов)",
+    Text = state.chatMessage,
+    Font = Enum.Font.Gotham, TextSize = 12,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    ClearTextOnFocus = false,
+    MultiLine = false,
+    TextWrapped = false,
+    BorderSizePixel = 0,
+}, chatTextFrame)
+round(chatTextBox, 5)
+mk("UIPadding", {PaddingLeft = UDim.new(0, 9),
+    PaddingRight = UDim.new(0, 9)}, chatTextBox)
+local chatEditing = false
+utilityFX.chat.repaintText = function()
+    if chatTextBox.Parent and not chatEditing and chatTextBox.Text ~= state.chatMessage then
+        chatTextBox.Text = state.chatMessage
+    end
+end
+connect(chatTextBox.Focused, function() chatEditing = true end)
+connect(chatTextBox.FocusLost, function()
+    chatEditing = false
+    local value = chatTextBox.Text:gsub("[%c]", " ")
+        :gsub("^%s+", ""):gsub("%s+$", "")
+    local chars = utf8.len(value)
+    if not chars then
+        tell("Chat: текст содержит некорректные символы")
+    else
+        if chars > CONFIG.ChatMaxGraphemes then
+            local cut = utf8.offset(value, CONFIG.ChatMaxGraphemes + 1)
+            if cut then value = value:sub(1, cut - 1) end
+        end
+        state.chatMessage = value
+        if state.spamChat and value == "" then utilityFX.chat.sync() end
+        requestSave()
+    end
+    utilityFX.chat.repaintText()
+end)
+addSlider(pages.MISC, "Задержка сообщений", "Не чаще одного раза в 5 секунд", "chatInterval",
+    CONFIG.ChatMinInterval, CONFIG.ChatMaxInterval, 1,
+    function(v) return tostring(v) .. " сек" end)
+addToggle(pages.MISC, "Spam Chat", "Автоотправка в RBXGeneral; возможны ограничения", "spamChat",
+    function() utilityFX.chat.sync() end)
+addButton(pages.MISC, "Статус чата", "Диагностика попыток (не гарантия доставки)", function()
+    tell("Chat " .. (state.spamChat and "ON" or "OFF")
+        .. " | Интервал " .. tostring(state.chatInterval) .. " сек"
+        .. " | Попыток " .. tostring(utilityFX.chat.sent)
+        .. " | Ошибок подряд " .. tostring(utilityFX.chat.errors))
+end)
+
 addButton(pages.MISC, "Reset Character", "Локальный сброс Humanoid", function()
     local character = LocalPlayer.Character
     local hum = character and character:FindFirstChildOfClass("Humanoid")
