@@ -241,7 +241,7 @@ function perfCounters.guard.reset()
     g.level, g.low, g.critical, g.good = 0, 0, 0, 0
     g.changed = os.clock()
 end
-function perfCounters.guard.update(fps)
+function perfCounters.guard.update(fps, spikes)
     local g = perfCounters.guard
     if not state.performanceGuard then
         if g.level ~= 0 then g.reset() end
@@ -250,9 +250,13 @@ function perfCounters.guard.update(fps)
     if type(fps) ~= "number" or fps <= 0 then return end
     -- Three sustained readings to step down; eight good readings to
     -- step UP. The guard is reversible and never modifies profile settings.
-    g.low = fps < CONFIG.GuardLowFps and g.low + 1 or 0
-    g.critical = fps < CONFIG.GuardCriticalFps and g.critical + 1 or 0
-    g.good = fps >= CONFIG.GuardRecoveryFps and g.good + 1 or 0
+    -- Sustained 50ms+ frametime spikes matter even if average FPS looks fine.
+    local stutters = type(spikes) == "number" and spikes or 0
+    g.low = (fps < CONFIG.GuardLowFps or stutters >= 3) and g.low + 1 or 0
+    g.critical = (fps < CONFIG.GuardCriticalFps or stutters >= 6)
+        and g.critical + 1 or 0
+    g.good = (fps >= CONFIG.GuardRecoveryFps and stutters == 0)
+        and g.good + 1 or 0
     if os.clock() - g.changed < CONFIG.GuardMinStepSeconds then return end
     local nextLevel = g.level
     if g.level < 2 and g.critical >= CONFIG.GuardLowSamples then
@@ -379,13 +383,16 @@ end
 -- Fixed-size ring buffer for frametime. O(1) work, no allocations per frame.
 -- Percentile/sort only when diagnostics are requested or MISC is visible.
 perfCounters.frametime = {data = {}, cursor = 1, count = 0, scratch = {},
-    lastUpdated = 0, label = nil, lastShown = ""}
+    lastUpdated = 0, label = nil, lastShown = "", spikesThisSecond = 0}
 function perfCounters.frametime.observe(dt)
     if type(dt) ~= "number" or dt <= 0 or dt ~= dt then return end
     local ft = perfCounters.frametime
     -- Показываем даже долгие зависания, не теряя >2 с. 10-секундный
     -- потолок защищает расчёты от Inf/экстремальных значений.
     ft.data[ft.cursor] = math.min(dt * 1000, 10000)
+    if state.performanceGuard and dt * 1000 >= CONFIG.FrameTimeSpikeMs then
+        ft.spikesThisSecond = ft.spikesThisSecond + 1
+    end
     ft.cursor = ft.cursor % CONFIG.FrameTimeWindow + 1
     ft.count = math.min(ft.count + 1, CONFIG.FrameTimeWindow)
 end
@@ -3895,6 +3902,14 @@ addButton(pages.MISC, "Диагностика Performance",
             .. " / shapes " .. tostring(perfCounters.lazy.shapesCreated)
             .. " | " .. (state.lazyLoading and "Lazy ON" or "Lazy OFF"))
     end)
+perfCounters.guard.label = mk("TextLabel", {
+    Name = "PerformanceGuardDiagnostics", Size = UDim2.new(1, 0, 0, 28),
+    BackgroundColor3 = CONFIG.Surface, BorderSizePixel = 0,
+    Text = "Performance Guard: OFF", TextColor3 = CONFIG.Muted,
+    Font = Enum.Font.Code, TextSize = 10, TextWrapped = true,
+}, columnFor(pages.MISC))
+registerWidget(pages.MISC, perfCounters.guard.label)
+round(perfCounters.guard.label, 6)
 local perfLabel = mk("TextLabel", {Name = "PerfDiagnostics", BackgroundColor3 = CONFIG.Surface,
     BorderSizePixel = 0, Size = UDim2.new(1, 0, 0, 35),
     Text = "ESP 0 · Box 0 · Scan 0ms", TextColor3 = CONFIG.Muted,
@@ -5295,7 +5310,8 @@ connect(RunService.RenderStepped, function(dt)
     if accumulated >= 1 then
         measuredFps = math.floor(frames / math.max(accumulated, 0.01) + 0.5)
         updateAutoPerformanceTier()
-        perfCounters.guard.update(measuredFps)
+        perfCounters.guard.update(measuredFps, perfCounters.frametime.spikesThisSecond)
+        perfCounters.frametime.spikesThisSecond = 0
         boosterPro.measure(measuredFps)
         frames, accumulated = 0, 0
     end
@@ -5341,6 +5357,12 @@ task.spawn(function()
             if summary ~= perfCounters.session.lastShown then
                 perfCounters.session.label.Text = summary
                 perfCounters.session.lastShown = summary
+            end
+        end
+        if panel.Visible and pages.MISC.Visible and perfCounters.guard.label then
+            local label = perfCounters.guard.description()
+            if perfCounters.guard.label.Text ~= label then
+                perfCounters.guard.label.Text = label
             end
         end
         if state.hud or state.activeHud or pages.MISC.Visible then
