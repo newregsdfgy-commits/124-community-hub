@@ -1,11 +1,11 @@
--- 124 Community Visuals v1.1.22 | startup diagnostics + operator GUI
+-- 124 Community Visuals v1.1.23 | booster stutter-control and startup diagnostics
 -- PlaceId: 18537079992
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.1.22",
+    Version = "1.1.23",
     PlaceId = 18537079992,
     EspRefreshSeconds = 0.75, -- Лёгкое обновление списка игроков; FPS на первом месте.
     EspMaxPlayers = 12, -- Меньше Highlight и GUI-обновлений по умолчанию.
@@ -45,11 +45,15 @@ local CONFIG = {
     RecoilMinPitchDegrees = 0.045, -- Не реагируем на микродрожание камеры.
     RecoilMaxPitchDegrees = 5.0, -- Не воспринимаем резкий разворот как отдачу.
     RecoilMaxCorrectionDegrees = 1.60, -- Ограничение коррекции за кадр.
-    BoosterBatch = 320, -- Максимум объектов за один проход, но ограничиваем и время.
-    BoosterSliceMs = 2.2, -- Бюджет CPU на кадр для полной обработки карты.
-    BoosterLowFpsSliceMs = 0.9, -- При низком FPS защищаем время отрисовки.
-    BoosterQueueBatch = 144, -- Новые объекты StreamingEnabled.
-    BoosterQueueSliceMs = 1.1,
+    BoosterBatch = 48, -- Меньше изменений деталей в одной порции.
+    BoosterSliceMs = 0.55, -- Меньше CPU и GPU-пересборок за проход.
+    BoosterLowFpsSliceMs = 0.22, -- Консервативный бюджет при просадках.
+    BoosterInitialDelay = 0.050, BoosterLowFpsDelay = 0.100,
+    BoosterQueueBatch = 24, -- При StreamingEnabled избегаем пачек 144.
+    BoosterQueueSliceMs = 0.35,
+    BoosterQueueDelay = 0.080, BoosterQueueLowFpsDelay = 0.150,
+    BoosterRepairCooldown = 45, -- Нет повторного обхода каждые 12 секунд.
+    BoosterRepairIdleSeconds = 3, -- Сначала даём стримингу завершиться.
     EspVisualBalancedHz = 24, -- ESP снижает нагрузку; AIM сохраняет свою частоту.
     EspVisualEcoHz = 12,
     EspLowFps = 42, EspLowHz = 12,
@@ -260,6 +264,7 @@ local boosterPro = {
     queuedProcessed = setmetatable({}, {__mode = "k"}),
     queueDropped = 0, scanned = 0, repairing = false,
     repairCoveredDrops = 0, repairRetryAt = 0, repairErrors = 0,
+    queueLastAt = 0, slicePeakMs = 0, queuePeakMs = 0,
     recoveryFailures = 0, recoveryNextAt = 0,
     bootRoots = {}, -- Единственные ScreenGui, созданные данной копией Hub.
 }
@@ -1288,8 +1293,11 @@ local function optimizeHierarchy(root, revision)
             if count >= CONFIG.BoosterBatch or (count % 4 == 0 and
                 (os.clock() - sliceStarted) * 1000 >=
                     (measuredFps < 35 and CONFIG.BoosterLowFpsSliceMs or CONFIG.BoosterSliceMs)) then
+                boosterPro.slicePeakMs = math.max(boosterPro.slicePeakMs,
+                    (os.clock() - sliceStarted) * 1000)
                 count = 0
-                task.wait()
+                task.wait(measuredFps < 42 and CONFIG.BoosterLowFpsDelay
+                    or CONFIG.BoosterInitialDelay)
                 sliceStarted = os.clock()
             end
         end
@@ -1396,6 +1404,8 @@ local function setBooster(enabled, keepBaseline)
     boosterPro.queuedProcessed = setmetatable({}, {__mode = "k"})
     boosterPro.queueHead, boosterPro.queueTail, boosterPro.queueCount = 1, 0, 0
     boosterPro.queueDropped, boosterPro.scanned = 0, 0
+    boosterPro.queueLastAt = 0
+    boosterPro.slicePeakMs, boosterPro.queuePeakMs = 0, 0
     boosterPro.repairing = false
     boosterPro.repairCoveredDrops, boosterPro.repairRetryAt, boosterPro.repairErrors = 0, 0, 0
     if enabled then
@@ -1437,8 +1447,11 @@ local function setBooster(enabled, keepBaseline)
                 optimizeObject(obj)
                 n = n + 1
                 if n % 4 == 0 and ((os.clock() - phaseStarted) * 1000 >=
-                    CONFIG.BoosterSliceMs or n % CONFIG.BoosterBatch == 0) then
-                    task.wait()
+                    (measuredFps < 42 and CONFIG.BoosterLowFpsSliceMs
+                        or CONFIG.BoosterSliceMs)
+                    or n % CONFIG.BoosterBatch == 0) then
+                    task.wait(measuredFps < 42 and CONFIG.BoosterLowFpsDelay
+                        or CONFIG.BoosterInitialDelay)
                     phaseStarted = os.clock()
                 end
             end
@@ -1477,8 +1490,11 @@ local function setBooster(enabled, keepBaseline)
                 boosterPro.restoreObject(obj, snapshot)
                 count = count + 1
                 if count % 4 == 0 and ((os.clock() - sliceStarted) * 1000 >=
-                    CONFIG.BoosterSliceMs or count % CONFIG.BoosterBatch == 0) then
-                    task.wait()
+                    (measuredFps < 42 and CONFIG.BoosterLowFpsSliceMs
+                        or CONFIG.BoosterSliceMs)
+                    or count % CONFIG.BoosterBatch == 0) then
+                    task.wait(measuredFps < 42 and CONFIG.BoosterLowFpsDelay
+                        or CONFIG.BoosterInitialDelay)
                     sliceStarted = os.clock()
                 end
             end
@@ -4306,7 +4322,10 @@ addButton(pages.MISC, "Сравнение FPS", "Нужны реальные з�
     tell("Booster Pro [" .. state.boosterMode .. "]: " .. boosterPro.readout()
         .. " | Проверено: " .. tostring(boosterPro.scanned)
         .. " | Очередь: " .. tostring(boosterPro.queueCount)
-        .. " | Пропущено: " .. tostring(boosterPro.queueDropped))
+        .. " | Пропущено: " .. tostring(boosterPro.queueDropped)
+        .. " | CPU max init/queue: "
+        .. string.format("%.2f/%.2f ms", boosterPro.slicePeakMs,
+            boosterPro.queuePeakMs))
 end)
 addToggle(pages.MISC, "FullBright", "Осветлить сцену локально", "fullbright", function() applyLighting() end)
 addToggle(pages.MISC, "Часы / FPS / Ping", "Информационный блок экрана", "hud")
@@ -5416,6 +5435,8 @@ end)
 -- a coroutine for every instance: a bounded FIFO lets the client keep rendering.
 function boosterPro.queueObject(obj)
     if not alive or not state.booster or boosterPro.queuedSeen[obj] then return end
+    -- Quiet-window repair: don't rescan the entire map while streaming is active.
+    boosterPro.queueLastAt = os.clock()
     -- Нерелевантные узлы не занимают память в очереди.
     if not graphicsProperty(obj) then return end
     if boosterPro.queueCount >= boosterPro.queueCap then
@@ -5463,13 +5484,16 @@ task.spawn(function()
                     boosterPro.queuedProcessed[obj] = nil
                 end
                 if i % 4 == 0 and
-                    (os.clock() - sliceStarted) * 1000 >= CONFIG.BoosterQueueSliceMs then
+                    (os.clock() - sliceStarted) * 1000 >=
+                        (measuredFps < 42 and CONFIG.BoosterLowFpsSliceMs
+                            or CONFIG.BoosterQueueSliceMs) then
                     break
                 end
             end
+            local queueMs = (os.clock() - sliceStarted) * 1000
+            boosterPro.queuePeakMs = math.max(boosterPro.queuePeakMs, queueMs)
             if state.moduleCpuMonitor then
-                -- Includes property processing within this queue batch.
-                perfCounters.cpu.record("Booster Q", (os.clock() - sliceStarted) * 1000)
+                perfCounters.cpu.record("Booster Q", queueMs)
             end
         end
         -- Если StreamingEnabled переполнил кольцевую очередь,
@@ -5481,9 +5505,10 @@ task.spawn(function()
         if state.booster and boosterPro.complete and boosterPro.queueCount == 0
             and boosterPro.queueDropped > boosterPro.repairCoveredDrops
             and not boosterPro.repairing and os.clock() >= boosterPro.repairRetryAt
+            and os.clock() - boosterPro.queueLastAt >= CONFIG.BoosterRepairIdleSeconds
             and boosterPro.repairErrors < 3 then
             boosterPro.repairing = true
-            boosterPro.repairRetryAt = os.clock() + 12
+            boosterPro.repairRetryAt = os.clock() + CONFIG.BoosterRepairCooldown
             local repairRevision = boosterRevision
             local coveredDrops = boosterPro.queueDropped
             task.spawn(function()
@@ -5511,8 +5536,10 @@ task.spawn(function()
         -- обработка очереди невозможна, пока идёт полный повторный обход.
         task.wait((not state.booster and 0.75)
             or (boosterPro.complete and not boosterPro.repairing
-                and boosterPro.queueCount > 0 and 0.02)
-            or 0.12)
+                and boosterPro.queueCount > 0
+                and (measuredFps < 42 and CONFIG.BoosterQueueLowFpsDelay
+                    or CONFIG.BoosterQueueDelay))
+            or 0.20)
     end
 end)
 
