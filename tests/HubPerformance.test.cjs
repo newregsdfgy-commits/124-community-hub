@@ -54,7 +54,7 @@ test("visual guard does not mutate AIM and can recover", () => {
     src.indexOf("function perfCounters.guard.update"),
     src.indexOf("function perfCounters.guard.description")
   );
-  assert.ok(guard.includes("g.level ="));
+  assert.match(guard, /g\.level, g\.changed\s*=/);
   assert.doesNotMatch(guard, /state\.aimbot\s*=/);
   assert.doesNotMatch(guard, /state\.performanceMode\s*=/);
   assert.match(src, /local function visualPerfTier\(\)/);
