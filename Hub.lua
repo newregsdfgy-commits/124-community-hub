@@ -1,11 +1,11 @@
--- 124 Community Hub v1.1.7 | Memory / Camera FOV / Anti-Aim (draw with camera; gameplay scanning stays throttled)
+-- 124 Community Hub v1.1.9 | FPS Booster frame-budget / streaming queue / ESP visual limiter
 -- PlaceId: 18537079992
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.1.8",
+    Version = "1.1.9",
     PlaceId = 18537079992,
     EspRefreshSeconds = 0.55,
     EspMaxPlayers = 16, -- Ограничение количества Highlight для слабых телефонов.
@@ -31,7 +31,13 @@ local CONFIG = {
     RecoilMinPitchDegrees = 0.045, -- Не реагируем на микродрожание камеры.
     RecoilMaxPitchDegrees = 5.0, -- Не воспринимаем резкий разворот как отдачу.
     RecoilMaxCorrectionDegrees = 1.60, -- Ограничение коррекции за кадр.
-    BoosterBatch = 64, -- More frequent yields on low-power phones.
+    BoosterBatch = 320, -- Максимум объектов за один проход, но ограничиваем и время.
+    BoosterSliceMs = 2.2, -- Бюджет CPU на кадр для полной обработки карты.
+    BoosterLowFpsSliceMs = 0.9, -- При низком FPS защищаем время отрисовки.
+    BoosterQueueBatch = 144, -- Новые объекты StreamingEnabled.
+    BoosterQueueSliceMs = 1.1,
+    EspVisualBalancedHz = 40, -- ESP-рамки/скелеты, AIM остаётся покадровым.
+    EspVisualEcoHz = 20,
     FullBrightBrightness = 2.1,
     FullBrightAmbient = Color3.fromRGB(170, 170, 170),
     FullBrightOutdoorAmbient = Color3.fromRGB(175, 175, 175),
@@ -140,8 +146,9 @@ local boosterPro = {
     label = nil, revision = 0, mode = nil, restoreFailures = 0,
     guardLowSince = nil, guardLastCheck = 0, guardWarned = false,
     queued = {}, queuedSeen = setmetatable({}, {__mode = "k"}),
-    queueHead = 1, queueTail = 0, queueCount = 0, queueCap = 2048,
-    queueDropped = 0,
+    queueHead = 1, queueTail = 0, queueCount = 0, queueCap = 8192,
+    queuedProcessed = setmetatable({}, {__mode = "k"}),
+    queueDropped = 0, scanned = 0,
 }
 -- Только для исполнителей, умеющих читать/писать Terrain.Decoration.
 -- Если это недоступно, не трогаем Terrain: полноценного SmoothPlastic для него нет.
@@ -664,79 +671,84 @@ end
 for _, person in ipairs(Players:GetPlayers()) do boosterPro.watchPlayer(person) end
 if Players.PlayerAdded then connect(Players.PlayerAdded, boosterPro.watchPlayer) end
 
-function boosterPro.isProtected(obj)
+-- Проверять каждую родительскую модель для каждой детали дорого.
+-- При обходе дерева достаточно проверить границу ветки ОДИН раз.
+function boosterPro.isProtectedBranch(obj)
     local cam = Workspace.CurrentCamera
-    if cam and (obj == cam or obj:IsDescendantOf(cam)) then return true end
+    if obj == cam then return true end
+    if obj:IsA("LayerCollector") or obj:IsA("GuiBase2d") then return true end
+    if obj:IsA("Model") then
+        if boosterPro.protectedCharacters[obj] or boosterPro.protectedNames[obj.Name] then
+            return true
+        end
+        if obj:FindFirstChildOfClass("Humanoid") or obj:FindFirstChild("HumanoidRootPart") then
+            return true
+        end
+        if obj:FindFirstChild("Head") and
+            (obj:FindFirstChild("UpperTorso") or obj:FindFirstChild("Torso")
+                or obj:FindFirstChild("LowerTorso")) then
+            return true
+        end
+    end
+    return false
+end
+function boosterPro.isProtected(obj)
     local parent = obj
     while parent and parent ~= Workspace and parent ~= Lighting do
-        if parent:IsA("LayerCollector") or parent:IsA("GuiBase2d") then return true end
-        if parent:IsA("Model") then
-            if parent:FindFirstChildOfClass("Humanoid") or parent:FindFirstChild("HumanoidRootPart") then
-                return true
-            end
-            -- Частично загруженные аватары: характерная пара частей R6/R15.
-            -- Одна деталь Head не является достаточным признаком персонажа.
-            if parent:FindFirstChild("Head") and
-                (parent:FindFirstChild("UpperTorso") or parent:FindFirstChild("Torso")
-                    or parent:FindFirstChild("LowerTorso")) then
-                return true
-            end
-            if boosterPro.protectedCharacters[parent] or boosterPro.protectedNames[parent.Name] then
-                return true
-            end
-        end
+        if boosterPro.isProtectedBranch(parent) then return true end
         parent = parent.Parent
     end
     return false
 end
 
+-- Таблицы целевых свойств общие для всех деталей, без десятков тысяч
+-- временных таблиц и Color3.fromRGB на каждом объекте.
+local graphicsWhite = Color3.new(1, 1, 1)
+local graphicsPlain = {CastShadow = false}
+local graphicsWhitePart = {CastShadow = false, Material = Enum.Material.SmoothPlastic,
+    MaterialVariant = "", Color = graphicsWhite}
+local graphicsUltraPart = {CastShadow = false, Material = Enum.Material.SmoothPlastic,
+    MaterialVariant = "", Color = graphicsWhite, Reflectance = 0}
+local graphicsWhiteMesh = {CastShadow = false, Material = Enum.Material.SmoothPlastic,
+    MaterialVariant = "", TextureID = "", Color = graphicsWhite}
+local graphicsUltraMesh = {CastShadow = false, Material = Enum.Material.SmoothPlastic,
+    MaterialVariant = "", TextureID = "", Color = graphicsWhite, Reflectance = 0}
+if Enum.RenderFidelity then graphicsUltraMesh.RenderFidelity = Enum.RenderFidelity.Performance end
+local graphicsTransparent = {Transparency = 1}
+local graphicsDisabled = {Enabled = false}
+local graphicsSpecialMesh = {TextureId = ""}
+local graphicsSurface = {ColorMap = "", NormalMap = "", RoughnessMap = "", MetalnessMap = ""}
+local graphicsWater = {WaterWaveSize = 0, WaterWaveSpeed = 0, WaterReflectance = 0}
+local graphicsAtmosphere = {Density = 0, Haze = 0, Glare = 0, Offset = 0}
+local graphicsClouds = {Cover = 0, Density = 0}
+
 local function graphicsProperty(obj)
     local level = state.boosterMode
-    local white = level == "WHITE" or level == "ULTRA"
+    local white = level ~= "BALANCED"
     local ultra = level == "ULTRA"
     if obj:IsA("Terrain") then
-        if ultra then
-            return {WaterWaveSize = 0, WaterWaveSpeed = 0, WaterReflectance = 0}
-        end
+        return ultra and graphicsWater or nil
     elseif obj:IsA("MeshPart") then
-        local values = {CastShadow = false}
-        if white then
-            values.Material = Enum.Material.SmoothPlastic
-            values.MaterialVariant = ""
-            values.TextureID = ""
-            values.Color = Color3.fromRGB(255, 255, 255)
-        end
-        if ultra then
-            values.Reflectance = 0
-            if Enum.RenderFidelity then values.RenderFidelity = Enum.RenderFidelity.Performance end
-        end
-        return values
+        return ultra and graphicsUltraMesh or white and graphicsWhiteMesh or graphicsPlain
     elseif obj:IsA("BasePart") then
-        local values = {CastShadow = false}
-        if white then
-            values.Material = Enum.Material.SmoothPlastic
-            values.MaterialVariant = ""
-            values.Color = Color3.fromRGB(255, 255, 255)
-        end
-        if ultra then values.Reflectance = 0 end
-        return values
+        return ultra and graphicsUltraPart or white and graphicsWhitePart or graphicsPlain
     elseif white and obj:IsA("SpecialMesh") then
-        return {TextureId = ""}
+        return graphicsSpecialMesh
     elseif white and obj:IsA("SurfaceAppearance") then
-        return {ColorMap = "", NormalMap = "", RoughnessMap = "", MetalnessMap = ""}
+        return graphicsSurface
     elseif white and (obj:IsA("Decal") or obj:IsA("Texture")) then
-        return {Transparency = 1}
+        return graphicsTransparent
     elseif white and (obj:IsA("PointLight") or obj:IsA("SpotLight") or obj:IsA("SurfaceLight")) then
-        return {Enabled = false}
+        return graphicsDisabled
     elseif obj:IsA("PostEffect") or obj:IsA("ParticleEmitter") or
         obj:IsA("Trail") or obj:IsA("Beam") then
-        return {Enabled = false}
+        return graphicsDisabled
     elseif white and (obj:IsA("Smoke") or obj:IsA("Fire") or obj:IsA("Sparkles")) then
-        return {Enabled = false}
+        return graphicsDisabled
     elseif ultra and obj:IsA("Atmosphere") then
-        return {Density = 0, Haze = 0, Glare = 0, Offset = 0}
+        return graphicsAtmosphere
     elseif ultra and obj:IsA("Clouds") then
-        return {Cover = 0, Density = 0}
+        return graphicsClouds
     end
     return nil
 end
@@ -745,9 +757,12 @@ end
 -- При возврате на менее жёсткий режим ненужные изменения сразу откатываются.
 local function optimizeObject(obj, alreadyScreened)
     if not alive or not state.booster then return end
-    if not alreadyScreened and boosterPro.isProtected(obj) then return end
-    local desired = graphicsProperty(obj) or {}
+    local desired = graphicsProperty(obj)
     local snap = savedGraphics[obj]
+    -- Не проверяем цепочку родителей и не создаём таблицу для нерелевантных объектов.
+    if not desired and not snap then return end
+    if not alreadyScreened and boosterPro.isProtected(obj) then return end
+    desired = desired or {}
     if snap then
         for key, original in pairs(snap) do
             if desired[key] == nil then
@@ -776,9 +791,12 @@ local function optimizeObject(obj, alreadyScreened)
     if snap and not next(snap) then savedGraphics[obj] = nil end
 end
 
+-- Проходим дерево без GetDescendants(): контролируем число объектов и CPU-миллисекунды.
+-- Новые детали, добавленные во время обхода, дочитает FIFO после завершения.
 local function optimizeHierarchy(root, revision)
     local stack = {{items = root:GetChildren(), index = 1}}
-    local processed = 0
+    local sliceStarted = os.clock()
+    local count = 0
     while #stack > 0 do
         if not alive or not state.booster or revision ~= boosterRevision then return false end
         local level = stack[#stack]
@@ -787,15 +805,23 @@ local function optimizeHierarchy(root, revision)
             stack[#stack] = nil
         else
             level.index = level.index + 1
-            if not boosterPro.isProtected(obj) then
+            if not boosterPro.isProtectedBranch(obj) then
+                if boosterPro.queuedSeen[obj] then boosterPro.queuedProcessed[obj] = true end
                 optimizeObject(obj, true)
                 local children = obj:GetChildren()
                 if #children > 0 then
                     stack[#stack + 1] = {items = children, index = 1}
                 end
             end
-            processed = processed + 1
-            if processed % CONFIG.BoosterBatch == 0 then task.wait() end
+            boosterPro.scanned = boosterPro.scanned + 1
+            count = count + 1
+            if count >= CONFIG.BoosterBatch or (count % 16 == 0 and
+                (os.clock() - sliceStarted) * 1000 >=
+                    (measuredFps < 35 and CONFIG.BoosterLowFpsSliceMs or CONFIG.BoosterSliceMs)) then
+                count = 0
+                task.wait()
+                sliceStarted = os.clock()
+            end
         end
     end
     return true
@@ -811,7 +837,8 @@ function boosterPro.measure(value)
     if not alive or value <= 0 then return end
     local target = nil
     if state.booster then
-        if boosterPro.complete and boosterPro.readyAt and os.clock() >= boosterPro.readyAt then
+        -- Измеряем и во время долгой перекраски: ранний FPS Guard иначе бесполезен.
+        if boosterPro.startedAt and os.clock() >= boosterPro.startedAt + 4 then
             target = boosterPro.afterFPS
         end
     else
@@ -842,7 +869,9 @@ function boosterPro.readout()
     elseif not state.booster and not boosterPro.after then
         after = "н/д"
     end
-    return "До: " .. before .. " FPS  |  После: " .. after .. delta
+    local phase = state.booster and not boosterPro.complete
+        and (" | Деталей: " .. tostring(boosterPro.scanned)) or ""
+    return "До: " .. before .. " FPS  |  После: " .. after .. delta .. phase
 end
 
 function boosterPro.restoreObject(obj, snapshot)
@@ -886,8 +915,9 @@ local function setBooster(enabled, keepBaseline)
     -- Discard old queued descendants. New events belong to the new revision.
     boosterPro.queued = {}
     boosterPro.queuedSeen = setmetatable({}, {__mode = "k"})
+    boosterPro.queuedProcessed = setmetatable({}, {__mode = "k"})
     boosterPro.queueHead, boosterPro.queueTail, boosterPro.queueCount = 1, 0, 0
-    boosterPro.queueDropped = 0
+    boosterPro.queueDropped, boosterPro.scanned = 0, 0
     if enabled then
         boosterPro.after = nil
         boosterPro.afterFPS = {}
@@ -905,12 +935,16 @@ local function setBooster(enabled, keepBaseline)
         end
         task.spawn(function()
             -- Сначала синхронизируем старые снимки: это важно при ULTRA -> BALANCED.
-            local n = 0
+            local n, phaseStarted = 0, os.clock()
             for obj in pairs(savedGraphics) do
                 if not alive or revision ~= boosterRevision or not state.booster then return end
                 optimizeObject(obj)
                 n = n + 1
-                if n % CONFIG.BoosterBatch == 0 then task.wait() end
+                if n % 16 == 0 and ((os.clock() - phaseStarted) * 1000 >=
+                    CONFIG.BoosterSliceMs or n % CONFIG.BoosterBatch == 0) then
+                    task.wait()
+                    phaseStarted = os.clock()
+                end
             end
             local terrain = Workspace:FindFirstChildOfClass("Terrain")
             if terrain then optimizeObject(terrain) end
@@ -919,19 +953,24 @@ local function setBooster(enabled, keepBaseline)
             if revision ~= boosterRevision or not state.booster then return end
             boosterPro.complete = true
             boosterPro.readyAt = os.clock() + 1.5
-            tell("FPS Booster Pro: " .. state.boosterMode .. " применён; измеряем FPS")
+            tell("FPS Booster Pro: " .. state.boosterMode .. " применён; просмотрено "
+                .. tostring(boosterPro.scanned) .. " объектов; измеряем FPS")
         end)
     else
         restoreTerrainGrass()
         restoreTerrainColors()
         applyLighting()
         task.spawn(function()
-            local count = 0
+            local count, sliceStarted = 0, os.clock()
             for obj, snapshot in pairs(savedGraphics) do
                 if revision ~= boosterRevision or state.booster then return end
                 boosterPro.restoreObject(obj, snapshot)
                 count = count + 1
-                if count % CONFIG.BoosterBatch == 0 then task.wait() end
+                if count % 16 == 0 and ((os.clock() - sliceStarted) * 1000 >=
+                    CONFIG.BoosterSliceMs or count % CONFIG.BoosterBatch == 0) then
+                    task.wait()
+                    sliceStarted = os.clock()
+                end
             end
             if alive and revision == boosterRevision then
                 local remaining = 0
@@ -2830,13 +2869,16 @@ addToggle(pages.MISC, "FPS Booster Pro", "Графика в 3 режимах, с
 -- noticeably worse than the pre-Booster baseline, it disables and rolls back.
 -- This is only available after at least three actual pre-Booster samples.
 boosterPro.autoRollback = function()
-    if not alive or not state.booster or not boosterPro.complete then return end
+    if not alive or not state.booster then return end
     local baseline = boosterPro.baseline
     local avg = boosterPro.after
     if type(baseline) ~= "number" or baseline < 35 or
         type(avg) ~= "number" or #boosterPro.afterFPS < 4 then return end
     local now = os.clock()
-    if not boosterPro.readyAt or now < boosterPro.readyAt + 10 then return end
+    -- В том числе ДО окончания перекраски, если карта очень большая.
+    local guardReady = boosterPro.complete and boosterPro.readyAt
+        or (boosterPro.startedAt and boosterPro.startedAt + 8)
+    if not guardReady or now < guardReady + (boosterPro.complete and 4 or 0) then return end
     -- Prevent several checks within the same measurement second.
     if now - boosterPro.guardLastCheck < 0.8 then return end
     boosterPro.guardLastCheck = now
@@ -2873,6 +2915,7 @@ registerWidget(pages.MISC, boosterPro.label)
 round(boosterPro.label, 6)
 addButton(pages.MISC, "Сравнение FPS", "Нужны реальные замеры до и после включения", function()
     tell("Booster Pro [" .. state.boosterMode .. "]: " .. boosterPro.readout()
+        .. " | Проверено: " .. tostring(boosterPro.scanned)
         .. " | Очередь: " .. tostring(boosterPro.queueCount)
         .. " | Пропущено: " .. tostring(boosterPro.queueDropped))
 end)
@@ -3779,9 +3822,11 @@ end)
 -- a coroutine for every instance: a bounded FIFO lets the client keep rendering.
 function boosterPro.queueObject(obj)
     if not alive or not state.booster or boosterPro.queuedSeen[obj] then return end
+    -- Нерелевантные узлы не занимают память в очереди.
+    if not graphicsProperty(obj) then return end
     if boosterPro.queueCount >= boosterPro.queueCap then
         boosterPro.queueDropped = boosterPro.queueDropped + 1
-        return -- Graphics optimizations are optional; dropping beats freezing.
+        return -- Не блокируем рендер при бурной подгрузке.
     end
     boosterPro.queueTail = boosterPro.queueTail % boosterPro.queueCap + 1
     boosterPro.queued[boosterPro.queueTail] = obj
@@ -3804,10 +3849,12 @@ end)
 connect(Lighting.DescendantAdded, boosterPro.queueObject)
 task.spawn(function()
     while alive do
-        if state.booster and boosterPro.queueCount > 0 then
+        -- Во время первичного обхода не обрабатываем одни и те же детали дважды.
+        if state.booster and boosterPro.complete and boosterPro.queueCount > 0 then
             local revision = boosterRevision
-            local count = math.min(32, boosterPro.queueCount)
-            for _ = 1, count do
+            local sliceStarted = os.clock()
+            local count = math.min(CONFIG.BoosterQueueBatch, boosterPro.queueCount)
+            for i = 1, count do
                 if not alive or not state.booster or revision ~= boosterRevision then break end
                 local index = boosterPro.queueHead
                 local obj = boosterPro.queued[index]
@@ -3816,11 +3863,18 @@ task.spawn(function()
                 boosterPro.queueCount = boosterPro.queueCount - 1
                 if obj then
                     boosterPro.queuedSeen[obj] = nil
-                    if obj.Parent then optimizeObject(obj) end
+                    if not boosterPro.queuedProcessed[obj] and obj.Parent then
+                        optimizeObject(obj)
+                    end
+                    boosterPro.queuedProcessed[obj] = nil
+                end
+                if i % 16 == 0 and
+                    (os.clock() - sliceStarted) * 1000 >= CONFIG.BoosterQueueSliceMs then
+                    break
                 end
             end
         end
-        task.wait(0.12)
+        task.wait(state.booster and boosterPro.complete and boosterPro.queueCount > 0 and 0 or 0.12)
     end
 end)
 
@@ -3998,9 +4052,22 @@ end)
 -- Smooth ESP v1.0.5: экранные рамки/кости/линии обновляются синхронно с
 -- камерой (без интервала 0.08–0.25 с). Частота равна реальным кадрам игры;
 -- новых игроков по-прежнему отбирает медленный refreshESP(), не рендер-цикл.
-perfCounters.espVisual.frame = function()
-    if not alive or not state.esp then return end
-    if not state.tracers and not state.espBox and not state.espSkeleton then return end
+local espVisualElapsed = 0
+perfCounters.espVisual.frame = function(dt)
+    if not alive or not state.esp then espVisualElapsed = 0; return end
+    if not state.tracers and not state.espBox and not state.espSkeleton then
+        espVisualElapsed = 0
+        return
+    end
+    -- AIM/Recoil идут каждый кадр. Только тяжёлые ESP GUI-примитивы
+    -- обновляем с отдельным пределом кадров при AUTO/ECO.
+    if type(dt) == "number" and dt > 0 then
+        local hz = perfTier() == "ECO" and CONFIG.EspVisualEcoHz
+            or perfTier() == "QUALITY" and 120 or CONFIG.EspVisualBalancedHz
+        espVisualElapsed = espVisualElapsed + math.min(dt, 0.12)
+        if espVisualElapsed < 1 / hz then return end
+        espVisualElapsed = 0
+    end
     if state.tracers then
         local ok, err = pcall(refreshTracers)
         if not ok then
