@@ -1,11 +1,11 @@
--- 124 Community Hub v1.1.17 | Compile-safe bootstrap, cached ESP, accurate frame metrics
+-- 124 Community Hub v1.1.18 | Max Performance: visual guard, opt-in module CPU meter, lazy ESP overlays
 -- PlaceId: 18537079992
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.1.17",
+    Version = "1.1.18",
     PlaceId = 18537079992,
     EspRefreshSeconds = 0.75, -- Лёгкое обновление списка игроков; FPS на первом месте.
     EspMaxPlayers = 12, -- Меньше Highlight и GUI-обновлений по умолчанию.
@@ -61,6 +61,12 @@ local CONFIG = {
     PerfTierBalancedDwell = 15, -- Возврат осторожный, без постоянных качелей.
     PerfEcoLowSamples = 2,
     PerfBalancedRecoverySamples = 5,
+    GuardLowFps = 39, GuardCriticalFps = 29,
+    GuardRecoveryFps = 55, GuardLowSamples = 3,
+    GuardRecoverSamples = 8, GuardMinStepSeconds = 12,
+    GuardEspMaxL1 = 6, GuardEspMaxL2 = 4,
+    GuardShapeMaxL1 = 4, GuardShapeMaxL2 = 2,
+    GuardVisualHzL1 = 12, GuardVisualHzL2 = 8,
     FrameTimeWindow = 240, -- Скользящее окно; 1% low — по худшим кадрам.
     FrameTimeSpikeMs = 50,
     EspCacheIdleSeconds = 3.5, -- Коротко переиспользуем GUI за пределами TOP N.
@@ -148,6 +154,9 @@ local state = {
     espColorPreset = "TEAM", -- TEAM / GOLD / GREEN / WHITE
     espLineThickness = 1, -- Новая тонкая графика по умолчанию.
     performanceMode = "AUTO", -- AUTO / ECO / QUALITY
+    performanceGuard = false, -- Opt-in; only reduces ESP visuals, never AIM.
+    moduleCpuMonitor = false, -- Opt-in instrumentation: no os.clock per module if OFF.
+    lazyLoading = true, -- Deferred ESP ScreenGui: create only on first use.
     sessionDiagnostics = false, -- Анализ LogService только по запросу.
     activeHud = true,
     aimRangeMeters = 180,
@@ -226,6 +235,84 @@ local statusMessage = nil
 local refreshToggles = {}
 local measuredFps = 60
 local perfCounters = {espCount = 0, shapeCount = 0, aimScanMs = 0}
+perfCounters.guard = {level = 0, low = 0, critical = 0, good = 0, changed = 0}
+function perfCounters.guard.reset()
+    local g = perfCounters.guard
+    g.level, g.low, g.critical, g.good = 0, 0, 0, 0
+    g.changed = os.clock()
+end
+function perfCounters.guard.update(fps)
+    local g = perfCounters.guard
+    if not state.performanceGuard then
+        if g.level ~= 0 then g.reset() end
+        return
+    end
+    if type(fps) ~= "number" or fps <= 0 then return end
+    -- Three sustained readings to step down; eight good readings to
+    -- step UP. The guard is reversible and never modifies profile settings.
+    g.low = fps < CONFIG.GuardLowFps and g.low + 1 or 0
+    g.critical = fps < CONFIG.GuardCriticalFps and g.critical + 1 or 0
+    g.good = fps >= CONFIG.GuardRecoveryFps and g.good + 1 or 0
+    if os.clock() - g.changed < CONFIG.GuardMinStepSeconds then return end
+    local nextLevel = g.level
+    if g.level < 2 and g.critical >= CONFIG.GuardLowSamples then
+        nextLevel = 2
+    elseif g.level < 1 and g.low >= CONFIG.GuardLowSamples then
+        nextLevel = 1
+    elseif g.level > 0 and g.good >= CONFIG.GuardRecoverSamples then
+        nextLevel = g.level - 1
+    end
+    if nextLevel ~= g.level then
+        g.level, g.changed = nextLevel, os.clock()
+        g.low, g.critical, g.good = 0, 0, 0
+    end
+end
+function perfCounters.guard.description()
+    local g = perfCounters.guard
+    return state.performanceGuard and ("Guard ON | Visual limit L" .. g.level)
+        or "Guard OFF | manual performance mode"
+end
+-- Optional per-call wall-time instrumentation. No timers, tracing or
+-- collections when disabled. Samples are not a whole-process CPU percentage.
+perfCounters.cpu = {entries = {}, keys = {"AIM", "Recoil", "ESP Draw", "ESP Scan"},
+    wrapped = {}, lastSummary = ""}
+function perfCounters.cpu.reset()
+    table.clear(perfCounters.cpu.entries)
+end
+function perfCounters.cpu.record(name, elapsedMs)
+    local entries = perfCounters.cpu.entries
+    local item = entries[name]
+    if not item then
+        item = {count = 0, total = 0, peak = 0}
+        entries[name] = item
+    end
+    item.count = item.count + 1
+    item.total = item.total + elapsedMs
+    if elapsedMs > item.peak then item.peak = elapsedMs end
+end
+function perfCounters.cpu.instrument(name, fn)
+    return function(...)
+        if not state.moduleCpuMonitor then return fn(...) end
+        local start = os.clock()
+        local a,b,c = fn(...)
+        perfCounters.cpu.record(name, (os.clock() - start) * 1000)
+        return a,b,c
+    end
+end
+function perfCounters.cpu.summary()
+    if not state.moduleCpuMonitor then return "Module CPU OFF (enable to measure)" end
+    local out = {}
+    for _,name in ipairs(perfCounters.cpu.keys) do
+        local sample = perfCounters.cpu.entries[name]
+        if sample and sample.count > 0 then
+            out[#out + 1] = string.format("%s %.3f/%.3f ms (%d)",
+                name, sample.total/sample.count, sample.peak, sample.count)
+        else
+            out[#out + 1] = name .. " --"
+        end
+    end
+    return table.concat(out, " | ")
+end
 -- Покадровый рендер ESP (после Camera/AIM/Recoil); НЕ сканируем игроков каждый кадр.
 perfCounters.espVisual = {bound = false, bindingName = "Army124CommunityESP_" .. tostring(LocalPlayer.UserId),
     errorAt = 0, active = {}, projected = {}, ordered = {}, candidatePool = {}}
@@ -508,11 +595,20 @@ local function updateAutoPerformanceTier()
         perfCounters.autoTierStableCount = 0
     end
 end
+local function visualPerfTier()
+    if state.performanceGuard and perfCounters.guard.level > 0 then return "ECO" end
+    return perfTier()
+end
 local function espLimit()
-    local tier = perfTier()
-    if tier == "ECO" then return 6 end
-    if tier == "QUALITY" then return 20 end
-    return CONFIG.EspMaxPlayers
+    local tier = visualPerfTier()
+    local normal = tier == "ECO" and 6
+        or tier == "QUALITY" and 20 or CONFIG.EspMaxPlayers
+    if state.performanceGuard and perfCounters.guard.level == 2 then
+        return math.min(normal, CONFIG.GuardEspMaxL2)
+    elseif state.performanceGuard and perfCounters.guard.level == 1 then
+        return math.min(normal, CONFIG.GuardEspMaxL1)
+    end
+    return normal
 end
 
 -- Тонкий ESP. Ник над игроком; HP и дистанция в отдельной нижней строке.
@@ -2170,6 +2266,7 @@ local HttpService = game:GetService("HttpService")
 local storedKeys = {
     "esp", "tracers", "names", "health", "distance", "teamColors", "espBox", "espSkeleton",
     "espEnemyOnly", "espRangeMeters", "espColorPreset", "espLineThickness", "performanceMode",
+    "performanceGuard", "moduleCpuMonitor", "lazyLoading",
     "sessionDiagnostics",
     "aimbot", "aimRangeMeters", "aimSmoothness", "aimSmoothX", "aimSmoothY",
     "prediction", "predictionSeconds", "targetLock", "aimFovPixels", "aimMode",
@@ -2360,6 +2457,7 @@ local function applySettings(incoming, autoLoad)
         state.aimOnlyRegisteredWeapons = true
         state.airAlerts = false -- Высокая нагрузка фонового мониторинга, ON только вручную.
         state.sessionDiagnostics = false -- Анализ логов только по ручному запросу.
+        state.moduleCpuMonitor = false -- Тяжёлая телеметрия включается вручную.
         state.antiAfk = false
         state.antiAim = false
         state.bunnyHop = false
@@ -2967,10 +3065,15 @@ local function refreshShapes()
         return
     end
     local activeCount, active = 0, perfCounters.espVisual.active
-    local tier = perfTier()
+    local tier = visualPerfTier()
     local shapeBudget = tier == "ECO" and CONFIG.EspShapeEcoLimit
         or tier == "QUALITY" and CONFIG.EspShapeQualityLimit
         or CONFIG.EspShapeBalancedLimit
+    if state.performanceGuard and perfCounters.guard.level == 2 then
+        shapeBudget = math.min(shapeBudget, CONFIG.GuardShapeMaxL2)
+    elseif state.performanceGuard and perfCounters.guard.level == 1 then
+        shapeBudget = math.min(shapeBudget, CONFIG.GuardShapeMaxL1)
+    end
     table.clear(active)
     -- Отрисовываем в том же порядке, что и ближайших игроков в ESP.
     -- Никогда не проверяем части персонажей после заполнения лимита.
@@ -5056,8 +5159,14 @@ perfCounters.espVisual.frame = function(dt)
     -- AIM/Recoil идут каждый кадр. Только тяжёлые ESP GUI-примитивы
     -- обновляем с отдельным пределом кадров при AUTO/ECO.
     if type(dt) == "number" and dt > 0 then
-        local hz = perfTier() == "ECO" and CONFIG.EspVisualEcoHz
-            or perfTier() == "QUALITY" and 120 or CONFIG.EspVisualBalancedHz
+        local tier = visualPerfTier()
+        local hz = tier == "ECO" and CONFIG.EspVisualEcoHz
+            or tier == "QUALITY" and 120 or CONFIG.EspVisualBalancedHz
+        if state.performanceGuard and perfCounters.guard.level == 2 then
+            hz = math.min(hz, CONFIG.GuardVisualHzL2)
+        elseif state.performanceGuard and perfCounters.guard.level == 1 then
+            hz = math.min(hz, CONFIG.GuardVisualHzL1)
+        end
         espVisualElapsed = espVisualElapsed + math.min(dt, 0.12)
         if espVisualElapsed < 1 / hz then return end
         espVisualElapsed = 0
@@ -5102,6 +5211,7 @@ connect(RunService.RenderStepped, function(dt)
     if accumulated >= 1 then
         measuredFps = math.floor(frames / math.max(accumulated, 0.01) + 0.5)
         updateAutoPerformanceTier()
+        perfCounters.guard.update(measuredFps)
         boosterPro.measure(measuredFps)
         frames, accumulated = 0, 0
     end
