@@ -1913,6 +1913,7 @@ for _, key in ipairs(storedKeys) do defaultSettings[key] = state[key] end
 local profiles = {CUSTOM = {}} -- Только CUSTOM записывается на диск.
 -- Текст и интервал чата — глобальные настройки, независимо от LEGIT/RAGE/CUSTOM.
 local chatPreferences = {}
+local weaponPreferences = {}
 local presetData = {
     LEGIT = {aimFovPixels = 95, aimSmoothness = 8, visibleCheck = true,
         targetLock = true, prediction = false, aimRangeMeters = 85},
@@ -1968,9 +1969,12 @@ end
 local function writeProfileFile()
     chatPreferences.chatMessage = state.chatMessage
     chatPreferences.chatInterval = state.chatInterval
+    weaponPreferences.aimOnlyRegisteredWeapons = state.aimOnlyRegisteredWeapons
+    weaponPreferences.aimWeaponNames = state.aimWeaponNames
     local data = {version = 1, current = profileName,
         profiles = {CUSTOM = profiles.CUSTOM or {}},
-        chatPreferences = chatPreferences}
+        chatPreferences = chatPreferences,
+        weaponPreferences = weaponPreferences}
     env.ARMY124_CONFIG_V09 = data
     if type(writefile) == "function" then
         local ok, err = pcall(function()
@@ -2017,6 +2021,14 @@ local function readProfileFile()
         end
     end
     if type(loaded) == "table" and loaded.version == 1 then
+        if type(loaded.weaponPreferences) == "table" then
+            local prefs = validatedSettings({
+                aimOnlyRegisteredWeapons = loaded.weaponPreferences.aimOnlyRegisteredWeapons,
+                aimWeaponNames = loaded.weaponPreferences.aimWeaponNames,
+            })
+            weaponPreferences.aimOnlyRegisteredWeapons = prefs.aimOnlyRegisteredWeapons
+            weaponPreferences.aimWeaponNames = prefs.aimWeaponNames
+        end
         if type(loaded.chatPreferences) == "table" then
             local prefs = validatedSettings({
                 chatMessage = loaded.chatPreferences.chatMessage,
@@ -2124,6 +2136,12 @@ local function useProfile(name, autoLoad)
         for k, v in pairs(profiles.CUSTOM or {}) do values[k] = v end
     else
         for k, v in pairs(presetData[name]) do values[k] = v end
+    end
+    if type(weaponPreferences.aimOnlyRegisteredWeapons) == "boolean" then
+        values.aimOnlyRegisteredWeapons = weaponPreferences.aimOnlyRegisteredWeapons
+    end
+    if type(weaponPreferences.aimWeaponNames) == "string" then
+        values.aimWeaponNames = weaponPreferences.aimWeaponNames
     end
     if type(chatPreferences.chatMessage) == "string" then
         values.chatMessage = chatPreferences.chatMessage
