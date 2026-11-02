@@ -1823,15 +1823,54 @@ local gui = mk("ScreenGui", {
     ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
 }, PlayerGui)
 
--- Линии ESP на отдельном ScreenGui: позиции теперь обновляются после движения камеры.
-tracerGui = mk("ScreenGui", {
-    Name = "Army124TracersV05", ResetOnSpawn = false, IgnoreGuiInset = true,
-    DisplayOrder = 90, ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
-}, PlayerGui)
-shapeGui = mk("ScreenGui", {
-    Name = "Army124ShapeOverlayV100", ResetOnSpawn = false, IgnoreGuiInset = true,
-    DisplayOrder = 92, ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
-}, PlayerGui)
+-- Lazy Loading: expensive per-player Tracer/Box/Skeleton GUI containers
+-- are created only on first use. No memory allocations for them at startup.
+-- Existing FOV ring is tiny and intentionally kept eager to avoid aim regressions.
+perfCounters.lazy = {tracersCreated = 0, shapesCreated = 0}
+function perfCounters.lazy.ensureTracer()
+    if not alive or not state.esp or not state.tracers then return false end
+    if not tracerGui or not tracerGui.Parent then
+        tracerGui = mk("ScreenGui", {
+            Name = "Army124TracersV05", ResetOnSpawn = false,
+            IgnoreGuiInset = true, DisplayOrder = 90,
+            ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+        }, PlayerGui)
+        perfCounters.lazy.tracersCreated = perfCounters.lazy.tracersCreated + 1
+    end
+    return true
+end
+function perfCounters.lazy.ensureShapes()
+    if not alive or not state.esp or not (state.espBox or state.espSkeleton) then
+        return false
+    end
+    if not shapeGui or not shapeGui.Parent then
+        shapeGui = mk("ScreenGui", {
+            Name = "Army124ShapeOverlayV100", ResetOnSpawn = false,
+            IgnoreGuiInset = true, DisplayOrder = 92,
+            ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+        }, PlayerGui)
+        perfCounters.lazy.shapesCreated = perfCounters.lazy.shapesCreated + 1
+    end
+    return true
+end
+function perfCounters.lazy.prepare()
+    if not state.lazyLoading then
+        -- Eager option for debugging / compatibility, without changing
+        -- the user's esp/tracer/shape enabled state.
+        if not tracerGui or not tracerGui.Parent then
+            tracerGui = mk("ScreenGui", {Name = "Army124TracersV05",
+                ResetOnSpawn = false, IgnoreGuiInset = true,
+                DisplayOrder = 90, ZIndexBehavior = Enum.ZIndexBehavior.Sibling}, PlayerGui)
+            perfCounters.lazy.tracersCreated = perfCounters.lazy.tracersCreated + 1
+        end
+        if not shapeGui or not shapeGui.Parent then
+            shapeGui = mk("ScreenGui", {Name = "Army124ShapeOverlayV100",
+                ResetOnSpawn = false, IgnoreGuiInset = true,
+                DisplayOrder = 92, ZIndexBehavior = Enum.ZIndexBehavior.Sibling}, PlayerGui)
+            perfCounters.lazy.shapesCreated = perfCounters.lazy.shapesCreated + 1
+        end
+    end
+end
 
 -- Лёгкий FOV overlay: одно кольцо UIStroke, без цикла создания новых объектов.
 fovGui = mk("ScreenGui", {
@@ -2497,6 +2536,9 @@ local function applySettings(incoming, autoLoad)
     setAimEnabled(state.aimbot, false)
     recoil.reset()
     perfCounters.session.setEnabled(state.sessionDiagnostics)
+    perfCounters.lazy.prepare()
+    if not state.performanceGuard then perfCounters.guard.reset() end
+    if not state.moduleCpuMonitor then perfCounters.cpu.reset() end
     utilityFX.bunny.sync()
     utilityFX.chat.sync()
     utilityFX.chat.repaintText()
@@ -2937,6 +2979,9 @@ local function refreshTracers()
         return
     end
     local camera = Workspace.CurrentCamera
+    if camera and (not tracerGui or not tracerGui.Parent) then
+        perfCounters.lazy.ensureTracer()
+    end
     if not camera or not tracerGui or not tracerGui.Parent then
         -- Не оставляем старые линии на экране при смене/потере CurrentCamera.
         for _, item in pairs(renderData) do
@@ -3051,6 +3096,9 @@ local function refreshShapes()
         return
     end
     local camera = Workspace.CurrentCamera
+    if camera and (not shapeGui or not shapeGui.Parent) then
+        perfCounters.lazy.ensureShapes()
+    end
     if not camera or not shapeGui or not shapeGui.Parent then
         -- Не оставляем рамки и кости в последней позиции при отсутствии камеры.
         for _, item in pairs(shapeData) do hideShape(item) end
