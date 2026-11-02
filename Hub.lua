@@ -1,11 +1,11 @@
--- 124 Community Visuals v1.1.23 | booster stutter-control and startup diagnostics
+-- 124 Community Visuals v1.1.25 | chat permission guard and booster stutter-control
 -- PlaceId: 18537079992
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.1.23",
+    Version = "1.1.25",
     PlaceId = 18537079992,
     EspRefreshSeconds = 0.75, -- Лёгкое обновление списка игроков; FPS на первом месте.
     EspMaxPlayers = 12, -- Меньше Highlight и GUI-обновлений по умолчанию.
@@ -2344,15 +2344,41 @@ do
             tell("Chat: введи сообщение (до 160 символов)")
             return
         end
+        -- TextSource.CanSend is channel-local, NOT the account-wide permission.
+        -- Never use a custom GUI remote as a workaround for denied chat access.
+        chat.inFlight = true
+        chat.sendStatus = "CHECKING ACCESS"
+        chat.repaintStatus()
+        local permissionToken = chat.token
+        local okAccess, permitted = pcall(function()
+            return TextChatService:CanUserChatAsync(LocalPlayer.UserId)
+        end)
+        if not alive or permissionToken ~= chat.token then
+            chat.inFlight = false
+            return
+        end
+        if not okAccess or permitted ~= true then
+            chat.inFlight = false
+            chat.sendStatus = okAccess and "BLOCKED BY ROBLOX" or "PERMISSION UNKNOWN"
+            chat.repaintStatus()
+            tell(okAccess and
+                "Chat: Roblox запрещает отправку сообщений этому аккаунту. "
+                .. "Кастомный чат игры не отменяет настройки общения."
+                or "Chat: не удалось проверить разрешение Roblox. Отправка отменена.")
+            return
+        end
+
         local now = os.clock()
         local waitTime = state.chatInterval - (now - chat.lastSentAt)
         if waitTime > 0 then
+            chat.inFlight = false
             tell("Chat: повторная отправка доступна через "
                 .. tostring(math.ceil(waitTime)) .. " с")
             return
         end
         local channel, channelError = currentChatChannel()
         if not channel then
+            chat.inFlight = false
             chat.sendStatus = channelError
             chat.errors = chat.errors + 1
             chat.repaintStatus()
@@ -2360,7 +2386,6 @@ do
             return
         end
         local message = state.chatMessage
-        chat.inFlight = true
         chat.lastSentAt = now
         chat.sendStatus = "SENDING"
         chat.repaintStatus()
@@ -4450,8 +4475,8 @@ addButton(pages.MISC, "Статус Bunny Hop", "Проверить текущу
         .. (b.suspended and " | PAUSED: ждем исходный WalkSpeed" or ""))
 end)
 
--- CHAT: обычный TextChannel. Применяется штатная фильтрация и лимиты Roblox.
-addSection(pages.MISC, "CHAT TOOLS", "Свой текст, интервал и включение")
+-- CHAT: only native authorized TextChannels; custom remote names are not send APIs.
+addSection(pages.MISC, "CHAT TOOLS", "Только ручная отправка при разрешении Roblox")
 local chatTextFrame = mk("Frame", {
     Name = "ChatCustomTextFrame", Size = UDim2.new(1, 0, 0, 78),
     BackgroundColor3 = CONFIG.Surface, BorderSizePixel = 0,
@@ -4521,7 +4546,7 @@ addSlider(pages.MISC, "Задержка сообщений", "Пауза меж�
     CONFIG.ChatMinInterval, CONFIG.ChatMaxInterval, 1,
     function(v) return tostring(v) .. " сек" end,
     function() if state.spamChat then utilityFX.chat.sync() end end)
-addToggle(pages.MISC, "Chat Timer", "Напоминание о готовности; авторассылка недоступна", "spamChat",
+addToggle(pages.MISC, "Chat Timer", "Только напоминания, без автоотправки и обхода ограничений", "spamChat",
     function() utilityFX.chat.sync() end)
 local chatStatus = mk("TextLabel", {
     Name = "ChatTimerStatus", BackgroundColor3 = CONFIG.Surface,
@@ -4539,8 +4564,21 @@ utilityFX.chat.repaintStatus = function()
         .. " | " .. tostring(state.chatInterval) .. " с"
 end
 addButton(pages.MISC, "Отправить сообщение",
-    "Ручной SendAsync; активную отправку OFF не отменяет",
+    "При разрешении Roblox; кастомный чат не обходит запрет",
     function() utilityFX.chat.sendOnce() end)
+addButton(pages.MISC, "Проверить доступ к чату",
+    "Проверяет CanUserChatAsync без отправки сообщения", function()
+        local ok, allowed = pcall(function()
+            return game:GetService("TextChatService"):CanUserChatAsync(LocalPlayer.UserId)
+        end)
+        local status = ok and (allowed == true and "ALLOWED" or "BLOCKED") or "UNKNOWN"
+        utilityFX.chat.sendStatus = status
+        utilityFX.chat.repaintStatus()
+        tell(status == "ALLOWED" and "Chat: Roblox разрешает отправку при наличии TextChannel."
+            or status == "BLOCKED" and
+            "Chat: аккаунту недоступен текстовый чат по настройкам Roblox."
+            or "Chat: не удалось прочитать разрешение Roblox.")
+    end)
 addButton(pages.MISC, "Статус чата", "Попытки отправки и готовность таймера", function()
     local c = utilityFX.chat
     tell("Chat " .. (state.spamChat and "TIMER ON" or "TIMER OFF")
