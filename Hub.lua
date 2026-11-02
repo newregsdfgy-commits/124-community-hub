@@ -1359,7 +1359,12 @@ end
 function boosterPro.restoreObject(obj, snapshot)
     local left = false
     for key, original in pairs(snapshot) do
-        local ok = pcall(function() obj[key] = original end)
+        -- A successful assignment is not proof that the engine retained it.
+        -- Only forget the snapshot after verifying the original value.
+        local ok = pcall(function()
+            if obj[key] ~= original then obj[key] = original end
+            if obj[key] ~= original then error("restore mismatch") end
+        end)
         if ok or not obj.Parent then
             snapshot[key] = nil
         else
@@ -5503,10 +5508,10 @@ end)
 -- a coroutine for every instance: a bounded FIFO lets the client keep rendering.
 function boosterPro.queueObject(obj)
     if not alive or not state.booster or boosterPro.queuedSeen[obj] then return end
-    -- Quiet-window repair: don't rescan the entire map while streaming is active.
-    boosterPro.queueLastAt = os.clock()
-    -- Нерелевантные узлы не занимают память в очереди.
+    -- Track meaningful streaming activity only. Unrelated UI/models must not
+    -- postpone rescan recovery of earlier dropped graphics indefinitely.
     if not graphicsProperty(obj) then return end
+    boosterPro.queueLastAt = os.clock()
     if boosterPro.queueCount >= boosterPro.queueCap then
         boosterPro.queueDropped = boosterPro.queueDropped + 1
         return -- Не блокируем рендер при бурной подгрузке.
