@@ -1056,17 +1056,18 @@ local function canSee(camera, point, targetCharacter)
     local origin = camera.CFrame.Position
     local direction = point - origin
     if direction.Magnitude < 0.05 then return false end
-    local exclusions = {}
-    if LocalPlayer.Character then exclusions[1] = LocalPlayer.Character end
-    local params = RaycastParams.new()
-    params.FilterType = Enum.RaycastFilterType.Exclude
-    params.IgnoreWater = true
+    -- Один RaycastParams и один массив вместо создания на каждый кадр.
+    local exclusions = aimPro.rayIgnore
+    table.clear(exclusions)
+    local myCharacter = LocalPlayer.Character
+    if myCharacter then exclusions[1] = myCharacter end
+    local params = aimPro.rayParams
     for _ = 1, CONFIG.AimVisibleRaycastChecks do
         params.FilterDescendantsInstances = exclusions
         local result = Workspace:Raycast(origin, direction, params)
         if not result then return true end
         if result.Instance:IsDescendantOf(targetCharacter) then return true end
-        if result.Instance.Transparency >= 0.98 then
+        if result.Instance:IsA("BasePart") and result.Instance.Transparency >= 0.98 then
             exclusions[#exclusions + 1] = result.Instance
         else
             return false
@@ -1090,6 +1091,7 @@ local function signedAngle(a, b)
     return (b - a + math.pi) % (math.pi * 2) - math.pi
 end
 
+-- Квадрат дистанции вместо квадратного корня на всех проверяемых целях.
 local function examineTarget(camera, player, part, myRoot, center, fovLimit, withLos)
     local character = player and player.Character
     if not character or not part or not part:IsA("BasePart")
@@ -1097,15 +1099,17 @@ local function examineTarget(camera, player, part, myRoot, center, fovLimit, wit
     local hum = character:FindFirstChildOfClass("Humanoid")
     if not hum or hum.Health <= 0 then return nil end
     local point = part.Position
-    if (point - myRoot.Position).Magnitude * CONFIG.StudMeters > state.aimRangeMeters then
-        return nil
-    end
+    local offset = point - myRoot.Position
+    local maxStuds = state.aimRangeMeters / CONFIG.StudMeters
+    if offset:Dot(offset) > maxStuds * maxStuds then return nil end
     local projected, onScreen = camera:WorldToViewportPoint(point)
     if not onScreen or projected.Z <= 0 then return nil end
-    local pixels = (Vector2.new(projected.X, projected.Y) - center).Magnitude
-    if pixels > fovLimit then return nil end
+    local dx, dy = projected.X - center.X, projected.Y - center.Y
+    local pixelSquared = dx * dx + dy * dy
+    if pixelSquared > fovLimit * fovLimit then return nil end
     if withLos and not canSee(camera, point, character) then return nil end
-    return {player = player, part = part, character = character, pixels = pixels}
+    return {player = player, part = part, character = character,
+        humanoid = hum, pixelsSquared = pixelSquared}
 end
 
 local function findAimTarget(camera)
@@ -1121,7 +1125,6 @@ local function findAimTarget(camera)
     local center = Vector2.new(viewport.X * 0.5, viewport.Y * 0.5)
     local fov = state.aimFovPixels
 
-    -- Если старый игрок жив и по-прежнему подходит — не переключаться каждые 0.12 с.
     if state.targetLock and aimTarget and aimTarget.player.Parent == Players then
         local chosen = targetPart(aimTarget.character)
         if chosen then
@@ -1131,22 +1134,30 @@ local function findAimTarget(camera)
         end
     end
 
-    local candidates = {}
+    -- Без Visible Check не создаём сортированный список: ищем один минимум.
+    local candidates = aimPro.candidates
+    table.clear(candidates)
+    local best = nil
     for _, player in ipairs(Players:GetPlayers()) do
         if player ~= LocalPlayer and player.Character and not sameTeam(player) then
             local part = targetPart(player.Character)
             if part then
-                -- На этом этапе нет Raycast: сначала дешёвые проверки дальности и FOV.
                 local found = examineTarget(camera, player, part, myRoot,
                     center, fov, false)
-                if found then candidates[#candidates + 1] = found end
+                if found then
+                    if state.visibleCheck then
+                        candidates[#candidates + 1] = found
+                    elseif not best or found.pixelsSquared < best.pixelsSquared then
+                        best = found
+                    end
+                end
             end
         end
     end
-    table.sort(candidates, function(a, b) return a.pixels < b.pixels end)
+    if not state.visibleCheck then return done(best) end
+    table.sort(candidates, function(a, b) return a.pixelsSquared < b.pixelsSquared end)
     for _, candidate in ipairs(candidates) do
-        if not state.visibleCheck
-            or canSee(camera, candidate.part.Position, candidate.character) then
+        if canSee(camera, candidate.part.Position, candidate.character) then
             return done(candidate)
         end
     end
