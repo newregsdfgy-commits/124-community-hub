@@ -1,8 +1,9 @@
-name: Luau compile check (Hub.lua)
+name: 124 Community Visuals Luau compile
 on:
   push:
-    branches: [v1.1.18-max-performance-test]
+    branches: [v1.1.19-community-visuals-ui-test]
     paths:
+      - 'Visuals.lua'
       - 'Hub.lua'
       - 'tests/**'
       - '.github/workflows/luau-compile.yml'
@@ -16,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - name: Checkout Hub test branch
+      - name: Checkout 124 Community Visuals test branch
         uses: actions/checkout@v4
       - name: Checkout official Luau compiler source
         uses: actions/checkout@v4
@@ -32,12 +33,16 @@ jobs:
           cmake --build luau-build --target Luau.Compile.CLI --parallel 2
       - name: Run performance regression model tests
         shell: bash
-        run: node --test tests/HubPerformance.test.cjs
-      - name: Parse and compile Hub.lua (optimization level 2)
+        run: node --test tests/*.test.cjs
+      - name: Parse and compile Visuals.lua and compatibility Hub.lua
         shell: bash
         run: |
           set -euo pipefail
+          cmp -s Visuals.lua Hub.lua
+          ./luau-build/luau-compile --only-parse Visuals.lua >/dev/null
+          ./luau-build/luau-compile -O2 -g0 --binary Visuals.lua > /tmp/Army124-Visuals.luauc
           ./luau-build/luau-compile --only-parse Hub.lua >/dev/null
           ./luau-build/luau-compile -O2 -g0 --binary Hub.lua > /tmp/Army124-Hub.luauc
+          test -s /tmp/Army124-Visuals.luauc
           test -s /tmp/Army124-Hub.luauc
-          echo "Hub.lua parsed and compiled successfully."
+          echo "124 Community Visuals parsed and compiled successfully."
