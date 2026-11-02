@@ -7,7 +7,7 @@ const compat = fs.readFileSync("Hub.lua", "utf8");
 
 test("both entrypoints are byte-for-byte identical", () => {
   assert.equal(visuals, compat);
-  assert.match(visuals, /Version = "1\.1\.20"/);
+  assert.match(visuals, /Version = "1\.1\.21"/);
 });
 test("old executor state keys and cleanup remain compatible", () => {
   assert.match(visuals, /env\.ARMY124_CLEANUP = abortPartialHub/);
@@ -15,11 +15,11 @@ test("old executor state keys and cleanup remain compatible", () => {
   assert.match(visuals, /xpcall\(initializeHubUI/);
   assert.match(visuals, /function boosterPro\.restoreGraphicsSliced\(/);
 });
-test("branding uses 124 Community Visuals and violet visual palette", () => {
-  assert.match(visuals, /124 Community Visuals/);
-  assert.match(visuals, /Name = "Army124CommunityVisualsGUI"/);
-  assert.match(visuals, /Accent = Color3\.fromRGB\(161, 46, 255\)/);
-  assert.match(visuals, /Text = "VISUALS  \/  v" \.. CONFIG\.Version/);
+test("operator identity",()=>{
+ assert.ok(visuals.includes("124 Community Visuals"));
+ assert.ok(visuals.includes('Name = "Army124CommunityVisualsGUI"'));
+ assert.ok(visuals.includes("Accent = Color3.fromRGB(205, 79, 76)"));
+ assert.ok(visuals.includes('Text = "OPERATOR  /  v" .. CONFIG.Version'));
 });
 test("five destinations preserve working AIM ESP MISC CFG and add HOME", () => {
   const start = visuals.indexOf("local navigation = {");

@@ -1,11 +1,11 @@
--- 124 Community Visuals v1.1.20 | cached roster, adaptive ESP budget and dashboard draw
+-- 124 Community Visuals v1.1.21 | Operator GUI / interaction stability
 -- PlaceId: 18537079992
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.1.20",
+    Version = "1.1.21",
     PlaceId = 18537079992,
     EspRefreshSeconds = 0.75, -- Лёгкое обновление списка игроков; FPS на первом месте.
     EspMaxPlayers = 12, -- Меньше Highlight и GUI-обновлений по умолчанию.
@@ -84,12 +84,12 @@ local CONFIG = {
     FullBrightAmbient = Color3.fromRGB(170, 170, 170),
     FullBrightOutdoorAmbient = Color3.fromRGB(175, 175, 175),
     FullBrightExposure = 0.12,
-    Accent = Color3.fromRGB(161, 46, 255), -- 124 Community Visuals: violet accent.
+    Accent = Color3.fromRGB(205, 79, 76), -- Graphite operator interface.
     EspGold = Color3.fromRGB(232, 188, 78), -- Отдельный цвет GOLD, не связан с красной темой.
-    Neutral = Color3.fromRGB(207, 147, 250),
-    Window = Color3.fromRGB(13, 5, 22),
-    Surface = Color3.fromRGB(31, 13, 44),
-    Muted = Color3.fromRGB(151, 127, 170),
+    Neutral = Color3.fromRGB(195, 202, 209),
+    Window = Color3.fromRGB(16, 19, 22),
+    Surface = Color3.fromRGB(32, 37, 42),
+    Muted = Color3.fromRGB(154, 162, 170),
 }
 
 if game.PlaceId ~= CONFIG.PlaceId then
@@ -2634,13 +2634,13 @@ local viewport = Workspace.CurrentCamera and Workspace.CurrentCamera.ViewportSiz
 local TweenService = game:GetService("TweenService")
 local P = {
     background = CONFIG.Window,
-    panel = Color3.fromRGB(21, 8, 32),
+    panel = Color3.fromRGB(23, 28, 32),
     tile = CONFIG.Surface,
-    border = Color3.fromRGB(56, 23, 78),
-    text = Color3.fromRGB(242, 233, 251),
+    border = Color3.fromRGB(64, 73, 81),
+    text = Color3.fromRGB(235, 238, 240),
     dim = CONFIG.Muted,
     accent = CONFIG.Accent,
-    off = Color3.fromRGB(56, 31, 70),
+    off = Color3.fromRGB(55, 62, 69),
 }
 -- На телефоне даже альбомный экран остаётся одноколоночным: элементы
 -- управления не должны уменьшаться до нечитабельного размера.
@@ -2664,9 +2664,9 @@ local panel = mk("Frame", {
     Size = UDim2.fromOffset(winWidth, winHeight),
     BackgroundColor3 = P.background,
     BorderSizePixel = 0,
-    Active = true,
+    Active = true, ClipsDescendants = true,
 }, gui)
-round(panel, 13)
+round(panel, 4)
 mk("UIStroke", {Color = P.border, Transparency = 0.08, Thickness = 1}, panel)
 local panelScale = mk("UIScale", {Scale = 1}, panel)
 -- AnchorPoint-aware экранный clamp: возвращает панель / плавающую кнопку в кадр.
@@ -2686,11 +2686,19 @@ function boosterPro.clampWindowPosition(position, size, anchor)
     y = maxY >= minY and math.clamp(y, minY, maxY) or view.Y * anchor.Y
     return UDim2.fromOffset(x, y)
 end
+local panelTween = nil
 local function tweenPanel(toScale)
-    pcall(function()
-        TweenService:Create(panelScale, TweenInfo.new(0.16, Enum.EasingStyle.Quad,
-            Enum.EasingDirection.Out), {Scale = toScale}):Play()
+    if panelTween then panelTween:Cancel(); panelTween = nil end
+    local ok, tween = pcall(function()
+        return TweenService:Create(panelScale, TweenInfo.new(0.12, Enum.EasingStyle.Quad,
+            Enum.EasingDirection.Out), {Scale = toScale})
     end)
+    if ok and tween then panelTween = tween; tween:Play()
+    else panelScale.Scale = toScale end
+end
+local function hidePanelAnimation()
+    if panelTween then panelTween:Cancel(); panelTween = nil end
+    panelScale.Scale = 1
 end
 -- The accent mark is inexpensive; no animated gradients, glow or overlays.
 mk("Frame", {
@@ -2703,11 +2711,11 @@ local bar = mk("Frame", {
     Size = UDim2.new(1, 0, 0, 74), Active = true,
 }, panel)
 local emblem = mk("Frame", {
-    Name = "BrandMark", BackgroundColor3 = Color3.fromRGB(49, 15, 71),
+    Name = "BrandMark", BackgroundColor3 = P.tile,
     BorderSizePixel = 0, Position = UDim2.fromOffset(16, 17),
     Size = UDim2.fromOffset(37, 37),
 }, bar)
-round(emblem, 8)
+round(emblem, 3)
 mk("UIStroke", {Color = P.accent, Thickness = 1, Transparency = 0.53}, emblem)
 mk("TextLabel", {
     BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1),
@@ -2717,14 +2725,14 @@ mk("TextLabel", {
 mk("TextLabel", {
     Name = "BrandTitle", BackgroundTransparency = 1,
     Position = UDim2.fromOffset(66, 16), Size = UDim2.new(1, -183, 0, 21),
-    Text = "124 COMMUNITY", TextColor3 = P.accent, TextSize = 15,
+    Text = "124 / COMMUNITY", TextColor3 = P.text, TextSize = 14,
     Font = Enum.Font.GothamBold, TextXAlignment = Enum.TextXAlignment.Left,
     TextTruncate = Enum.TextTruncate.AtEnd,
 }, bar)
 mk("TextLabel", {
     Name = "BrandCaption", BackgroundTransparency = 1,
     Position = UDim2.fromOffset(66, 38), Size = UDim2.new(1, -183, 0, 16),
-    Text = "VISUALS  /  v" .. CONFIG.Version,
+    Text = "OPERATOR  /  v" .. CONFIG.Version,
     TextColor3 = P.dim, Font = Enum.Font.Code,
     TextSize = 10, TextXAlignment = Enum.TextXAlignment.Left,
     TextTruncate = Enum.TextTruncate.AtEnd,
@@ -2732,14 +2740,14 @@ mk("TextLabel", {
 local pageHeader = mk("TextLabel", {
     Name = "CurrentPageTitle", BackgroundTransparency = 1,
     Position = UDim2.fromOffset(206, 15), Size = UDim2.new(1, -335, 0, 29),
-    Text = "Dashboard", TextColor3 = P.text, TextSize = 23,
+    Text = "ОБЗОР", TextColor3 = P.text, TextSize = 19,
     Font = Enum.Font.GothamBold, TextXAlignment = Enum.TextXAlignment.Left,
     Visible = false, TextTruncate = Enum.TextTruncate.AtEnd,
 }, bar)
 local pageSubHeader = mk("TextLabel", {
     Name = "CurrentPageSubtitle", BackgroundTransparency = 1,
     Position = UDim2.fromOffset(207, 46), Size = UDim2.new(1, -336, 0, 16),
-    Text = "Live game performance and optimization overview",
+    Text = "Мониторинг локальной сессии",
     TextColor3 = P.dim, TextSize = 11, Font = Enum.Font.Gotham,
     TextXAlignment = Enum.TextXAlignment.Left, Visible = false,
     TextTruncate = Enum.TextTruncate.AtEnd,
@@ -2769,7 +2777,7 @@ local tabs = mk("Frame", {
     Name = "VisualsNavigation", BackgroundColor3 = P.panel, BorderSizePixel = 0,
     Position = UDim2.new(0, 0, 1, -57), Size = UDim2.new(1, 0, 0, 57),
 }, panel)
-round(tabs, 10)
+round(tabs, 3)
 -- Отделяем декоративную линию от горизонтального UIListLayout.
 -- В v1.0.0 линия занимала полный слот и выталкивала вкладки ЗА окно.
 mk("Frame", {
@@ -2851,11 +2859,11 @@ local function safeActivate(control, callback)
     end)
 end
 local navigation = {
-    {key = "HOME", label = "Dashboard", symbol = "⌂"},
-    {key = "ESP", label = "Visuals", symbol = "▣"},
-    {key = "AIM", label = "Aim", symbol = "◎"},
-    {key = "MISC", label = "Performance", symbol = "ϟ"},
-    {key = "CFG", label = "Settings", symbol = "⚙"},
+    {key = "HOME", label = "Обзор", symbol = "01"},
+    {key = "ESP", label = "ESP", symbol = "02"},
+    {key = "AIM", label = "AIM", symbol = "03"},
+    {key = "MISC", label = "Производительность", symbol = "04"},
+    {key = "CFG", label = "Настройки", symbol = "05"},
 }
 local function makeColumn(parent, name)
     local scroll = mk("ScrollingFrame", {
@@ -2866,7 +2874,7 @@ local function makeColumn(parent, name)
         CanvasSize = UDim2.new(0, 0, 0, 0),
         Active = true,
     }, parent)
-    round(scroll, 9)
+    round(scroll, 3)
     mk("UIStroke", {Color = P.border, Thickness = 1, Transparency = 0.54}, scroll)
     scroll.ScrollingEnabled = true
     scroll.ElasticBehavior = Enum.ElasticBehavior.WhenScrollable
@@ -2899,11 +2907,11 @@ for idx, tab in ipairs(navigation) do
         TextColor3 = P.dim, AutoButtonColor = false,
     }, navSlots)
     round(button, 6)
-    tabOutlines[key] = mk("UIStroke", {Color = P.accent, Transparency = 1, Thickness = 1}, button)
+    tabOutlines[key] = mk("UIStroke", {Color = P.border, Transparency = 1, Thickness = 1}, button)
     tabButtons[key] = button
     tabUnderline[key] = mk("Frame", {
         Name = "ActiveLine", BackgroundColor3 = P.accent,
-        BorderSizePixel = 0, Position = UDim2.new(0.5, -11, 0, -7),
+        BorderSizePixel = 0, Position = UDim2.new(0.5, -11, 1, -3),
         Size = UDim2.fromOffset(22, 2), Visible = false,
     }, button)
     local page = mk("Frame", {
@@ -2921,7 +2929,7 @@ for idx, tab in ipairs(navigation) do
         }
     end
 end
--- Dashboard visual reference: dark purple navigation + live data, never fake OS tweaks.
+-- Dashboard visual reference: graphite operator layout with live metrics.
 -- It does not create new RenderStepped handlers, only updates from existing workers.
 do
     local home = pages.HOME
@@ -2942,13 +2950,13 @@ do
     local dashboardTitle = mk("TextLabel", {
         Name = "DashboardTitle", BackgroundTransparency = 1,
         Position = UDim2.fromOffset(5, 2), Size = UDim2.new(1, -10, 0, 33),
-        Text = "Dashboard", TextColor3 = P.text, TextSize = 25,
+        Text = "ОБЗОР СЕССИИ", TextColor3 = P.text, TextSize = 17,
         Font = Enum.Font.GothamBold, TextXAlignment = Enum.TextXAlignment.Left,
     }, content)
     local dashboardSubtitle = mk("TextLabel", {
         BackgroundTransparency = 1, Position = UDim2.fromOffset(5, 37),
         Size = UDim2.new(1, -10, 0, 19),
-        Text = "System status and live in-game optimization overview",
+        Text = "Измерения локальной сессии",
         TextColor3 = P.dim, TextSize = 11, Font = Enum.Font.Gotham,
         TextTruncate = Enum.TextTruncate.AtEnd, TextXAlignment = Enum.TextXAlignment.Left,
     }, content)
@@ -2958,23 +2966,26 @@ do
         Position = UDim2.fromOffset(0, 73), Size = UDim2.new(1, 0, 0, 105),
     }, content)
     local cardSpec = {
-        {"fps", "FPS", "◈", "LIVE FRAME RATE"},
-        {"low", "1% LOW", "⌁", "FRAME STABILITY"},
-        {"ping", "NETWORK", "◇", "PING (MS)"},
-        {"esp", "VISUALS", "▣", "TRACKED PLAYERS"}
+        {"fps", "FPS", "LIVE", "КАДРЫ / СЕК"},
+        {"low", "1% LOW", "FRAME", "СТАБИЛЬНОСТЬ"},
+        {"ping", "PING", "NET", "ЗАДЕРЖКА"},
+        {"esp", "ESP", "PLAYERS", "АКТИВНЫЕ МЕТКИ"}
     }
     for index, spec in ipairs(cardSpec) do
         local card = mk("Frame", {
             Name = "Metric_" .. spec[1], BackgroundColor3 = P.tile,
             BorderSizePixel = 0, Size = UDim2.fromOffset(120, 105),
         }, cardsFrame)
-        round(card, 9)
+        round(card, 3)
         mk("UIStroke", {Color = P.border, Transparency = 0.28, Thickness = 1}, card)
+        mk("Frame", {Name = "MetricRule", BorderSizePixel = 0,
+            Position = UDim2.fromOffset(13, 9), Size = UDim2.fromOffset(18, 2),
+            BackgroundColor3 = P.accent}, card)
         mk("TextLabel", {
-            BackgroundTransparency = 1, Position = UDim2.fromOffset(13, 9),
-            Size = UDim2.new(1, -26, 0, 17), Text = spec[3],
-            TextColor3 = P.accent, Font = Enum.Font.GothamBold,
-            TextSize = 18, TextXAlignment = Enum.TextXAlignment.Left,
+            BackgroundTransparency = 1, Position = UDim2.fromOffset(13, 14),
+            Size = UDim2.new(1, -26, 0, 17), Text = spec[2],
+            TextColor3 = P.dim, Font = Enum.Font.Code,
+            TextSize = 10, TextXAlignment = Enum.TextXAlignment.Left,
         }, card)
         local value = mk("TextLabel", {
             Name = "Value", BackgroundTransparency = 1,
@@ -2997,12 +3008,12 @@ do
         BorderSizePixel = 0, Position = UDim2.fromOffset(0, 202),
         Size = UDim2.new(0.66, -7, 0, 242),
     }, content)
-    round(chart, 9)
+    round(chart, 3)
     mk("UIStroke", {Color = P.border, Transparency = 0.25}, chart)
     mk("TextLabel", {
         BackgroundTransparency = 1, Position = UDim2.fromOffset(17, 12),
         Size = UDim2.new(1, -34, 0, 26),
-        Text = "⌁  Performance History", Font = Enum.Font.GothamBold,
+        Text = "ИСТОРИЯ FPS", Font = Enum.Font.GothamBold,
         TextColor3 = P.text, TextSize = 14, TextXAlignment = Enum.TextXAlignment.Left,
     }, chart)
     local chartArea = mk("Frame", {
@@ -3020,7 +3031,6 @@ do
             BackgroundColor3 = P.accent,
             BackgroundTransparency = 0.15,
         }, chartArea)
-        round(bar, 2)
         dash.bars[i] = bar
     end
     local actions = mk("Frame", {
@@ -3028,12 +3038,12 @@ do
         BorderSizePixel = 0, Position = UDim2.new(0.66, 7, 0, 202),
         Size = UDim2.new(0.34, -7, 0, 242),
     }, content)
-    round(actions, 9)
+    round(actions, 3)
     mk("UIStroke", {Color = P.border, Transparency = 0.25}, actions)
     mk("TextLabel", {
         BackgroundTransparency = 1, Position = UDim2.fromOffset(13, 12),
         Size = UDim2.new(1, -26, 0, 25),
-        Text = "Quick Actions", TextColor3 = P.text,
+        Text = "БЫСТРЫЕ ДЕЙСТВИЯ", TextColor3 = P.text,
         TextSize = 14, Font = Enum.Font.GothamBold,
         TextXAlignment = Enum.TextXAlignment.Left,
     }, actions)
@@ -3094,11 +3104,11 @@ do
         if cleanup then cleanup(true) end
     end)
     local info = mk("Frame", {
-        Name = "FooterBanner", BackgroundColor3 = Color3.fromRGB(39, 10, 66),
+        Name = "FooterBanner", BackgroundColor3 = P.tile,
         Position = UDim2.fromOffset(0, 462), Size = UDim2.new(1, 0, 0, 64),
         BorderSizePixel = 0,
     }, content)
-    round(info, 8)
+    round(info, 3)
     mk("TextLabel", {
         BackgroundTransparency = 1, Position = UDim2.fromOffset(17, 9),
         Size = UDim2.new(1, -30, 0, 20),
@@ -3253,10 +3263,10 @@ local function applyResponsiveLayout()
         else
             button.Size = UDim2.new(0.2, -9, 0, 40)
             local short = nav.key == "MISC" and "PERF" or nav.key
-            button.Text = width < 370 and short or (nav.symbol .. " " .. short)
+            button.Text = short
             button.TextSize = width < 355 and 9 or 10
             button.TextXAlignment = Enum.TextXAlignment.Center
-            tabUnderline[nav.key].Position = UDim2.new(0.5, -11, 0, -7)
+            tabUnderline[nav.key].Position = UDim2.new(0.5, -11, 1, -3)
             tabUnderline[nav.key].Size = UDim2.fromOffset(22, 2)
         end
     end
@@ -3319,7 +3329,7 @@ local function showPage(key)
         local selected = name == key
         page.Visible = selected
         tabButtons[name].BackgroundColor3 = selected and P.tile or P.panel
-        tabButtons[name].TextColor3 = selected and P.accent or P.dim
+        tabButtons[name].TextColor3 = selected and P.text or P.dim
         tabButtons[name].Font = selected and Enum.Font.GothamBold or Enum.Font.GothamMedium
         tabUnderline[name].Visible = selected
         tabOutlines[name].Transparency = selected and 0.44 or 1
@@ -3333,21 +3343,33 @@ applyResponsiveLayout()
 showPage("HOME")
 local currentLayoutCamera = nil
 local cameraLayoutConnection = nil
+local layoutPending = false
+local function queueResponsiveLayout()
+    if not alive or layoutPending then return end
+    layoutPending = true
+    task.defer(function()
+        layoutPending = false
+        if alive and panel.Parent then
+            local ok, err = pcall(applyResponsiveLayout)
+            if not ok then warn("[124 Community Visuals] Layout: " .. tostring(err)) end
+        end
+    end)
+end
 local function trackLayoutCamera()
+    local camera = Workspace.CurrentCamera
+    if camera == currentLayoutCamera then return end
     if cameraLayoutConnection then
         pcall(function() cameraLayoutConnection:Disconnect() end)
         cameraLayoutConnection = nil
     end
-    local camera = Workspace.CurrentCamera
+    currentLayoutCamera = camera
     if camera then
-        cameraLayoutConnection = connect(camera:GetPropertyChangedSignal("ViewportSize"), function()
-            if alive then applyResponsiveLayout() end
-        end)
+        cameraLayoutConnection = connect(camera:GetPropertyChangedSignal("ViewportSize"),queueResponsiveLayout)
     end
 end
 trackLayoutCamera()
 connect(Workspace:GetPropertyChangedSignal("CurrentCamera"), function()
-    if alive then trackLayoutCamera(); applyResponsiveLayout() end
+    if alive then trackLayoutCamera(); queueResponsiveLayout() end
 end)
 
 -- Линии сверху экрана к игрокам. Движение на КАЖДОМ кадре, поиск игроков реже.
@@ -3631,8 +3653,8 @@ local function addSection(page, title, subtitle)
     }, columnFor(page))
     registerWidget(page, container)
     mk("Frame", {Name = "SectionAccent", BackgroundColor3 = P.accent,
-        BorderSizePixel = 0, Position = UDim2.fromOffset(4, 7),
-        Size = UDim2.fromOffset(2, 12)}, container)
+        BorderSizePixel = 0, Position = UDim2.fromOffset(4, 9),
+        Size = UDim2.fromOffset(14, 2)}, container)
     mk("TextLabel", {
         BackgroundTransparency = 1,
         Position = UDim2.fromOffset(12, 3), Size = UDim2.new(1, -16, 0, 18),
@@ -3656,7 +3678,7 @@ local function addToggle(page, title, description, key, onChanged)
         AutoButtonColor = false, Text = "",
     }, columnFor(page))
     registerWidget(page, row)
-    round(row, 6)
+    round(row, 3)
     mk("UIStroke", {Color = P.border, Transparency = 0.48, Thickness = 1}, row)
     mk("TextLabel", {
         BackgroundTransparency = 1,
@@ -3677,13 +3699,13 @@ local function addToggle(page, title, description, key, onChanged)
         Size = UDim2.fromOffset(40, 22), BackgroundColor3 = P.off,
         BorderSizePixel = 0,
     }, row)
-    round(pill, 11)
+    round(pill, 4)
     local knob = mk("Frame", {
         Name = "Knob", Position = UDim2.fromOffset(3, 3),
         Size = UDim2.fromOffset(16, 16),
         BackgroundColor3 = Color3.fromRGB(222, 223, 227), BorderSizePixel = 0,
     }, pill)
-    round(knob, 8)
+    round(knob, 3)
     local function update()
         if not row.Parent then return end
         local enabled = state[key] == true
@@ -3751,7 +3773,7 @@ local function addSlider(page, title, description, key, minValue, maxValue, step
         BackgroundColor3 = CONFIG.Surface, BorderSizePixel = 0,
     }, columnFor(page))
     registerWidget(page, container)
-    round(container, 7)
+    round(container, 3)
     mk("UIStroke", {Color = P.border, Transparency = 0.48, Thickness = 1}, container)
     mk("TextLabel", {
         BackgroundTransparency = 1, Position = UDim2.fromOffset(10, 5),
@@ -3837,7 +3859,7 @@ local function addAimModeSelector(page)
         BackgroundColor3 = CONFIG.Surface, BorderSizePixel = 0,
     }, columnFor(page))
     registerWidget(page, container)
-    round(container, 7)
+    round(container, 3)
     mk("UIStroke", {Color = P.border, Transparency = 0.48, Thickness = 1}, container)
     mk("TextLabel", {
         BackgroundTransparency = 1,
@@ -3899,7 +3921,7 @@ local function addAimKeybind(page)
         BackgroundColor3 = CONFIG.Surface, BorderSizePixel = 0,
     }, columnFor(page))
     registerWidget(page, container)
-    round(container, 7)
+    round(container, 3)
     mk("UIStroke", {Color = P.border, Transparency = 0.48, Thickness = 1}, container)
     mk("TextLabel", {
         BackgroundTransparency = 1, Position = UDim2.fromOffset(10, 4),
@@ -5082,14 +5104,15 @@ local miniMoving = false
 connect(hide.Activated, function()
     captureAimKey = false
     repaintAimKeybind()
-    tweenPanel(0.94)
+    hidePanelAnimation()
     panel.Visible = false
     mini.Visible = true
     boosterPro.riskWarning.show()
 end)
 connect(mini.Activated, function()
     if miniMoving then return end
-    panelScale.Scale = 0.94
+    hidePanelAnimation()
+    panelScale.Scale = 0.98
     panel.Visible = true
     mini.Visible = false
     tweenPanel(1)
@@ -5183,6 +5206,9 @@ local dragging, dragTouch, dragOrigin, panelOrigin = false, nil, nil, nil
 connect(bar.InputBegan, function(input)
     if input.UserInputType ~= Enum.UserInputType.MouseButton1
         and input.UserInputType ~= Enum.UserInputType.Touch then return end
+    if not panel.Visible or input.Position.X >= bar.AbsolutePosition.X + bar.AbsoluteSize.X - 100 then
+        return
+    end
     dragging = true
     dragTouch = input.UserInputType == Enum.UserInputType.Touch and input or nil
     dragOrigin = input.Position
@@ -5232,12 +5258,17 @@ connect(UserInputService.InputBegan, function(input, processed)
         local menuOpen = isRobloxMenuOpen()
         if UserInputService:GetFocusedTextBox() == nil and not menuOpen
             and input.KeyCode == CONFIG.MenuKey then
-            panel.Visible = not panel.Visible
-            mini.Visible = not panel.Visible
             if panel.Visible then
-                panelScale.Scale = 0.94; tweenPanel(1)
-            else
+                hidePanelAnimation()
+                panel.Visible = false
+                mini.Visible = true
                 boosterPro.riskWarning.show()
+            else
+                hidePanelAnimation()
+                panelScale.Scale = 0.98
+                panel.Visible = true
+                mini.Visible = false
+                tweenPanel(1)
             end
             return
         end
@@ -5276,7 +5307,7 @@ connect(UserInputService.InputChanged, function(input)
 end)
 
 connect(UserInputService.InputChanged, function(input)
-    if not sliderDrag then return end
+    if not sliderDrag or sliderDrag.cancelled then return end
     if sliderDrag.touch then
         if input ~= sliderDrag.input then return end
         local dx = input.Position.X - sliderDrag.origin.X
@@ -5561,6 +5592,7 @@ cleanup = function(safeStop)
     clearShapes()
     for _, conn in ipairs(connections) do pcall(function() conn:Disconnect() end) end
     table.clear(connections)
+    hidePanelAnimation()
     pcall(function() gui:Destroy() end)
     pcall(function() if tracerGui then tracerGui:Destroy() end end)
     pcall(function() if shapeGui then shapeGui:Destroy() end end)
