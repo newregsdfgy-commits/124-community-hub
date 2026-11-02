@@ -1,18 +1,28 @@
--- 124 Community Hub v1.1.7 | Memory / Camera FOV / Anti-Aim (draw with camera; gameplay scanning stays throttled)
+-- 124 Community Hub v1.1.16 | Performance Stability: tier dwell, stable ESP, frametime telemetry, opt-in diagnostics
 -- PlaceId: 18537079992
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.1.8",
+    Version = "1.1.16",
     PlaceId = 18537079992,
-    EspRefreshSeconds = 0.55,
-    EspMaxPlayers = 16, -- Ограничение количества Highlight для слабых телефонов.
+    EspRefreshSeconds = 0.75, -- Лёгкое обновление списка игроков; FPS на первом месте.
+    EspMaxPlayers = 12, -- Меньше Highlight и GUI-обновлений по умолчанию.
     StudMeters = 0.28, -- Стандартный масштаб Roblox: 1 stud ≈ 0.28 м.
     ConfigFile = "124_community_settings_v09.json",
     MenuKey = Enum.KeyCode.RightShift,
-    EspFillTransparency = 0.78,
+    EspFillTransparency = 0.88, -- Менее заметная подсветка.
+    EspOutlineTransparency = 0.38, -- Встроенный Highlight не имеет толщины в px.
+    EspNameSizeNear = 10,
+    EspNameSizeMid = 9,
+    EspNameSizeFar = 8,
+    EspMetaSizeNear = 9, -- HP и дистанция, независимые TextLabel.
+    EspMetaSizeFar = 8,
+    EspMidDistanceMeters = 80,
+    EspFarDistanceMeters = 150,
+    EspLabelWidth = 148,
+    EspLabelHeight = 27,
     AimFovDefaultPixels = 175,
     AimFovMinPixels = 40,
     AimFovMaxPixels = 400,
@@ -23,7 +33,11 @@ local CONFIG = {
     AimSmoothnessBaseline = 33, -- Smoothness=3 эквивалентен скорости v0.3 (11).
     AimKeyDefault = "F6", -- По умолчанию назначена F6, можно выбрать другую клавишу.
     AimKeyFile = "124_community_aim_key.txt", -- Необязательное локальное сохранение.
-    AimScanInterval = 0.12, -- Захват обновляется с ограничением частоты.
+    AimScanInterval = 0.12, -- Таймер действует и при отсутствии целей.
+    AimLostRescanSeconds = 0.06,
+    AimLosBalancedSeconds = 0.045,
+    AimLosEcoSeconds = 0.075,
+    AimLosQualitySeconds = 0.02,
     RecoilShotGraceSeconds = 0.20, -- Поздний откат камеры после отпускания спуска.
     RecoilFireWindowSeconds = 0.40, -- Короткий выстрел (в т.ч. на телефоне).
     RecoilMaxHoldSeconds = 3.50, -- Предохранитель, если Tool.Deactivated не пришло.
@@ -31,7 +45,31 @@ local CONFIG = {
     RecoilMinPitchDegrees = 0.045, -- Не реагируем на микродрожание камеры.
     RecoilMaxPitchDegrees = 5.0, -- Не воспринимаем резкий разворот как отдачу.
     RecoilMaxCorrectionDegrees = 1.60, -- Ограничение коррекции за кадр.
-    BoosterBatch = 64, -- More frequent yields on low-power phones.
+    BoosterBatch = 320, -- Максимум объектов за один проход, но ограничиваем и время.
+    BoosterSliceMs = 2.2, -- Бюджет CPU на кадр для полной обработки карты.
+    BoosterLowFpsSliceMs = 0.9, -- При низком FPS защищаем время отрисовки.
+    BoosterQueueBatch = 144, -- Новые объекты StreamingEnabled.
+    BoosterQueueSliceMs = 1.1,
+    EspVisualBalancedHz = 30, -- ESP обновляется реже; AIM сохраняет полную частоту.
+    EspVisualEcoHz = 15,
+    EspShapeEcoLimit = 6,
+    EspShapeBalancedLimit = 10,
+    EspShapeQualityLimit = 20,
+    PerfEcoEnterFps = 44,
+    PerfEcoExitFps = 54, -- Гистерезис без прыгания ECO/BALANCED каждый замер.
+    PerfTierEcoEnterDwell = 2, -- Быстрый переход в ECO при просадках FPS.
+    PerfTierBalancedDwell = 15, -- Возврат осторожный, без постоянных качелей.
+    PerfEcoLowSamples = 2,
+    PerfBalancedRecoverySamples = 5,
+    FrameTimeWindow = 240, -- Кольцевой буфер, не растёт со временем.
+    FrameTimeSpikeMs = 50,
+    BhopMinInterval = 0.08, -- Частота проверок прыжка; физика ограничивает реальный BHOP.
+    BhopMaxInterval = 0.60,
+    BhopSpeedMultiplierCap = 2.0,
+    BhopWalkSpeedCap = 32, -- Не разгоняем локальный WalkSpeed без ограничений.
+    ChatMinInterval = 5, -- Уважаем штатные ограничения Roblox.
+    ChatMaxInterval = 120,
+    ChatMaxCodepoints = 160,
     FullBrightBrightness = 2.1,
     FullBrightAmbient = Color3.fromRGB(170, 170, 170),
     FullBrightOutdoorAmbient = Color3.fromRGB(175, 175, 175),
@@ -73,13 +111,25 @@ if type(getgenv) == "function" then
     local ok, result = pcall(getgenv)
     if ok and type(result) == "table" then env = result end
 end
+-- Старый экземпляр ДОЛЖЕН освободить UI, BindToRenderStep и свойства.
+-- Старые версии возвращают nil при успехе, поэтому проверяем освобождение
+-- env.ARMY124_CLEANUP, а не только возвращаемое значение.
 if type(env.ARMY124_CLEANUP) == "function" then
-    pcall(env.ARMY124_CLEANUP)
+    local previous = env.ARMY124_CLEANUP
+    local ok, result = pcall(previous)
+    if not ok or result == false or env.ARMY124_CLEANUP == previous then
+        warn("[124 Community Hub] Старый Hub не выгружен полностью; "
+            .. "новый запуск отменён: " .. tostring(result))
+        return
+    end
 end
--- Если прошлый Hub не смог восстановить защищённое свойство, повторяем
--- откат ДО новой инициализации (и не теряем старый оригинал).
 if type(env.ARMY124_RECOVERY) == "function" then
-    pcall(env.ARMY124_RECOVERY)
+    local ok, restored = pcall(env.ARMY124_RECOVERY)
+    if not ok or restored ~= true then
+        warn("[124 Community Hub] Прежняя графика/камера не восстановлены. "
+            .. "Новый запуск отменён, сохранён callback восстановления.")
+        return
+    end
 end
 
 local state = {
@@ -94,8 +144,9 @@ local state = {
     espEnemyOnly = false,
     espRangeMeters = 200,
     espColorPreset = "TEAM", -- TEAM / GOLD / GREEN / WHITE
-    espLineThickness = 2,
+    espLineThickness = 1, -- Новая тонкая графика по умолчанию.
     performanceMode = "AUTO", -- AUTO / ECO / QUALITY
+    sessionDiagnostics = false, -- Анализ LogService только по запросу.
     activeHud = true,
     aimRangeMeters = 180,
     aimSmoothness = 3, -- 0 = мгновенно, 1 = быстро, 10 = максимально плавно.
@@ -115,8 +166,16 @@ local state = {
     aimKeyName = CONFIG.AimKeyDefault,
     aimMode = "body", -- head / body / legs; сохраняем прежний режим по умолчанию.
     teamCheck = true,
+    aimOnlyRegisteredWeapons = true, -- Без подтверждения оружия AIM не наводится.
+    aimWeaponNames = "", -- Храним список точных имён через "|", без угадывания.
     antiAfk = false,
-    airAlerts = true, -- Консервативное предупреждение о необычном перемещении.
+    bunnyHop = false, -- По умолчанию выключено, работает при движении по земле.
+    bhopJumpInterval = 0.22, -- Пауза между попытками прыжка (сек).
+    bhopSpeedMultiplier = 1.2, -- Множитель локального WalkSpeed.
+    spamChat = false, -- Не запускается автоматически после загрузки.
+    chatInterval = 8, -- Минимум CONFIG.ChatMinInterval.
+    chatMessage = "", -- Пользовательский текст, без готовых фраз.
+    airAlerts = false, -- Опционально: без фоновых Raycast/сканов игроков по умолчанию.
     booster = false,
     boosterMode = "BALANCED", -- BALANCED / WHITE / ULTRA
     cameraFovEnabled = false, -- Отдельный FOV камеры; не совпадает с пиксельным AIM FOV.
@@ -140,8 +199,11 @@ local boosterPro = {
     label = nil, revision = 0, mode = nil, restoreFailures = 0,
     guardLowSince = nil, guardLastCheck = 0, guardWarned = false,
     queued = {}, queuedSeen = setmetatable({}, {__mode = "k"}),
-    queueHead = 1, queueTail = 0, queueCount = 0, queueCap = 2048,
-    queueDropped = 0,
+    queueHead = 1, queueTail = 0, queueCount = 0, queueCap = 8192,
+    queuedProcessed = setmetatable({}, {__mode = "k"}),
+    queueDropped = 0, scanned = 0, repairing = false,
+    repairCoveredDrops = 0, repairRetryAt = 0, repairErrors = 0,
+    recoveryFailures = 0, recoveryNextAt = 0,
 }
 -- Только для исполнителей, умеющих читать/писать Terrain.Decoration.
 -- Если это недоступно, не трогаем Terrain: полноценного SmoothPlastic для него нет.
@@ -163,11 +225,14 @@ local measuredFps = 60
 local perfCounters = {espCount = 0, shapeCount = 0, aimScanMs = 0}
 -- Покадровый рендер ESP (после Camera/AIM/Recoil); НЕ сканируем игроков каждый кадр.
 perfCounters.espVisual = {bound = false, bindingName = "Army124CommunityESP_" .. tostring(LocalPlayer.UserId),
-    errorAt = 0, active = {}, projected = {}}
--- Только пассивная диагностика клиентских событий: это НЕ обход античита и НЕ антибан.
+    errorAt = 0, active = {}, projected = {}, ordered = {}, candidatePool = {}}
+-- Логи отключены без подписки. Игровые события могут приходить сотнями/сек.
+-- Подписка создаётся только после явного включения пользователем.
 perfCounters.session = {
     messages = 0, warnings = 0, errors = 0, keywordHits = 0,
-    listening = false, label = nil, lastShown = "",
+    listening = false, label = nil, lastShown = "", connection = nil,
+    keywords = {"anti-cheat", "anticheat", "exploit detected",
+        "suspicious activity", "kick", "ban", "античит", "нарушение"},
 }
 function perfCounters.session.observe(message, level)
     if type(message) ~= "string" then return end
@@ -183,8 +248,7 @@ function perfCounters.session.observe(message, level)
     end
     -- Совпадение ключевого слова НЕ доказывает наличие античита.
     local lower = string.lower(message)
-    for _, keyword in ipairs({"anti-cheat", "anticheat", "exploit detected",
-        "suspicious activity", "kick", "ban", "античит", "нарушение"}) do
+    for _, keyword in ipairs(record.keywords) do
         if string.find(lower, keyword, 1, true) then
             record.keywordHits = record.keywordHits + 1
             break
@@ -194,7 +258,62 @@ end
 function perfCounters.session.summary()
     local r = perfCounters.session
     return string.format("Logs %s | Warn %d | Err %d | Keywords %d",
-        r.listening and "ON" or "N/A", r.warnings, r.errors, r.keywordHits)
+        r.listening and "ON" or "OFF", r.warnings, r.errors, r.keywordHits)
+end
+function perfCounters.session.setEnabled(enabled)
+    local record = perfCounters.session
+    if not enabled or not alive then
+        if record.connection then
+            pcall(function() record.connection:Disconnect() end)
+            record.connection = nil
+        end
+        record.listening = false
+        record.lastShown = ""
+        return
+    end
+    if record.connection then return end
+    local ok, connection = pcall(function()
+        return game:GetService("LogService").MessageOut:Connect(record.observe)
+    end)
+    if ok and connection then
+        record.connection = connection
+        record.listening = true
+    else
+        record.listening = false
+        state.sessionDiagnostics = false
+        warn("[124 Community Hub] Log diagnostics unavailable: " .. tostring(connection))
+    end
+    record.lastShown = ""
+end
+
+-- Fixed-size ring buffer for frametime. O(1) work, no allocations per frame.
+-- Percentile/sort only when diagnostics are requested or MISC is visible.
+perfCounters.frametime = {data = {}, cursor = 1, count = 0, scratch = {},
+    lastUpdated = 0, label = nil, lastShown = ""}
+function perfCounters.frametime.observe(dt)
+    if type(dt) ~= "number" or dt <= 0 or dt > 2 then return end
+    local ft = perfCounters.frametime
+    ft.data[ft.cursor] = dt * 1000
+    ft.cursor = ft.cursor % CONFIG.FrameTimeWindow + 1
+    ft.count = math.min(ft.count + 1, CONFIG.FrameTimeWindow)
+end
+function perfCounters.frametime.summary()
+    local ft = perfCounters.frametime
+    if ft.count < 60 then return "Frame Time: собираем минимум 60 кадров" end
+    local ordered = ft.scratch
+    table.clear(ordered)
+    local worst, spikes = 0, 0
+    for i = 1, ft.count do
+        local ms = ft.data[i]
+        ordered[i] = ms
+        if ms > worst then worst = ms end
+        if ms >= CONFIG.FrameTimeSpikeMs then spikes = spikes + 1 end
+    end
+    table.sort(ordered)
+    local p99ms = ordered[math.max(1, math.ceil(ft.count * 0.99))]
+    local low = math.floor(1000 / math.max(p99ms, 0.01) + 0.5)
+    return string.format("1%% Low %d FPS | p99 %.0f ms | Max %.0f ms | 50ms+ %d/%d",
+        low, p99ms, worst, spikes, ft.count)
 end
 local shapeGui, activeInfo
 local defaultSettings = nil
@@ -212,6 +331,43 @@ local requestSave = function() end
 local lightingApplying = false
 local aimTarget = nil
 local aimNextScan = 0
+-- Общий кеш экипированного Tool; Recoil уже отслеживает ChildAdded/ChildRemoved.
+local aimPro = {
+    equipped = nil,
+    nextLos = 0,
+    rayParams = RaycastParams.new(),
+    rayIgnore = {},
+    candidates = {},
+    allowedNames = {}, allowedNamesSource = nil,
+    changed = function() end,
+}
+aimPro.rayParams.FilterType = Enum.RaycastFilterType.Exclude
+aimPro.rayParams.IgnoreWater = true
+function aimPro.reset()
+    aimTarget = nil
+    aimNextScan = 0
+    aimPro.nextLos = 0
+end
+function aimPro.equippedTool()
+    local tool = aimPro.equipped
+    local character = LocalPlayer.Character
+    if not character or not character.Parent or not tool or tool.Parent ~= character then
+        return nil
+    end
+    if state.aimOnlyRegisteredWeapons then
+        local names = state.aimWeaponNames or ""
+        if aimPro.allowedNamesSource ~= names then
+            local set = {}
+            for name in string.gmatch(names, "[^|]+") do
+                set[name] = true
+            end
+            aimPro.allowedNames = set
+            aimPro.allowedNamesSource = names
+        end
+        if not aimPro.allowedNames[tool.Name] then return nil end
+    end
+    return tool
+end
 local tracerGui = nil
 local fovGui = nil
 
@@ -283,37 +439,74 @@ local function deleteRender(player)
     renderData[player] = nil
 end
 
+local cachedGreen = Color3.fromRGB(93, 210, 152)
+local cachedWhite = Color3.fromRGB(229, 229, 223)
 local function getPlayerColor(player)
     if state.espColorPreset == "GOLD" then return CONFIG.EspGold end
-    if state.espColorPreset == "GREEN" then return Color3.fromRGB(93, 210, 152) end
-    if state.espColorPreset == "WHITE" then return Color3.fromRGB(229, 229, 223) end
+    if state.espColorPreset == "GREEN" then return cachedGreen end
+    if state.espColorPreset == "WHITE" then return cachedWhite end
     if state.teamColors and player.Team ~= nil then
         return player.TeamColor.Color
     end
     return CONFIG.Neutral
 end
 
+-- AUTO определяем только один раз на измерение FPS. Гистерезис предотвращает
+-- резкую смену количества ESP-объектов при 42–55 FPS.
+local autoPerformanceTier = UserInputService.TouchEnabled and "ECO" or "BALANCED"
+perfCounters.autoTierChangedAt = os.clock()
+perfCounters.autoTierStableCount = 0
 local function perfTier()
     if state.performanceMode == "ECO" then return "ECO" end
     if state.performanceMode == "QUALITY" then return "QUALITY" end
-    if measuredFps < 26 then return "ECO" end
-    return "BALANCED"
+    return autoPerformanceTier
 end
-
+local function updateAutoPerformanceTier()
+    -- Only AUTO may change its own tier. Require sustained readings AND
+    -- minimum dwell to prevent repeated Highlight/Billboard destruction.
+    if state.performanceMode ~= "AUTO" then
+        perfCounters.autoTierStableCount = 0
+        return
+    end
+    local candidate
+    local needed
+    if autoPerformanceTier == "BALANCED" then
+        if measuredFps < CONFIG.PerfEcoEnterFps then
+            candidate, needed = "ECO", CONFIG.PerfEcoLowSamples
+        end
+    elseif measuredFps >= CONFIG.PerfEcoExitFps then
+        candidate, needed = "BALANCED", CONFIG.PerfBalancedRecoverySamples
+    end
+    if not candidate then
+        perfCounters.autoTierStableCount = 0
+        return
+    end
+    perfCounters.autoTierStableCount = perfCounters.autoTierStableCount + 1
+    local dwell = candidate == "ECO" and CONFIG.PerfTierEcoEnterDwell
+        or CONFIG.PerfTierBalancedDwell
+    if perfCounters.autoTierStableCount >= needed
+        and os.clock() - perfCounters.autoTierChangedAt >= dwell then
+        autoPerformanceTier = candidate
+        perfCounters.autoTierChangedAt = os.clock()
+        perfCounters.autoTierStableCount = 0
+    end
+end
 local function espLimit()
     local tier = perfTier()
-    if tier == "ECO" then return 8 end
+    if tier == "ECO" then return 6 end
     if tier == "QUALITY" then return 20 end
     return CONFIG.EspMaxPlayers
 end
 
+-- Тонкий ESP. Ник над игроком; HP и дистанция в отдельной нижней строке.
+-- Каждой подписи свой размер, без масштабирования GUI при отдалении.
 local function createRender(player, character, head)
     local hl = mk("Highlight", {
         Name = "Army124ESPHighlight",
         Adornee = character,
         DepthMode = Enum.HighlightDepthMode.AlwaysOnTop,
         FillTransparency = CONFIG.EspFillTransparency,
-        OutlineTransparency = 0,
+        OutlineTransparency = CONFIG.EspOutlineTransparency,
     }, character)
     local bb = mk("BillboardGui", {
         Name = "Army124ESPLabel",
@@ -321,31 +514,53 @@ local function createRender(player, character, head)
         AlwaysOnTop = true,
         LightInfluence = 0,
         MaxDistance = state.espRangeMeters / CONFIG.StudMeters,
-        Size = UDim2.fromOffset(192, 49),
-        StudsOffsetWorldSpace = Vector3.new(0, 2.5, 0),
+        Size = UDim2.fromOffset(CONFIG.EspLabelWidth, CONFIG.EspLabelHeight),
+        StudsOffsetWorldSpace = Vector3.new(0, 2.1, 0),
         ResetOnSpawn = false,
     }, PlayerGui)
     local nameLabel = mk("TextLabel", {
         BackgroundTransparency = 1,
-        Size = UDim2.new(1, 0, 0, 25),
-        TextSize = 13,
-        Font = Enum.Font.GothamBold,
-        TextStrokeTransparency = 0.3,
+        Position = UDim2.fromOffset(0, 0),
+        Size = UDim2.new(1, 0, 0, 13),
+        TextSize = CONFIG.EspNameSizeNear,
+        TextScaled = false,
+        TextWrapped = false,
+        TextTruncate = Enum.TextTruncate.AtEnd,
+        Font = Enum.Font.GothamMedium,
+        TextStrokeTransparency = 0.55,
         TextColor3 = Color3.new(1, 1, 1),
         Text = "",
     }, bb)
     local healthLabel = mk("TextLabel", {
         BackgroundTransparency = 1,
-        Position = UDim2.fromOffset(0, 25),
-        Size = UDim2.new(1, 0, 0, 20),
-        TextSize = 12,
+        Position = UDim2.fromOffset(0, 13),
+        Size = UDim2.new(0.5, -3, 0, 12),
+        TextXAlignment = Enum.TextXAlignment.Right,
+        TextSize = CONFIG.EspMetaSizeNear,
+        TextScaled = false,
+        TextWrapped = false,
+        TextTruncate = Enum.TextTruncate.AtEnd,
         Font = Enum.Font.Gotham,
-        TextStrokeTransparency = 0.3,
+        TextStrokeTransparency = 0.55,
         TextColor3 = Color3.fromRGB(120, 255, 160),
         Text = "",
     }, bb)
+    local distanceLabel = mk("TextLabel", {
+        BackgroundTransparency = 1,
+        Position = UDim2.new(0.5, 3, 0, 13),
+        Size = UDim2.new(0.5, -3, 0, 12),
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextSize = CONFIG.EspMetaSizeNear,
+        TextScaled = false,
+        TextWrapped = false,
+        TextTruncate = Enum.TextTruncate.AtEnd,
+        Font = Enum.Font.Gotham,
+        TextStrokeTransparency = 0.55,
+        TextColor3 = Color3.fromRGB(220, 220, 220),
+        Text = "",
+    }, bb)
     local item = {character = character, highlight = hl, billboard = bb,
-        nameLabel = nameLabel, healthLabel = healthLabel}
+        nameLabel = nameLabel, healthLabel = healthLabel, distanceLabel = distanceLabel}
     renderData[player] = item
     return item
 end
@@ -368,33 +583,49 @@ local function updatePlayer(player, myRoot)
         return
     end
     local item = renderData[player]
-    if item and (item.character ~= character or not isLive(item.highlight) or not isLive(item.billboard)) then
+    if item and (item.character ~= character or not isLive(item.highlight)
+        or not isLive(item.billboard) or not isLive(item.distanceLabel)) then
         deleteRender(player)
         item = nil
     end
     if not item then item = createRender(player, character, head) end
     local color = getPlayerColor(player)
+    local meters = myRoot and math.floor(
+        (root.Position - myRoot.Position).Magnitude * CONFIG.StudMeters + 0.5
+    ) or 0
+    local near = meters < CONFIG.EspMidDistanceMeters
+    local far = meters >= CONFIG.EspFarDistanceMeters
+    local nameSize = far and CONFIG.EspNameSizeFar
+        or not near and CONFIG.EspNameSizeMid or CONFIG.EspNameSizeNear
+    local metaSize = near and CONFIG.EspMetaSizeNear or CONFIG.EspMetaSizeFar
     setIfDifferent(item.billboard, "MaxDistance", state.espRangeMeters / CONFIG.StudMeters)
     setIfDifferent(item.highlight, "FillColor", color)
     setIfDifferent(item.highlight, "OutlineColor", color)
-    local labelParts = {}
-    if state.names then table.insert(labelParts, player.DisplayName) end
-    if state.distance and myRoot then
-        local meters = math.floor((root.Position - myRoot.Position).Magnitude * CONFIG.StudMeters + 0.5)
-        table.insert(labelParts, tostring(meters) .. " м")
-    end
-    local nameText = table.concat(labelParts, "  |  ")
-    setIfDifferent(item.nameLabel, "Text", nameText)
+    setIfDifferent(item.nameLabel, "Text", state.names and player.DisplayName or "")
+    setIfDifferent(item.nameLabel, "TextSize", nameSize)
     setIfDifferent(item.nameLabel, "TextColor3", color)
-    setIfDifferent(item.nameLabel, "Visible", #labelParts > 0)
+    setIfDifferent(item.nameLabel, "Visible", state.names)
+    setIfDifferent(item.distanceLabel, "Text", state.distance and (tostring(meters) .. " м") or "")
+    setIfDifferent(item.distanceLabel, "TextSize", metaSize)
+    setIfDifferent(item.distanceLabel, "Visible", state.distance)
     local maxHp = math.max(hum.MaxHealth, 1)
-    local hp = math.clamp(hum.Health / maxHp, 0, 1)
     if state.health then
-        setIfDifferent(item.healthLabel, "Text", string.format("HP %d/%d", math.ceil(hum.Health), math.ceil(maxHp)))
-        setIfDifferent(item.healthLabel, "TextColor3", Color3.fromRGB(math.floor(255 * (1 - hp)), math.floor(255 * hp), 90))
+        local hp = math.clamp(hum.Health / maxHp, 0, 1)
+        setIfDifferent(item.healthLabel, "Text",
+            string.format("HP %d/%d", math.ceil(hum.Health), math.ceil(maxHp)))
+        setIfDifferent(item.healthLabel, "TextColor3",
+            Color3.fromRGB(math.floor(255 * (1 - hp)), math.floor(255 * hp), 90))
     end
+    setIfDifferent(item.healthLabel, "TextSize", metaSize)
     setIfDifferent(item.healthLabel, "Visible", state.health)
-    setIfDifferent(item.billboard, "Enabled", item.nameLabel.Visible or item.healthLabel.Visible)
+    -- При отключении имени нижняя строка поднимается на его место.
+    local lowerY = state.names and 13 or 0
+    setIfDifferent(item.healthLabel, "Position", UDim2.fromOffset(0, lowerY))
+    setIfDifferent(item.distanceLabel, "Position", UDim2.new(0.5, 3, 0, lowerY))
+    local hasMeta = state.health or state.distance
+    local height = state.names and (hasMeta and CONFIG.EspLabelHeight or 14) or 14
+    setIfDifferent(item.billboard, "Size", UDim2.fromOffset(CONFIG.EspLabelWidth, height))
+    setIfDifferent(item.billboard, "Enabled", state.names or hasMeta)
 end
 
 local function sameTeamESP(player)
@@ -402,9 +633,12 @@ local function sameTeamESP(player)
         and player.Team == LocalPlayer.Team
 end
 
+local espCandidateScratch = {}
+local espKeepScratch = {}
 local function refreshESP()
     if not state.esp then
         for player in pairs(renderData) do deleteRender(player) end
+        table.clear(perfCounters.espVisual.ordered)
         perfCounters.espCount = 0
         return
     end
@@ -412,35 +646,62 @@ local function refreshESP()
     local myRoot = character and character:FindFirstChild("HumanoidRootPart")
     if not myRoot then
         for player in pairs(renderData) do deleteRender(player) end
+        table.clear(perfCounters.espVisual.ordered)
         perfCounters.espCount = 0
         return
     end
     -- Рисуем ближайших, чтобы не создавать десятки дорогих Highlight.
-    local candidates = {}
+    local candidates = espCandidateScratch
+    local pool = perfCounters.espVisual.candidatePool
+    local maxStuds = state.espRangeMeters / CONFIG.StudMeters
+    local maxDistanceSquared = maxStuds * maxStuds
+    table.clear(candidates)
     for _, player in ipairs(Players:GetPlayers()) do
         if player ~= LocalPlayer and (not state.espEnemyOnly or not sameTeamESP(player)) then
             local ch = player.Character
             local root = ch and ch:FindFirstChild("HumanoidRootPart")
             local hum = ch and ch:FindFirstChildOfClass("Humanoid")
             if root and hum and hum.Health > 0 then
-                local distance = (root.Position - myRoot.Position).Magnitude
-                if distance * CONFIG.StudMeters <= state.espRangeMeters then
-                    candidates[#candidates + 1] = {player = player, distance = distance}
+                local offset = root.Position - myRoot.Position
+                local dist2 = offset:Dot(offset)
+                if dist2 <= maxDistanceSquared then
+                    local index = #candidates + 1
+                    local entry = pool[index]
+                    if not entry then
+                        entry = {}
+                        pool[index] = entry
+                    end
+                    entry.player, entry.distanceSquared = player, dist2
+                    candidates[index] = entry
                 end
             end
         end
     end
-    table.sort(candidates, function(a, b) return a.distance < b.distance end)
-    local keep = {}
-    for i = 1, math.min(#candidates, espLimit()) do
+    -- Discard stale Player references after population shrinks; reuse records.
+    for i = #candidates + 1, #pool do
+        pool[i].player = nil
+    end
+    table.sort(candidates, function(a, b)
+        if a.distanceSquared ~= b.distanceSquared then
+            return a.distanceSquared < b.distanceSquared
+        end
+        return a.player.UserId < b.player.UserId -- Stable tie breaker.
+    end)
+    local keep = espKeepScratch
+    local ordered = perfCounters.espVisual.ordered
+    table.clear(keep)
+    table.clear(ordered)
+    local limit = math.min(#candidates, espLimit())
+    for i = 1, limit do
         local player = candidates[i].player
         keep[player] = true
         updatePlayer(player, myRoot)
+        if renderData[player] then ordered[#ordered + 1] = player end
     end
     for player in pairs(renderData) do
         if not keep[player] then deleteRender(player) end
     end
-    perfCounters.espCount = math.min(#candidates, espLimit())
+    perfCounters.espCount = #ordered
 end
 
 -- FullBright и FPS Booster имеют общую исходную копию освещения.
@@ -664,79 +925,84 @@ end
 for _, person in ipairs(Players:GetPlayers()) do boosterPro.watchPlayer(person) end
 if Players.PlayerAdded then connect(Players.PlayerAdded, boosterPro.watchPlayer) end
 
-function boosterPro.isProtected(obj)
+-- Проверять каждую родительскую модель для каждой детали дорого.
+-- При обходе дерева достаточно проверить границу ветки ОДИН раз.
+function boosterPro.isProtectedBranch(obj)
     local cam = Workspace.CurrentCamera
-    if cam and (obj == cam or obj:IsDescendantOf(cam)) then return true end
+    if obj == cam then return true end
+    if obj:IsA("LayerCollector") or obj:IsA("GuiBase2d") then return true end
+    if obj:IsA("Model") then
+        if boosterPro.protectedCharacters[obj] or boosterPro.protectedNames[obj.Name] then
+            return true
+        end
+        if obj:FindFirstChildOfClass("Humanoid") or obj:FindFirstChild("HumanoidRootPart") then
+            return true
+        end
+        if obj:FindFirstChild("Head") and
+            (obj:FindFirstChild("UpperTorso") or obj:FindFirstChild("Torso")
+                or obj:FindFirstChild("LowerTorso")) then
+            return true
+        end
+    end
+    return false
+end
+function boosterPro.isProtected(obj)
     local parent = obj
     while parent and parent ~= Workspace and parent ~= Lighting do
-        if parent:IsA("LayerCollector") or parent:IsA("GuiBase2d") then return true end
-        if parent:IsA("Model") then
-            if parent:FindFirstChildOfClass("Humanoid") or parent:FindFirstChild("HumanoidRootPart") then
-                return true
-            end
-            -- Частично загруженные аватары: характерная пара частей R6/R15.
-            -- Одна деталь Head не является достаточным признаком персонажа.
-            if parent:FindFirstChild("Head") and
-                (parent:FindFirstChild("UpperTorso") or parent:FindFirstChild("Torso")
-                    or parent:FindFirstChild("LowerTorso")) then
-                return true
-            end
-            if boosterPro.protectedCharacters[parent] or boosterPro.protectedNames[parent.Name] then
-                return true
-            end
-        end
+        if boosterPro.isProtectedBranch(parent) then return true end
         parent = parent.Parent
     end
     return false
 end
+
+-- Таблицы целевых свойств общие для всех деталей, без десятков тысяч
+-- временных таблиц и Color3.fromRGB на каждом объекте.
+local graphicsWhite = Color3.new(1, 1, 1)
+local graphicsPlain = {CastShadow = false}
+local graphicsWhitePart = {CastShadow = false, Material = Enum.Material.SmoothPlastic,
+    MaterialVariant = "", Color = graphicsWhite}
+local graphicsUltraPart = {CastShadow = false, Material = Enum.Material.SmoothPlastic,
+    MaterialVariant = "", Color = graphicsWhite, Reflectance = 0}
+local graphicsWhiteMesh = {CastShadow = false, Material = Enum.Material.SmoothPlastic,
+    MaterialVariant = "", TextureID = "", Color = graphicsWhite}
+local graphicsUltraMesh = {CastShadow = false, Material = Enum.Material.SmoothPlastic,
+    MaterialVariant = "", TextureID = "", Color = graphicsWhite, Reflectance = 0}
+if Enum.RenderFidelity then graphicsUltraMesh.RenderFidelity = Enum.RenderFidelity.Performance end
+local graphicsTransparent = {Transparency = 1}
+local graphicsDisabled = {Enabled = false}
+local graphicsSpecialMesh = {TextureId = ""}
+local graphicsSurface = {ColorMap = "", NormalMap = "", RoughnessMap = "", MetalnessMap = ""}
+local graphicsWater = {WaterWaveSize = 0, WaterWaveSpeed = 0, WaterReflectance = 0}
+local graphicsAtmosphere = {Density = 0, Haze = 0, Glare = 0, Offset = 0}
+local graphicsClouds = {Cover = 0, Density = 0}
 
 local function graphicsProperty(obj)
     local level = state.boosterMode
     local white = level == "WHITE" or level == "ULTRA"
     local ultra = level == "ULTRA"
     if obj:IsA("Terrain") then
-        if ultra then
-            return {WaterWaveSize = 0, WaterWaveSpeed = 0, WaterReflectance = 0}
-        end
+        return ultra and graphicsWater or nil
     elseif obj:IsA("MeshPart") then
-        local values = {CastShadow = false}
-        if white then
-            values.Material = Enum.Material.SmoothPlastic
-            values.MaterialVariant = ""
-            values.TextureID = ""
-            values.Color = Color3.fromRGB(255, 255, 255)
-        end
-        if ultra then
-            values.Reflectance = 0
-            if Enum.RenderFidelity then values.RenderFidelity = Enum.RenderFidelity.Performance end
-        end
-        return values
+        return ultra and graphicsUltraMesh or white and graphicsWhiteMesh or graphicsPlain
     elseif obj:IsA("BasePart") then
-        local values = {CastShadow = false}
-        if white then
-            values.Material = Enum.Material.SmoothPlastic
-            values.MaterialVariant = ""
-            values.Color = Color3.fromRGB(255, 255, 255)
-        end
-        if ultra then values.Reflectance = 0 end
-        return values
+        return ultra and graphicsUltraPart or white and graphicsWhitePart or graphicsPlain
     elseif white and obj:IsA("SpecialMesh") then
-        return {TextureId = ""}
+        return graphicsSpecialMesh
     elseif white and obj:IsA("SurfaceAppearance") then
-        return {ColorMap = "", NormalMap = "", RoughnessMap = "", MetalnessMap = ""}
+        return graphicsSurface
     elseif white and (obj:IsA("Decal") or obj:IsA("Texture")) then
-        return {Transparency = 1}
+        return graphicsTransparent
     elseif white and (obj:IsA("PointLight") or obj:IsA("SpotLight") or obj:IsA("SurfaceLight")) then
-        return {Enabled = false}
+        return graphicsDisabled
     elseif obj:IsA("PostEffect") or obj:IsA("ParticleEmitter") or
         obj:IsA("Trail") or obj:IsA("Beam") then
-        return {Enabled = false}
+        return graphicsDisabled
     elseif white and (obj:IsA("Smoke") or obj:IsA("Fire") or obj:IsA("Sparkles")) then
-        return {Enabled = false}
+        return graphicsDisabled
     elseif ultra and obj:IsA("Atmosphere") then
-        return {Density = 0, Haze = 0, Glare = 0, Offset = 0}
+        return graphicsAtmosphere
     elseif ultra and obj:IsA("Clouds") then
-        return {Cover = 0, Density = 0}
+        return graphicsClouds
     end
     return nil
 end
@@ -745,9 +1011,12 @@ end
 -- При возврате на менее жёсткий режим ненужные изменения сразу откатываются.
 local function optimizeObject(obj, alreadyScreened)
     if not alive or not state.booster then return end
-    if not alreadyScreened and boosterPro.isProtected(obj) then return end
-    local desired = graphicsProperty(obj) or {}
+    local desired = graphicsProperty(obj)
     local snap = savedGraphics[obj]
+    -- Не проверяем цепочку родителей и не создаём таблицу для нерелевантных объектов.
+    if not desired and not snap then return end
+    if not alreadyScreened and boosterPro.isProtected(obj) then return end
+    desired = desired or {}
     if snap then
         for key, original in pairs(snap) do
             if desired[key] == nil then
@@ -776,9 +1045,12 @@ local function optimizeObject(obj, alreadyScreened)
     if snap and not next(snap) then savedGraphics[obj] = nil end
 end
 
+-- Проходим дерево без GetDescendants(): контролируем число объектов и CPU-миллисекунды.
+-- Новые детали, добавленные во время обхода, дочитает FIFO после завершения.
 local function optimizeHierarchy(root, revision)
     local stack = {{items = root:GetChildren(), index = 1}}
-    local processed = 0
+    local sliceStarted = os.clock()
+    local count = 0
     while #stack > 0 do
         if not alive or not state.booster or revision ~= boosterRevision then return false end
         local level = stack[#stack]
@@ -787,15 +1059,23 @@ local function optimizeHierarchy(root, revision)
             stack[#stack] = nil
         else
             level.index = level.index + 1
-            if not boosterPro.isProtected(obj) then
+            if not boosterPro.isProtectedBranch(obj) then
+                if boosterPro.queuedSeen[obj] then boosterPro.queuedProcessed[obj] = true end
                 optimizeObject(obj, true)
                 local children = obj:GetChildren()
                 if #children > 0 then
                     stack[#stack + 1] = {items = children, index = 1}
                 end
             end
-            processed = processed + 1
-            if processed % CONFIG.BoosterBatch == 0 then task.wait() end
+            boosterPro.scanned = boosterPro.scanned + 1
+            count = count + 1
+            if count >= CONFIG.BoosterBatch or (count % 4 == 0 and
+                (os.clock() - sliceStarted) * 1000 >=
+                    (measuredFps < 35 and CONFIG.BoosterLowFpsSliceMs or CONFIG.BoosterSliceMs)) then
+                count = 0
+                task.wait()
+                sliceStarted = os.clock()
+            end
         end
     end
     return true
@@ -811,7 +1091,8 @@ function boosterPro.measure(value)
     if not alive or value <= 0 then return end
     local target = nil
     if state.booster then
-        if boosterPro.complete and boosterPro.readyAt and os.clock() >= boosterPro.readyAt then
+        -- Измеряем и во время долгой перекраски: ранний FPS Guard иначе бесполезен.
+        if boosterPro.startedAt and os.clock() >= boosterPro.startedAt + 4 then
             target = boosterPro.afterFPS
         end
     else
@@ -842,7 +1123,9 @@ function boosterPro.readout()
     elseif not state.booster and not boosterPro.after then
         after = "н/д"
     end
-    return "До: " .. before .. " FPS  |  После: " .. after .. delta
+    local phase = state.booster and not boosterPro.complete
+        and (" | Деталей: " .. tostring(boosterPro.scanned)) or ""
+    return "До: " .. before .. " FPS  |  После: " .. after .. delta .. phase
 end
 
 function boosterPro.restoreObject(obj, snapshot)
@@ -867,9 +1150,16 @@ end
 -- Инициируется CharacterAdded или поступлением Humanoid/частей тела.
 function boosterPro.restoreProtectedTree(character)
     if not character then return end
-    for obj, snapshot in pairs(savedGraphics) do
-        if obj == character or obj:IsDescendantOf(character) then
-            boosterPro.restoreObject(obj, snapshot)
+    -- Раньше перебирались ВСЕ сохранённые детали карты на каждое появление
+    -- персонажа. Теперь проверяем только его собственное дерево.
+    local stack = {character}
+    while #stack > 0 do
+        local obj = stack[#stack]
+        stack[#stack] = nil
+        local snap = savedGraphics[obj]
+        if snap then boosterPro.restoreObject(obj, snap) end
+        for _, child in ipairs(obj:GetChildren()) do
+            stack[#stack + 1] = child
         end
     end
 end
@@ -881,13 +1171,17 @@ local function setBooster(enabled, keepBaseline)
     boosterPro.complete = false
     boosterPro.readyAt = nil
     boosterPro.restoreFailures = 0
+    boosterPro.failed = nil
     boosterPro.guardLowSince = nil
     boosterPro.guardLastCheck = 0
     -- Discard old queued descendants. New events belong to the new revision.
     boosterPro.queued = {}
     boosterPro.queuedSeen = setmetatable({}, {__mode = "k"})
+    boosterPro.queuedProcessed = setmetatable({}, {__mode = "k"})
     boosterPro.queueHead, boosterPro.queueTail, boosterPro.queueCount = 1, 0, 0
-    boosterPro.queueDropped = 0
+    boosterPro.queueDropped, boosterPro.scanned = 0, 0
+    boosterPro.repairing = false
+    boosterPro.repairCoveredDrops, boosterPro.repairRetryAt, boosterPro.repairErrors = 0, 0, 0
     if enabled then
         boosterPro.after = nil
         boosterPro.afterFPS = {}
@@ -895,22 +1189,42 @@ local function setBooster(enabled, keepBaseline)
         if not keepBaseline then boosterPro.baseline = boosterPro.average(boosterPro.originalFPS) end
         boosterPro.mode = state.boosterMode
         boosterPro.startedAt = os.clock()
-        applyLighting()
-        if state.boosterMode == "BALANCED" then
-            restoreTerrainGrass()
-            restoreTerrainColors()
-        else
-            hideTerrainGrass()
-            whitenTerrain()
+        local setupOk, setupErr = pcall(function()
+            applyLighting()
+            if state.boosterMode == "BALANCED" then
+                restoreTerrainGrass()
+                restoreTerrainColors()
+            else
+                hideTerrainGrass()
+                whitenTerrain()
+            end
+        end)
+        if not setupOk then
+            warn("[124 Community Hub] Booster: ошибка подготовки графики: "
+                .. tostring(setupErr))
+            state.booster = false
+            local rollbackOk, rollbackErr = pcall(setBooster, false)
+            if not rollbackOk then
+                warn("[124 Community Hub] Booster: ошибка запуска отката: "
+                    .. tostring(rollbackErr))
+            end
+            if refreshToggles.booster then pcall(refreshToggles.booster) end
+            requestSave()
+            return
         end
         task.spawn(function()
+            local ok, err = pcall(function()
             -- Сначала синхронизируем старые снимки: это важно при ULTRA -> BALANCED.
-            local n = 0
+            local n, phaseStarted = 0, os.clock()
             for obj in pairs(savedGraphics) do
                 if not alive or revision ~= boosterRevision or not state.booster then return end
                 optimizeObject(obj)
                 n = n + 1
-                if n % CONFIG.BoosterBatch == 0 then task.wait() end
+                if n % 4 == 0 and ((os.clock() - phaseStarted) * 1000 >=
+                    CONFIG.BoosterSliceMs or n % CONFIG.BoosterBatch == 0) then
+                    task.wait()
+                    phaseStarted = os.clock()
+                end
             end
             local terrain = Workspace:FindFirstChildOfClass("Terrain")
             if terrain then optimizeObject(terrain) end
@@ -919,19 +1233,38 @@ local function setBooster(enabled, keepBaseline)
             if revision ~= boosterRevision or not state.booster then return end
             boosterPro.complete = true
             boosterPro.readyAt = os.clock() + 1.5
-            tell("FPS Booster Pro: " .. state.boosterMode .. " применён; измеряем FPS")
+            tell("FPS Booster Pro: " .. state.boosterMode .. " применён; просмотрено "
+                .. tostring(boosterPro.scanned) .. " объектов; измеряем FPS")
+            end)
+            if not ok and alive and revision == boosterRevision and state.booster then
+                boosterPro.complete = false
+                boosterPro.failed = tostring(err)
+                warn("[124 Community Hub] Booster: ошибка полного обхода: " .. boosterPro.failed)
+                tell("FPS Booster остановлен: ошибка обработки карты; восстановление графики")
+                state.booster = false
+                local restored, restoreErr = pcall(setBooster, false)
+                if not restored then
+                    warn("[124 Community Hub] Ошибка запуска отката Booster: " .. tostring(restoreErr))
+                end
+                if refreshToggles.booster then pcall(refreshToggles.booster) end
+                requestSave()
+            end
         end)
     else
         restoreTerrainGrass()
         restoreTerrainColors()
         applyLighting()
         task.spawn(function()
-            local count = 0
+            local count, sliceStarted = 0, os.clock()
             for obj, snapshot in pairs(savedGraphics) do
                 if revision ~= boosterRevision or state.booster then return end
                 boosterPro.restoreObject(obj, snapshot)
                 count = count + 1
-                if count % CONFIG.BoosterBatch == 0 then task.wait() end
+                if count % 4 == 0 and ((os.clock() - sliceStarted) * 1000 >=
+                    CONFIG.BoosterSliceMs or count % CONFIG.BoosterBatch == 0) then
+                    task.wait()
+                    sliceStarted = os.clock()
+                end
             end
             if alive and revision == boosterRevision then
                 local remaining = 0
@@ -979,17 +1312,18 @@ local function canSee(camera, point, targetCharacter)
     local origin = camera.CFrame.Position
     local direction = point - origin
     if direction.Magnitude < 0.05 then return false end
-    local exclusions = {}
-    if LocalPlayer.Character then exclusions[1] = LocalPlayer.Character end
-    local params = RaycastParams.new()
-    params.FilterType = Enum.RaycastFilterType.Exclude
-    params.IgnoreWater = true
+    -- Один RaycastParams и один массив вместо создания на каждый кадр.
+    local exclusions = aimPro.rayIgnore
+    table.clear(exclusions)
+    local myCharacter = LocalPlayer.Character
+    if myCharacter then exclusions[1] = myCharacter end
+    local params = aimPro.rayParams
     for _ = 1, CONFIG.AimVisibleRaycastChecks do
         params.FilterDescendantsInstances = exclusions
         local result = Workspace:Raycast(origin, direction, params)
         if not result then return true end
         if result.Instance:IsDescendantOf(targetCharacter) then return true end
-        if result.Instance.Transparency >= 0.98 then
+        if result.Instance:IsA("BasePart") and result.Instance.Transparency >= 0.98 then
             exclusions[#exclusions + 1] = result.Instance
         else
             return false
@@ -1013,6 +1347,7 @@ local function signedAngle(a, b)
     return (b - a + math.pi) % (math.pi * 2) - math.pi
 end
 
+-- Квадрат дистанции вместо квадратного корня на всех проверяемых целях.
 local function examineTarget(camera, player, part, myRoot, center, fovLimit, withLos)
     local character = player and player.Character
     if not character or not part or not part:IsA("BasePart")
@@ -1020,15 +1355,17 @@ local function examineTarget(camera, player, part, myRoot, center, fovLimit, wit
     local hum = character:FindFirstChildOfClass("Humanoid")
     if not hum or hum.Health <= 0 then return nil end
     local point = part.Position
-    if (point - myRoot.Position).Magnitude * CONFIG.StudMeters > state.aimRangeMeters then
-        return nil
-    end
+    local offset = point - myRoot.Position
+    local maxStuds = state.aimRangeMeters / CONFIG.StudMeters
+    if offset:Dot(offset) > maxStuds * maxStuds then return nil end
     local projected, onScreen = camera:WorldToViewportPoint(point)
     if not onScreen or projected.Z <= 0 then return nil end
-    local pixels = (Vector2.new(projected.X, projected.Y) - center).Magnitude
-    if pixels > fovLimit then return nil end
+    local dx, dy = projected.X - center.X, projected.Y - center.Y
+    local pixelSquared = dx * dx + dy * dy
+    if pixelSquared > fovLimit * fovLimit then return nil end
     if withLos and not canSee(camera, point, character) then return nil end
-    return {player = player, part = part, character = character, pixels = pixels}
+    return {player = player, part = part, character = character,
+        humanoid = hum, pixelsSquared = pixelSquared}
 end
 
 local function findAimTarget(camera)
@@ -1044,7 +1381,6 @@ local function findAimTarget(camera)
     local center = Vector2.new(viewport.X * 0.5, viewport.Y * 0.5)
     local fov = state.aimFovPixels
 
-    -- Если старый игрок жив и по-прежнему подходит — не переключаться каждые 0.12 с.
     if state.targetLock and aimTarget and aimTarget.player.Parent == Players then
         local chosen = targetPart(aimTarget.character)
         if chosen then
@@ -1054,22 +1390,30 @@ local function findAimTarget(camera)
         end
     end
 
-    local candidates = {}
+    -- Без Visible Check не создаём сортированный список: ищем один минимум.
+    local candidates = aimPro.candidates
+    table.clear(candidates)
+    local best = nil
     for _, player in ipairs(Players:GetPlayers()) do
         if player ~= LocalPlayer and player.Character and not sameTeam(player) then
             local part = targetPart(player.Character)
             if part then
-                -- На этом этапе нет Raycast: сначала дешёвые проверки дальности и FOV.
                 local found = examineTarget(camera, player, part, myRoot,
                     center, fov, false)
-                if found then candidates[#candidates + 1] = found end
+                if found then
+                    if state.visibleCheck then
+                        candidates[#candidates + 1] = found
+                    elseif not best or found.pixelsSquared < best.pixelsSquared then
+                        best = found
+                    end
+                end
             end
         end
     end
-    table.sort(candidates, function(a, b) return a.pixels < b.pixels end)
+    if not state.visibleCheck then return done(best) end
+    table.sort(candidates, function(a, b) return a.pixelsSquared < b.pixelsSquared end)
     for _, candidate in ipairs(candidates) do
-        if not state.visibleCheck
-            or canSee(camera, candidate.part.Position, candidate.character) then
+        if canSee(camera, candidate.part.Position, candidate.character) then
             return done(candidate)
         end
     end
@@ -1084,37 +1428,45 @@ local function isRobloxMenuOpen()
 end
 
 local function aimFrame(dt)
-    -- Не опрашиваем GuiService каждый кадр, если AIM не включён/не удерживается.
-    if not alive or not state.aimbot or not (aimHeldMouse or aimHeldTouch or aimHeldKey) then
+    -- Отсутствие Tool — абсолютный запрет движения камеры, даже при F6/ПКМ/touch.
+    if not alive or not state.aimbot or not (aimHeldMouse or aimHeldTouch or aimHeldKey)
+        or not aimPro.equippedTool() then
         aimTarget = nil
         return
     end
-    -- Останавливаем наведение при открытом меню, сбрасываем кэш и пересканируем
-    -- цель после закрытия. Состояние тумблера AIM сохраняется намеренно.
     if isRobloxMenuOpen() then
-        aimTarget = nil
-        aimNextScan = 0
+        aimPro.reset()
         return
     end
     if UserInputService:GetFocusedTextBox() ~= nil then return end
     local camera = Workspace.CurrentCamera
-    if not camera then return end
+    if not camera then aimTarget = nil; return end
     local now = os.clock()
+    local tier = perfTier()
+    local scanEvery = tier == "ECO" and 0.24
+        or tier == "QUALITY" and 0.08 or CONFIG.AimScanInterval
+    local losInterval = tier == "ECO" and CONFIG.AimLosEcoSeconds
+        or tier == "QUALITY" and CONFIG.AimLosQualitySeconds
+        or CONFIG.AimLosBalancedSeconds
     local scannedThisFrame = false
     if now >= aimNextScan then
-        local tier = perfTier()
-        local scanEvery = tier == "ECO" and 0.24
-            or tier == "QUALITY" and 0.08 or CONFIG.AimScanInterval
         aimNextScan = now + scanEvery
         aimTarget = findAimTarget(camera)
         scannedThisFrame = true
+        if aimTarget then
+            -- Новый поиск уже сделал LOS при включённом Visible Check.
+            aimPro.nextLos = now + losInterval
+        end
     end
     local current = aimTarget
-    local part = current and current.part
+    -- Отсутствие цели НЕ обнуляет таймер поиска (было до 60 сканов/с).
+    if not current then return end
+    local part = current.part
     if not part or not part.Parent or not current.player
-        or current.player.Character ~= current.character or sameTeam(current.player) then
+        or current.player.Character ~= current.character or sameTeam(current.player)
+        or not current.humanoid or current.humanoid.Health <= 0 then
         aimTarget = nil
-        aimNextScan = 0
+        aimNextScan = math.min(aimNextScan, now + CONFIG.AimLostRescanSeconds)
         return
     end
     local origin = camera.CFrame.Position
@@ -1124,24 +1476,23 @@ local function aimFrame(dt)
     if not myRoot or (point - origin).Magnitude <= 0.05
         or (point - myRoot.Position).Magnitude * CONFIG.StudMeters > state.aimRangeMeters then
         aimTarget = nil
-        aimNextScan = 0
+        aimNextScan = math.min(aimNextScan, now + CONFIG.AimLostRescanSeconds)
         return
     end
-    -- AIM-LOS-01: между плановыми сканами повторно проверяем живую цель.
-    -- В кадре нового скана Raycast уже был, повторять его не нужно.
-    -- При потере видимости камера НЕ меняется и следующий кадр ищет новую цель.
-    -- Максимум CONFIG.AimVisibleRaycastChecks raycast за кадр сопровождения.
-    if state.visibleCheck and not scannedThisFrame
-        and not canSee(camera, point, current.character) then
-        aimTarget = nil
-        aimNextScan = 0
-        return
+    -- Проверка видимости прицеливания остаётся активной, но Raycast реже.
+    if state.visibleCheck and not scannedThisFrame and now >= aimPro.nextLos then
+        if not canSee(camera, point, current.character) then
+            aimTarget = nil
+            aimNextScan = math.min(aimNextScan, now + CONFIG.AimLostRescanSeconds)
+            return
+        end
+        aimPro.nextLos = now + losInterval
     end
     local goal = CFrame.lookAt(origin, predictedPoint(part))
     if state.aimSmoothness == 0 then
         camera.CFrame = goal
     else
-        -- Независимое сглаживание углов по X/Y, сохраняем roll исходной камеры.
+        -- Не меняем уже проверенную формулу поворота и плавности.
         local cx, cy, cz = camera.CFrame:ToOrientation()
         local gx, gy = goal:ToOrientation()
         local speed = CONFIG.AimSmoothnessBaseline / state.aimSmoothness
@@ -1201,13 +1552,18 @@ local function equipRecoilTool(tool)
     disconnectRecoilConnections(recoilToolConnections)
     recoilTool = nil
     resetRecoilTracking()
-    if not tool or not tool:IsA("Tool") then return end
-    recoilTool = tool
-    recoilToolConnections[#recoilToolConnections + 1] = tool.Activated:Connect(markRecoilShot)
-    recoilToolConnections[#recoilToolConnections + 1] = tool.Deactivated:Connect(function()
-        recoilHolding = false
-        recoilFireUntil = math.max(recoilFireUntil, os.clock() + CONFIG.RecoilShotGraceSeconds)
-    end)
+    if tool and tool:IsA("Tool") and tool.Parent == LocalPlayer.Character then
+        recoilTool = tool
+        recoilToolConnections[#recoilToolConnections + 1] = tool.Activated:Connect(markRecoilShot)
+        recoilToolConnections[#recoilToolConnections + 1] = tool.Deactivated:Connect(function()
+            recoilHolding = false
+            recoilFireUntil = math.max(recoilFireUntil, os.clock() + CONFIG.RecoilShotGraceSeconds)
+        end)
+    end
+    -- Без Tool в руках AIM перестаёт управлять камерой и сбрасывает захват.
+    aimPro.equipped = recoilTool
+    aimPro.reset()
+    aimPro.changed()
 end
 
 local function bindRecoilCharacter(character)
@@ -1229,23 +1585,33 @@ local function shutdownRecoilControl()
 end
 
 connect(LocalPlayer.CharacterAdded, bindRecoilCharacter)
+connect(LocalPlayer.CharacterRemoving, function(character)
+    if aimPro.equipped and aimPro.equipped.Parent == character then
+        equipRecoilTool(nil)
+    end
+end)
 bindRecoilCharacter(LocalPlayer.Character)
 
 local function recoilFrame(dt)
+    -- OFF: нулевые вычисления углов камеры.
+    -- После включения первый кадр записывает базу, не компенсируя
+    -- несуществующий скачок на границе состояний.
+    if not alive or not state.controlRecoil or state.recoilStrength <= 0
+        or recoilTool == nil or recoilTool.Parent ~= LocalPlayer.Character then
+        recoilLastCamera, recoilLastPitch = nil, nil
+        return
+    end
     local camera = Workspace.CurrentCamera
-    if not alive or not camera then
-        recoilLastCamera = nil
-        recoilLastPitch = nil
+    if not camera then
+        recoilLastCamera, recoilLastPitch = nil, nil
         return
     end
     local currentPitch = camera.CFrame:ToOrientation()
     local previousPitch = recoilLastPitch
     local sameCamera = recoilLastCamera == camera
     recoilLastCamera = camera
-    recoilLastPitch = currentPitch -- Обновляем базу даже при выключенной функции.
+    recoilLastPitch = currentPitch
     if not sameCamera or previousPitch == nil then return end
-    if not state.controlRecoil or state.recoilStrength <= 0 or recoilTool == nil
-        or recoilTool.Parent ~= LocalPlayer.Character then return end
     if isRobloxMenuOpen() or UserInputService:GetFocusedTextBox() ~= nil then return end
     -- AIM уже стабилизирует активную цель. Второе управление CFrame вызвало бы конфликт.
     if state.aimbot and (aimHeldMouse or aimHeldTouch or aimHeldKey) and aimTarget then return end
@@ -1365,6 +1731,9 @@ end
 
 function memoryFX.camera.apply()
     local controller = memoryFX.camera
+    if not alive or (not state.cameraFovEnabled and next(controller.saved) == nil) then
+        return -- OFF: не обращаемся к камере без ожидающего отката.
+    end
     local camera = Workspace.CurrentCamera
     if state.cameraFovEnabled and camera then
         -- Старую камеру восстанавливаем даже после ошибки первой попытки.
@@ -1435,11 +1804,24 @@ function memoryFX.spin.reset()
     spin.character, spin.humanoid, spin.joint = nil, nil, nil
     spin.originalAuto, spin.originalC0 = nil, nil
     spin.nextJointSearch = 0
+    spin.nextPendingRetry = 0
     return next(spin.pending) == nil
 end
 
 function memoryFX.spin.frame(dt)
-    memoryFX.spin.restorePending()
+    local spin = memoryFX.spin
+    if not alive then return end
+    if not state.antiAim and not spin.character and next(spin.pending) == nil then
+        return -- OFF: никакой инспекции позы или C0.
+    end
+    -- При отказе C0/AutoRotate повторяем раз в секунду, не 60 раз.
+    if next(spin.pending) ~= nil then
+        local now = os.clock()
+        if now >= (spin.nextPendingRetry or 0) then
+            spin.nextPendingRetry = now + 1.0
+            spin.restorePending()
+        end
+    end
     -- При незавершённом откате не перезаписываем C0/AutoRotate новой позой.
     if not alive or not state.antiAim or next(memoryFX.spin.pending) ~= nil then
         if memoryFX.spin.character then memoryFX.spin.reset() end
@@ -1493,23 +1875,245 @@ function memoryFX.spin.frame(dt)
     end
 end
 
+-- MOVEMENT / CHAT: отдельный контроллер, без RenderStepped и автоматической рассылки.
+-- Chat Timer даёт уведомление о готовности; отправка ТОЛЬКО по нажатию пользователем.
+local utilityFX = {bunny = {token = 0}, chat = {
+    token = 0, sent = 0, errors = 0, readyCount = 0,
+    inFlight = false, lastSentAt = -1e8,
+    timerStatus = "OFF", sendStatus = "NOT SENT",
+    repaintText = function() end, repaintStatus = function() end,
+    commitText = function() return false end
+}}
+do
+    local bunny = utilityFX.bunny
+    local chat = utilityFX.chat
+    local TextChatService = game:GetService("TextChatService")
+
+    -- Восстанавливаем только собственный WalkSpeed, не перетираем изменения игры.
+    function bunny.restore()
+        local hum = bunny.humanoid
+        if hum and hum.Parent and bunny.originalSpeed and bunny.appliedSpeed then
+            pcall(function()
+                if math.abs(hum.WalkSpeed - bunny.appliedSpeed) < 0.05 then
+                    hum.WalkSpeed = bunny.originalSpeed
+                end
+            end)
+        end
+        bunny.humanoid, bunny.originalSpeed, bunny.appliedSpeed = nil, nil, nil
+        bunny.suspended = false
+    end
+
+    function bunny.applySpeed()
+        local hum = bunny.humanoid
+        if not alive or not state.bunnyHop or not hum or not hum.Parent then return end
+        if not bunny.originalSpeed or bunny.originalSpeed <= 0 then return end
+        -- Внешнее управление скоростью (спринт, стан, форма) приоритетнее Hub.
+        -- При конфликте не пытаемся каждую итерацию перезаписывать WalkSpeed.
+        if bunny.suspended then
+            -- Возобновляем ТОЛЬКО когда игра вернула исходный WalkSpeed
+            -- после спринта/стана, без вмешательства в новую игровую скорость.
+            if math.abs(hum.WalkSpeed - bunny.originalSpeed) < 0.05 then
+                bunny.suspended = false
+                bunny.appliedSpeed = nil
+            else
+                return
+            end
+        end
+        if bunny.appliedSpeed and math.abs(hum.WalkSpeed - bunny.appliedSpeed) >= 0.05 then
+            bunny.suspended = true
+            return
+        end
+        -- Если у игры исходная скорость выше лимита, не замедляем её.
+        local speed = math.max(bunny.originalSpeed,
+            math.min(bunny.originalSpeed * state.bhopSpeedMultiplier,
+                CONFIG.BhopWalkSpeedCap))
+        if math.abs(hum.WalkSpeed - speed) < 0.05 then
+            bunny.appliedSpeed = speed
+            return
+        end
+        local ok = pcall(function() hum.WalkSpeed = speed end)
+        if ok then bunny.appliedSpeed = speed end
+    end
+
+    function bunny.stop()
+        bunny.token = bunny.token + 1
+        bunny.restore()
+    end
+
+    function bunny.sync()
+        bunny.stop()
+        if not alive or not state.bunnyHop then return end
+        local token = bunny.token
+        task.spawn(function()
+            while alive and state.bunnyHop and token == bunny.token do
+                local char = LocalPlayer.Character
+                local hum = char and char:FindFirstChildOfClass("Humanoid")
+                if hum and hum.Parent and hum.Health > 0 then
+                    if bunny.humanoid ~= hum then
+                        bunny.restore()
+                        bunny.humanoid = hum
+                        bunny.originalSpeed = hum.WalkSpeed
+                        bunny.appliedSpeed = nil
+                        bunny.suspended = false
+                        bunny.applySpeed()
+                    end
+                    bunny.applySpeed()
+                    if hum.MoveDirection.Magnitude > 0.08
+                        and hum.FloorMaterial ~= Enum.Material.Air
+                        and not hum.Sit and not hum.PlatformStand then
+                        hum.Jump = true
+                    end
+                elseif bunny.humanoid then
+                    bunny.restore()
+                end
+                task.wait(math.clamp(state.bhopJumpInterval,
+                    CONFIG.BhopMinInterval, CONFIG.BhopMaxInterval))
+            end
+        end)
+    end
+
+    function chat.stop()
+        chat.token = chat.token + 1
+        chat.timerStatus = "OFF"
+        chat.repaintStatus()
+    end
+
+    -- Пользовательский таймер напоминания (НЕ отправка по таймеру).
+    function chat.sync()
+        chat.stop()
+        if not alive or not state.spamChat then return end
+        chat.timerStatus = "WAITING"
+        chat.repaintStatus()
+        local token = chat.token
+        task.spawn(function()
+            local deadline = os.clock() + state.chatInterval
+            while alive and state.spamChat and token == chat.token do
+                local remaining = deadline - os.clock()
+                if remaining <= 0 then
+                    chat.readyCount = chat.readyCount + 1
+                    chat.timerStatus = "READY: нажмите отправить"
+                    chat.repaintStatus()
+                    -- Каждая следующая готовность не вызывает SendAsync.
+                    deadline = os.clock() + state.chatInterval
+                else
+                    task.wait(math.min(0.5, remaining))
+                end
+            end
+        end)
+    end
+
+    -- Без угадывания публичности custom TextChannel: выбираем только RBXGeneral.
+    -- Наличие TextSource означает членство; CanSend — право отправки.
+    -- PlatformIntegratedChat не читается из LocalScript (RobloxScriptSecurity).
+    local function currentChatChannel()
+        local channels = TextChatService:FindFirstChild("TextChannels")
+        if not channels then return nil, "TextChannels не загружены" end
+        local channel = channels:FindFirstChild("RBXGeneral")
+        if not channel or not channel:IsA("TextChannel") then
+            return nil, "RBXGeneral недоступен; выбери стандартный чат Roblox"
+        end
+        local permitted = false
+        for _, source in ipairs(channel:GetChildren()) do
+            if source:IsA("TextSource") and source.UserId == LocalPlayer.UserId then
+                permitted = source.CanSend == true
+                break
+            end
+        end
+        if not permitted then
+            return nil, "нет права Send в RBXGeneral (проверь доступ к чату)"
+        end
+        return channel
+    end
+
+    -- Вызывать исключительно из кнопки, после ввода сообщения пользователем.
+    function chat.sendOnce()
+        if not alive then return end
+        if chat.inFlight then
+            tell("Chat: предыдущая отправка ещё выполняется")
+            return
+        end
+        local okText = chat.commitText()
+        if not okText then
+            tell("Chat: введи сообщение (до 160 символов)")
+            return
+        end
+        local now = os.clock()
+        local waitTime = state.chatInterval - (now - chat.lastSentAt)
+        if waitTime > 0 then
+            tell("Chat: повторная отправка доступна через "
+                .. tostring(math.ceil(waitTime)) .. " с")
+            return
+        end
+        local channel, channelError = currentChatChannel()
+        if not channel then
+            chat.sendStatus = channelError
+            chat.errors = chat.errors + 1
+            chat.repaintStatus()
+            tell("Chat: " .. channelError)
+            return
+        end
+        local message = state.chatMessage
+        chat.inFlight = true
+        chat.lastSentAt = now
+        chat.sendStatus = "SENDING"
+        chat.repaintStatus()
+        -- SendAsync yields: нельзя отменить уже начатую отправку, но токен
+        -- не позволяет обновлять состояние после Unload/нового включения.
+        local token = chat.token
+        local ok, reply = pcall(function() return channel:SendAsync(message) end)
+        chat.inFlight = false
+        if not alive or token ~= chat.token then return end
+        if not ok then
+            chat.sendStatus, chat.errors = "API ERROR", chat.errors + 1
+            tell("Chat: ошибка отправки: " .. tostring(reply))
+        else
+            -- В режиме Platform-Integrated Chat Roblox может вернуть "".
+            -- Проверять PlatformIntegratedChat из LocalScript нельзя: защищённое свойство.
+            if type(reply) ~= "userdata" and typeof(reply) ~= "Instance" then
+                chat.sendStatus = "UNSUPPORTED / EMPTY RESULT"
+                chat.errors = chat.errors + 1
+                tell("Chat: SendAsync не поддерживается в режиме этой игры; "
+                    .. "отправляй сообщения через встроенный чат Roblox")
+            else
+                local okStatus, status = pcall(function() return reply.Status end)
+                chat.sendStatus = okStatus and status and status.Name or "UNKNOWN"
+                if okStatus and status == Enum.TextChatMessageStatus.Success then
+                    chat.sent = chat.sent + 1
+                    chat.errors = 0
+                else
+                    chat.errors = chat.errors + 1
+                end
+                tell("Chat: локальный статус " .. chat.sendStatus ..
+                    " (доставку получателям проверяй на втором клиенте)")
+            end
+        end
+        chat.repaintStatus()
+    end
+end
+
 -- Сохраняем только ограниченный набор настроек; код из JSON никогда не выполняется.
 local HttpService = game:GetService("HttpService")
 local storedKeys = {
     "esp", "tracers", "names", "health", "distance", "teamColors", "espBox", "espSkeleton",
     "espEnemyOnly", "espRangeMeters", "espColorPreset", "espLineThickness", "performanceMode",
+    "sessionDiagnostics",
     "aimbot", "aimRangeMeters", "aimSmoothness", "aimSmoothX", "aimSmoothY",
     "prediction", "predictionSeconds", "targetLock", "aimFovPixels", "aimMode",
+    "aimOnlyRegisteredWeapons", "aimWeaponNames",
     "fovVisible", "fovThickness", "visibleCheck", "teamCheck", "fullbright", "booster",
     "antiAfk", "airAlerts", "hud", "activeHud", "aimKeyName", "controlRecoil", "recoilStrength", "boosterMode",
+    "bunnyHop", "bhopJumpInterval", "bhopSpeedMultiplier", "spamChat", "chatInterval", "chatMessage",
     "cameraFovEnabled", "cameraFovDegrees", "antiAim", "antiAimSpeed", "antiAimTilt",
 }
 local numericRules = {
-    espRangeMeters = {10, 200}, espLineThickness = {1, 4},
+    espRangeMeters = {10, 200}, espLineThickness = {1, 2},
     aimRangeMeters = {5, 180}, aimSmoothness = {0, 10},
     aimSmoothX = {1, 10}, aimSmoothY = {1, 10},
     predictionSeconds = {0, 0.25}, aimFovPixels = {40, 400},
     fovThickness = {1, 4}, recoilStrength = {0, 100},
+    bhopJumpInterval = {CONFIG.BhopMinInterval, CONFIG.BhopMaxInterval},
+    bhopSpeedMultiplier = {1, CONFIG.BhopSpeedMultiplierCap},
+    chatInterval = {CONFIG.ChatMinInterval, CONFIG.ChatMaxInterval},
     cameraFovDegrees = {55, 110}, antiAimSpeed = {180, 1440}, antiAimTilt = {0, 25},
 }
 local textRules = {
@@ -1521,6 +2125,9 @@ local textRules = {
 defaultSettings = {}
 for _, key in ipairs(storedKeys) do defaultSettings[key] = state[key] end
 local profiles = {CUSTOM = {}} -- Только CUSTOM записывается на диск.
+-- Текст и интервал чата — глобальные настройки, независимо от LEGIT/RAGE/CUSTOM.
+local chatPreferences = {}
+local weaponPreferences = {}
 local presetData = {
     LEGIT = {aimFovPixels = 95, aimSmoothness = 8, visibleCheck = true,
         targetLock = true, prediction = false, aimRangeMeters = 85},
@@ -1550,7 +2157,19 @@ local function validatedSettings(values)
                 local rule = numericRules[key]
                 result[key] = rule and math.clamp(incoming, rule[1], rule[2]) or baseline
             elseif type(baseline) == "string" and type(incoming) == "string" then
-                if key == "aimKeyName" then
+                if key == "aimWeaponNames" then
+                    result[key] = incoming:sub(1, 400)
+                elseif key == "chatMessage" then
+                    local value = incoming:gsub("[%c]", " "):gsub("^%s+", ""):gsub("%s+$", "")
+                    local count = utf8.len(value)
+                    if count then
+                        if count > CONFIG.ChatMaxCodepoints then
+                            local stopAt = utf8.offset(value, CONFIG.ChatMaxCodepoints + 1)
+                            if stopAt then value = value:sub(1, stopAt - 1) end
+                        end
+                        result[key] = value
+                    end
+                elseif key == "aimKeyName" then
                     if validAimKeyName(incoming) then result[key] = incoming end
                 elseif textRules[key] and textRules[key][incoming] then
                     result[key] = incoming
@@ -1562,8 +2181,14 @@ local function validatedSettings(values)
 end
 
 local function writeProfileFile()
+    chatPreferences.chatMessage = state.chatMessage
+    chatPreferences.chatInterval = state.chatInterval
+    weaponPreferences.aimOnlyRegisteredWeapons = state.aimOnlyRegisteredWeapons
+    weaponPreferences.aimWeaponNames = state.aimWeaponNames
     local data = {version = 1, current = profileName,
-        profiles = {CUSTOM = profiles.CUSTOM or {}}}
+        profiles = {CUSTOM = profiles.CUSTOM or {}},
+        chatPreferences = chatPreferences,
+        weaponPreferences = weaponPreferences}
     env.ARMY124_CONFIG_V09 = data
     if type(writefile) == "function" then
         local ok, err = pcall(function()
@@ -1610,6 +2235,22 @@ local function readProfileFile()
         end
     end
     if type(loaded) == "table" and loaded.version == 1 then
+        if type(loaded.weaponPreferences) == "table" then
+            local prefs = validatedSettings({
+                aimOnlyRegisteredWeapons = loaded.weaponPreferences.aimOnlyRegisteredWeapons,
+                aimWeaponNames = loaded.weaponPreferences.aimWeaponNames,
+            })
+            weaponPreferences.aimOnlyRegisteredWeapons = prefs.aimOnlyRegisteredWeapons
+            weaponPreferences.aimWeaponNames = prefs.aimWeaponNames
+        end
+        if type(loaded.chatPreferences) == "table" then
+            local prefs = validatedSettings({
+                chatMessage = loaded.chatPreferences.chatMessage,
+                chatInterval = loaded.chatPreferences.chatInterval,
+            })
+            chatPreferences.chatMessage = prefs.chatMessage
+            chatPreferences.chatInterval = prefs.chatInterval
+        end
         if type(loaded.profiles) == "table" then
             if loaded.profiles.CUSTOM then
                 profiles.CUSTOM = validatedSettings(loaded.profiles.CUSTOM)
@@ -1633,12 +2274,22 @@ local function applySettings(incoming, autoLoad)
     local wasBooster = state.booster
     local oldBoosterMode = state.boosterMode
     for key, value in pairs(sanitized) do state[key] = value end
+    -- Миграция: старые профили могли сохранить толстые линии (2-4 px).
+    -- При первом запуске новой версии используем тонкий стиль 1 px.
+    if autoLoad then state.espLineThickness = 1 end
     -- Автозагрузка не активирует боевые действия и вращение тела.
     -- Даже если в сохранённом CUSTOM antiAim=true, старт остаётся безопасным.
     if autoLoad then
         state.aimbot = false
+        -- Старая сохраненная версия не включает AIM с любым Tool.
+        -- Первую регистрацию оружия пользователь делает вручную в AIM.
+        state.aimOnlyRegisteredWeapons = true
+        state.airAlerts = false -- Высокая нагрузка фонового мониторинга, ON только вручную.
+        state.sessionDiagnostics = false -- Анализ логов только по ручному запросу.
         state.antiAfk = false
         state.antiAim = false
+        state.bunnyHop = false
+        state.spamChat = false
         -- Prevent an old saved profile from activating Booster before a baseline.
         -- The user may still enable it manually after loading the game.
         state.booster = false
@@ -1650,6 +2301,8 @@ local function applySettings(incoming, autoLoad)
             state.espBox = false
             state.espSkeleton = false
             state.controlRecoil = false
+            state.bunnyHop = false
+            state.spamChat = false
             state.fullbright = false
             state.booster = false
             state.cameraFovEnabled = false
@@ -1671,6 +2324,10 @@ local function applySettings(incoming, autoLoad)
     pcall(applyLighting)
     setAimEnabled(state.aimbot, false)
     recoil.reset()
+    perfCounters.session.setEnabled(state.sessionDiagnostics)
+    utilityFX.bunny.sync()
+    utilityFX.chat.sync()
+    utilityFX.chat.repaintText()
     memoryFX.spin.reset()
     memoryFX.camera.apply()
     aimTarget = nil
@@ -1699,6 +2356,18 @@ local function useProfile(name, autoLoad)
         for k, v in pairs(profiles.CUSTOM or {}) do values[k] = v end
     else
         for k, v in pairs(presetData[name]) do values[k] = v end
+    end
+    if type(weaponPreferences.aimOnlyRegisteredWeapons) == "boolean" then
+        values.aimOnlyRegisteredWeapons = weaponPreferences.aimOnlyRegisteredWeapons
+    end
+    if type(weaponPreferences.aimWeaponNames) == "string" then
+        values.aimWeaponNames = weaponPreferences.aimWeaponNames
+    end
+    if type(chatPreferences.chatMessage) == "string" then
+        values.chatMessage = chatPreferences.chatMessage
+    end
+    if type(chatPreferences.chatInterval) == "number" then
+        values.chatInterval = chatPreferences.chatInterval
     end
     applySettings(values, autoLoad)
     if not autoLoad then
@@ -1988,6 +2657,7 @@ local sectionSides = {
     ["FOV EDITOR"] = "right", ["CONTROL"] = "right", ["RECOIL CONTROL"] = "right",
     ["UTILITY"] = "left", ["PERFORMANCE"] = "right",
     ["CAMERA FOV"] = "left", ["ANTI-AIM"] = "right",
+    ["BUNNY HOP"] = "left", ["CHAT TOOLS"] = "right",
     ["PROFILES"] = "left", ["CONFIG TOOLS"] = "right", ["WINDOW"] = "right",
 }
 local function columnFor(page)
@@ -2126,7 +2796,7 @@ local function refreshTracers()
             if not data.tracer or not data.tracer.Parent then
                 data.tracer = mk("Frame", {
                     Name = "Army124TopTracer", AnchorPoint = Vector2.new(0.5, 0.5),
-                    BackgroundColor3 = CONFIG.Neutral, BackgroundTransparency = 0.12,
+                    BackgroundColor3 = CONFIG.Neutral, BackgroundTransparency = 0.38,
                     BorderSizePixel = 0, ZIndex = 1,
                 }, tracerGui)
             end
@@ -2135,7 +2805,7 @@ local function refreshTracers()
             local length = vector.Magnitude
             data.tracer.Visible = length > 2
             if length > 2 then
-                data.tracer.Size = UDim2.fromOffset(length, 2)
+                setIfDifferent(data.tracer, "Size", UDim2.fromOffset(length, 1))
                 data.tracer.Position = UDim2.fromOffset((goal2d.X + source.X) / 2, (goal2d.Y + source.Y) / 2)
                 data.tracer.Rotation = math.deg(math.atan2(vector.Y, vector.X))
                 setIfDifferent(data.tracer, "BackgroundColor3", getPlayerColor(player))
@@ -2163,9 +2833,9 @@ local shapePairsR6 = {
 }
 local function shapeLine(parent)
     return mk("Frame", {BackgroundColor3 = CONFIG.Accent,
-        BackgroundTransparency = 0.07, BorderSizePixel = 0,
+        BackgroundTransparency = 0.22, BorderSizePixel = 0,
         AnchorPoint = Vector2.new(0.5, 0.5), Visible = false,
-        Size = UDim2.fromOffset(2, 2)}, parent)
+        Size = UDim2.fromOffset(1, 1)}, parent)
 end
 local function clearShapes()
     for player, item in pairs(shapeData) do
@@ -2223,15 +2893,22 @@ local function refreshShapes()
         return
     end
     local activeCount, active = 0, perfCounters.espVisual.active
+    local tier = perfTier()
+    local shapeBudget = tier == "ECO" and CONFIG.EspShapeEcoLimit
+        or tier == "QUALITY" and CONFIG.EspShapeQualityLimit
+        or CONFIG.EspShapeBalancedLimit
     table.clear(active)
-    -- Повторное использование таблиц уменьшает выделение памяти на каждом кадре.
+    -- Отрисовываем в том же порядке, что и ближайших игроков в ESP.
+    -- Никогда не проверяем части персонажей после заполнения лимита.
     local projected = perfCounters.espVisual.projected
-    for player, info in pairs(renderData) do
-        local char = info.character
+    for _, player in ipairs(perfCounters.espVisual.ordered) do
+        if activeCount >= shapeBudget then break end
+        local info = renderData[player]
+        local char = info and info.character
         local head = char and char:FindFirstChild("Head")
         local root = char and char:FindFirstChild("HumanoidRootPart")
         local hum = char and char:FindFirstChildOfClass("Humanoid")
-        if player.Parent == Players and head and root and hum and hum.Health > 0
+        if info and player.Parent == Players and head and root and hum and hum.Health > 0
             and player.Character == char and (not state.espEnemyOnly or not sameTeamESP(player))
             and (root.Position - myRoot.Position).Magnitude * CONFIG.StudMeters <= state.espRangeMeters then
             active[player] = true
@@ -2700,7 +3377,7 @@ local function addChoice(page, label, choices, key, callback)
     return repaint
 end
 
-addSection(pages.ESP, "VISUALS", "Индикаторы игроков и дистанция")
+addSection(pages.ESP, "VISUALS", "Компактные подписи и тонкие ESP-линии")
 
 addToggle(pages.ESP, "ESP подсветка", "Игроки за объектами до 200 м", "esp", function()
     refreshESP()
@@ -2726,7 +3403,7 @@ addSection(pages.ESP, "ESP OPTIONS", "Дальность, стиль и подп
 addSlider(pages.ESP, "Дальность ESP", "До 200 метров", "espRangeMeters", 10, 200, 5,
     function(v) return tostring(v) .. " м" end,
     function() refreshESP(); refreshShapes() end)
-addSlider(pages.ESP, "Толщина линий", "Box / Skeleton (1–4 px)", "espLineThickness", 1, 4, 1,
+addSlider(pages.ESP, "Толщина линий", "Box / Skeleton (1–2 px), Tracer всегда 1 px", "espLineThickness", 1, 2, 1,
     function(v) return tostring(v) .. " px" end, refreshShapes)
 repaintColors = addChoice(pages.ESP, "Цвет ESP", {
     {value="TEAM", label="TEAM"}, {value="GOLD", label="GOLD"},
@@ -2738,10 +3415,61 @@ addToggle(pages.ESP, "Дистанция", "Расстояние в метрах
 addToggle(pages.ESP, "Цвет команд", "Расцветка согласно TeamColor", "teamColors")
 
 addSection(pages.AIM, "TARGETING", "Точка наведения и управление")
-addToggle(pages.AIM, "Aimbot", "Включить наведение камеры", "aimbot", function(enabled)
+addToggle(pages.AIM, "Aimbot", "Наведение только с экипированным Tool", "aimbot", function(enabled)
     setAimEnabled(enabled, false)
 end)
 addAimModeSelector(pages.AIM)
+-- Без знаний об оружии игры не гадаем по названиям. Игрок может один раз
+-- зарегистрировать экипированное огнестрельное Tool; только оно пройдёт фильтр.
+addToggle(pages.AIM, "Только отмеченное оружие",
+    "ON по умолчанию; сначала запомни реальное оружие", "aimOnlyRegisteredWeapons", function()
+        aimPro.reset()
+        repaintAimTouch()
+    end)
+addButton(pages.AIM, "Запомнить оружие в руках",
+    "Зарегистрировать текущий Tool для AIM", function()
+        local tool = aimPro.equipped
+        local character = LocalPlayer.Character
+        if not character or not tool or tool.Parent ~= character
+            or not tool:IsA("Tool") then
+            tell("AIM: сначала возьми оружие в руки")
+            return
+        end
+        local name = tool.Name
+        if #name > 60 or name:find("|", 1, true) then
+            tell("AIM: имя инструмента слишком длинное или содержит |")
+            return
+        end
+        local current = state.aimWeaponNames or ""
+        local padded = "|" .. current .. "|"
+        if not padded:find("|" .. name .. "|", 1, true) then
+            if #current + #name + 1 > 400 then
+                tell("AIM: список оружия заполнен")
+                return
+            end
+            state.aimWeaponNames = current == "" and name or (current .. "|" .. name)
+        end
+        state.aimOnlyRegisteredWeapons = true
+        aimPro.reset()
+        if refreshToggles.aimOnlyRegisteredWeapons then
+            refreshToggles.aimOnlyRegisteredWeapons()
+        end
+        repaintAimTouch()
+        requestSave()
+        tell("AIM: оружие " .. name .. " зарегистрировано")
+    end)
+addButton(pages.AIM, "Очистить список оружия",
+    "Убрать разрешённые Tool и выключить строгий режим", function()
+        state.aimWeaponNames = ""
+        state.aimOnlyRegisteredWeapons = false
+        aimPro.reset()
+        if refreshToggles.aimOnlyRegisteredWeapons then
+            refreshToggles.aimOnlyRegisteredWeapons()
+        end
+        repaintAimTouch()
+        requestSave()
+        tell("AIM: список оружия очищен")
+    end)
 repaintAimKeybind = addAimKeybind(pages.AIM)
 addToggle(pages.AIM, "Проверка команды", "Игнорировать союзников", "teamCheck", function()
     aimTarget = nil
@@ -2789,9 +3517,14 @@ addSlider(pages.AIM, "Дистанция AIM", "5–180 метров, грани
 addSlider(pages.AIM, "Скорость AIM", "0 = максимум · 10 = плавно", "aimSmoothness",
     0, 10, 1,
     function(value) return value == 0 and "MAX" or "Smooth " .. tostring(value) end)
-addButton(pages.AIM, "Управление", "ПКМ: удерживать | клавиша: ON/OFF | телефон: AIM", function()
+addButton(pages.AIM, "Управление", "ПКМ: удерживать | клавиша: ON/OFF | телефон: AIM | нужен Tool", function()
+    local tool = aimPro.equipped
+    local eligible = aimPro.equippedTool() ~= nil
     tell("AIM: клавиша " .. state.aimKeyName .. " | FOV " .. state.aimFovPixels
-        .. "px | Visible Check " .. (state.visibleCheck and "ON" or "OFF"))
+        .. "px | Visible Check " .. (state.visibleCheck and "ON" or "OFF")
+        .. " | Tool: " .. (tool and tool.Name or "НЕТ")
+        .. " | Режим оружия: " .. (eligible and "OK" or "НЕТ / запомни Tool")
+        .. " | Scan: " .. tostring(perfCounters.aimScanMs) .. " мс")
 end)
 
 addSection(pages.MISC, "AIR MOTION WATCH", "Подозрительное перемещение — не определение модераторов")
@@ -2803,10 +3536,15 @@ addButton(pages.MISC, "Нагрузка Air Watch", "Игроки / замеры
     if mon and mon.diagnostics then tell(mon.diagnostics()) end
 end)
 addSection(pages.MISC, "SESSION DIAGNOSTICS", "Клиентские события, без обхода античита")
+addToggle(pages.MISC, "Анализ логов",
+    "OFF по умолчанию: LogService не обрабатывается в фоне",
+    "sessionDiagnostics", function(enabled)
+        perfCounters.session.setEnabled(enabled)
+    end)
 perfCounters.session.label = mk("TextLabel", {
     Name = "ClientSessionDiagnostics", BackgroundColor3 = CONFIG.Surface,
     BorderSizePixel = 0, Size = UDim2.new(1, 0, 0, 38),
-    Text = "Logs N/A | Warn 0 | Err 0 | Keywords 0",
+    Text = "Logs OFF | Warn 0 | Err 0 | Keywords 0",
     TextColor3 = CONFIG.Muted, Font = Enum.Font.Code,
     TextSize = 10, TextWrapped = true,
 }, columnFor(pages.MISC))
@@ -2830,13 +3568,16 @@ addToggle(pages.MISC, "FPS Booster Pro", "Графика в 3 режимах, с
 -- noticeably worse than the pre-Booster baseline, it disables and rolls back.
 -- This is only available after at least three actual pre-Booster samples.
 boosterPro.autoRollback = function()
-    if not alive or not state.booster or not boosterPro.complete then return end
+    if not alive or not state.booster then return end
     local baseline = boosterPro.baseline
     local avg = boosterPro.after
     if type(baseline) ~= "number" or baseline < 35 or
         type(avg) ~= "number" or #boosterPro.afterFPS < 4 then return end
     local now = os.clock()
-    if not boosterPro.readyAt or now < boosterPro.readyAt + 10 then return end
+    -- В том числе ДО окончания перекраски, если карта очень большая.
+    local guardReady = boosterPro.complete and boosterPro.readyAt
+        or (boosterPro.startedAt and boosterPro.startedAt + 8)
+    if not guardReady or now < guardReady + (boosterPro.complete and 4 or 0) then return end
     -- Prevent several checks within the same measurement second.
     if now - boosterPro.guardLastCheck < 0.8 then return end
     boosterPro.guardLastCheck = now
@@ -2873,6 +3614,7 @@ registerWidget(pages.MISC, boosterPro.label)
 round(boosterPro.label, 6)
 addButton(pages.MISC, "Сравнение FPS", "Нужны реальные замеры до и после включения", function()
     tell("Booster Pro [" .. state.boosterMode .. "]: " .. boosterPro.readout()
+        .. " | Проверено: " .. tostring(boosterPro.scanned)
         .. " | Очередь: " .. tostring(boosterPro.queueCount)
         .. " | Пропущено: " .. tostring(boosterPro.queueDropped))
 end)
@@ -2891,6 +3633,20 @@ local perfLabel = mk("TextLabel", {Name = "PerfDiagnostics", BackgroundColor3 = 
     TextSize = 10, Font = Enum.Font.Code}, columnFor(pages.MISC))
 registerWidget(pages.MISC, perfLabel)
 round(perfLabel, 6)
+perfCounters.frametime.label = mk("TextLabel", {
+    Name = "FrameTimeDiagnostics",
+    Size = UDim2.new(1, 0, 0, 38),
+    BackgroundColor3 = CONFIG.Surface, BorderSizePixel = 0,
+    Text = "1% Low: замер... | p99: замер...",
+    TextColor3 = CONFIG.Muted, TextSize = 10,
+    Font = Enum.Font.Code, TextWrapped = true,
+}, columnFor(pages.MISC))
+registerWidget(pages.MISC, perfCounters.frametime.label)
+round(perfCounters.frametime.label, 6)
+addButton(pages.MISC, "Проверка микрофризов",
+    "Показать 1% Low, p99, худший кадр и число задержек от 50 мс", function()
+        tell(perfCounters.frametime.summary())
+    end)
 addSection(pages.MISC, "CAMERA FOV", "Угол обзора, не радиус AIM")
 addToggle(pages.MISC, "Camera FOV", "Переопределить вертикальный угол обзора", "cameraFovEnabled", function()
     memoryFX.camera.apply()
@@ -2923,6 +3679,132 @@ addButton(pages.MISC, "Сбросить Anti-Aim", "Выключить вращ�
     requestSave()
     tell("Anti-Aim: отключён, исходная анимация восстановлена")
 end)
+-- MOVEMENT: BHOP только при движении, оба параметра меняются без RenderStepped.
+addSection(pages.MISC, "BUNNY HOP", "Прыжки на земле и настройка скорости")
+addToggle(pages.MISC, "Bunny Hop", "Автопрыжки при движении, без телепортов", "bunnyHop", function()
+    utilityFX.bunny.sync()
+end)
+addSlider(pages.MISC, "Задержка прыжков", "Меньше секунд = чаще попытки", "bhopJumpInterval",
+    CONFIG.BhopMinInterval, CONFIG.BhopMaxInterval, 0.02,
+    function(v) return string.format("%.2f сек", v) end)
+addSlider(pages.MISC, "Скорость движения", "Множитель WalkSpeed, не накопление импульса", "bhopSpeedMultiplier",
+    1, CONFIG.BhopSpeedMultiplierCap, 0.1,
+    function(v) return string.format("%.1fx", v) end, function()
+        utilityFX.bunny.applySpeed()
+    end)
+addButton(pages.MISC, "Статус Bunny Hop", "Проверить текущую скорость и переключатель", function()
+    local b = utilityFX.bunny
+    local hum = b.humanoid
+    tell("BHOP " .. (state.bunnyHop and "ON" or "OFF")
+        .. " | " .. tostring(state.bhopJumpInterval) .. " сек"
+        .. " | x" .. tostring(state.bhopSpeedMultiplier)
+        .. " | WalkSpeed " .. (hum and tostring(hum.WalkSpeed) or "н/д")
+        .. (b.suspended and " | PAUSED: ждем исходный WalkSpeed" or ""))
+end)
+
+-- CHAT: обычный TextChannel. Применяется штатная фильтрация и лимиты Roblox.
+addSection(pages.MISC, "CHAT TOOLS", "Свой текст, интервал и включение")
+local chatTextFrame = mk("Frame", {
+    Name = "ChatCustomTextFrame", Size = UDim2.new(1, 0, 0, 78),
+    BackgroundColor3 = CONFIG.Surface, BorderSizePixel = 0,
+}, columnFor(pages.MISC))
+registerWidget(pages.MISC, chatTextFrame)
+round(chatTextFrame, 7)
+mk("UIStroke", {Color = P.border, Transparency = 0.48, Thickness = 1}, chatTextFrame)
+mk("TextLabel", {
+    BackgroundTransparency = 1, Position = UDim2.fromOffset(10, 5),
+    Size = UDim2.new(1, -20, 0, 18), Text = "Текст сообщения",
+    TextColor3 = P.text, TextSize = 12, Font = Enum.Font.GothamMedium,
+    TextXAlignment = Enum.TextXAlignment.Left,
+}, chatTextFrame)
+local chatTextBox = mk("TextBox", {
+    Name = "CustomChatMessage",
+    Position = UDim2.fromOffset(10, 28),
+    Size = UDim2.new(1, -20, 0, 39),
+    BackgroundColor3 = P.background,
+    TextColor3 = P.text,
+    PlaceholderColor3 = CONFIG.Muted,
+    PlaceholderText = "Введи сообщение (до 160 символов)",
+    Text = state.chatMessage,
+    Font = Enum.Font.Gotham, TextSize = 12,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    ClearTextOnFocus = false,
+    MultiLine = false,
+    TextWrapped = false,
+    BorderSizePixel = 0,
+}, chatTextFrame)
+round(chatTextBox, 5)
+mk("UIPadding", {PaddingLeft = UDim.new(0, 9),
+    PaddingRight = UDim.new(0, 9)}, chatTextBox)
+local chatEditing = false
+utilityFX.chat.repaintText = function()
+    if chatTextBox.Parent and not chatEditing and chatTextBox.Text ~= state.chatMessage then
+        chatTextBox.Text = state.chatMessage
+    end
+end
+connect(chatTextBox.Focused, function() chatEditing = true end)
+-- Единая нормализация текста при потере фокуса и при ручной отправке.
+utilityFX.chat.commitText = function()
+    local value = chatTextBox.Text:gsub("[%c]", " ")
+        :gsub("^%s+", ""):gsub("%s+$", "")
+    local chars = utf8.len(value)
+    if not chars then
+        tell("Chat: некорректный UTF-8")
+        utilityFX.chat.repaintText()
+        return false
+    end
+    if chars > CONFIG.ChatMaxCodepoints then
+        local cut = utf8.offset(value, CONFIG.ChatMaxCodepoints + 1)
+        if cut then value = value:sub(1, cut - 1) end
+    end
+    if state.chatMessage ~= value then
+        state.chatMessage = value
+        requestSave()
+    end
+    if chatTextBox.Text ~= value then chatTextBox.Text = value end
+    return value ~= ""
+end
+connect(chatTextBox.FocusLost, function()
+    chatEditing = false
+    utilityFX.chat.commitText()
+    utilityFX.chat.repaintText()
+end)
+addSlider(pages.MISC, "Задержка сообщений", "Пауза между ручными отправками / напоминаниями", "chatInterval",
+    CONFIG.ChatMinInterval, CONFIG.ChatMaxInterval, 1,
+    function(v) return tostring(v) .. " сек" end,
+    function() if state.spamChat then utilityFX.chat.sync() end end)
+addToggle(pages.MISC, "Chat Timer", "Напоминание о готовности; авторассылка недоступна", "spamChat",
+    function() utilityFX.chat.sync() end)
+local chatStatus = mk("TextLabel", {
+    Name = "ChatTimerStatus", BackgroundColor3 = CONFIG.Surface,
+    BorderSizePixel = 0, Size = UDim2.new(1, 0, 0, 34),
+    TextWrapped = true, TextSize = 10, Font = Enum.Font.Code,
+    TextColor3 = P.dim, Text = "Chat Timer: OFF",
+}, columnFor(pages.MISC))
+registerWidget(pages.MISC, chatStatus)
+round(chatStatus, 5)
+utilityFX.chat.repaintStatus = function()
+    if not chatStatus.Parent then return end
+    local c = utilityFX.chat
+    chatStatus.Text = "Timer: " .. tostring(c.timerStatus)
+        .. " | Send: " .. tostring(c.sendStatus)
+        .. " | " .. tostring(state.chatInterval) .. " с"
+end
+addButton(pages.MISC, "Отправить сообщение",
+    "Ручной SendAsync; активную отправку OFF не отменяет",
+    function() utilityFX.chat.sendOnce() end)
+addButton(pages.MISC, "Статус чата", "Попытки отправки и готовность таймера", function()
+    local c = utilityFX.chat
+    tell("Chat " .. (state.spamChat and "TIMER ON" or "TIMER OFF")
+        .. " | интервал " .. tostring(state.chatInterval) .. " с"
+        .. " | локальных Success " .. tostring(c.sent)
+        .. " | напоминаний " .. tostring(c.readyCount)
+        .. " | ошибок " .. tostring(c.errors)
+        .. " | таймер " .. tostring(c.timerStatus)
+        .. " | отправка " .. tostring(c.sendStatus))
+end)
+utilityFX.chat.repaintStatus()
+
 addButton(pages.MISC, "Reset Character", "Локальный сброс Humanoid", function()
     local character = LocalPlayer.Character
     local hum = character and character:FindFirstChildOfClass("Humanoid")
@@ -3030,6 +3912,10 @@ do
         if state.esp then table.insert(risks, "ESP / Visuals") end
         if state.fullbright then table.insert(risks, "FullBright") end
         if state.antiAfk then table.insert(risks, "AntiAFK") end
+        if state.bunnyHop then table.insert(risks, "Bunny Hop") end
+        if state.spamChat then table.insert(risks, "Chat Timer") end
+        if state.booster then table.insert(risks, "FPS Booster") end
+        if state.cameraFovEnabled then table.insert(risks, "Camera FOV") end
         return risks
     end
     -- v1.1.4: выдержанный интерфейс вместо типовой яркой карточки.
@@ -3201,6 +4087,16 @@ do
         state.espSkeleton = false
         state.fullbright = false
         state.antiAfk = false
+        state.bunnyHop = false
+        state.spamChat = false
+        utilityFX.bunny.stop()
+        utilityFX.chat.stop()
+        if state.booster then
+            state.booster = false
+            setBooster(false)
+        end
+        state.cameraFovEnabled = false
+        memoryFX.camera.reset()
         recoil.reset()
         memoryFX.spin.reset()
         releaseAntiAfk()
@@ -3503,7 +4399,8 @@ do
     end)
     task.spawn(function()
         while alive do
-            task.wait(mon.sampleInterval)
+            -- Без фонового мониторинга скрипт не просыпается каждые 0.45 сек.
+            task.wait(state.airAlerts and mon.sampleInterval or 1.5)
             if not alive then break end
             if state.airAlerts then
                 local ok, err = pcall(mon.scan)
@@ -3582,10 +4479,12 @@ round(aimTouchButton, 5)
 repaintAimTouch = function()
     if not aimTouchButton.Parent then return end
     local active = state.aimbot and aimHeldTouch
-    aimTouchButton.Text = active and "AIM: ON" or "AIM: OFF"
+    aimTouchButton.Text = active and (aimPro.equippedTool() and "AIM: ON" or "AIM: NO GUN")
+        or "AIM: OFF"
     aimTouchButton.BackgroundColor3 = active and CONFIG.Accent or Color3.fromRGB(47, 48, 45)
     aimTouchButton.TextColor3 = active and CONFIG.Window or Color3.fromRGB(230, 224, 207)
 end
+aimPro.changed = function() if alive then repaintAimTouch() end end
 connect(aimTouchButton.Activated, function()
     if not state.aimbot then return end
     aimHeldTouch = not aimHeldTouch
@@ -3779,9 +4678,11 @@ end)
 -- a coroutine for every instance: a bounded FIFO lets the client keep rendering.
 function boosterPro.queueObject(obj)
     if not alive or not state.booster or boosterPro.queuedSeen[obj] then return end
+    -- Нерелевантные узлы не занимают память в очереди.
+    if not graphicsProperty(obj) then return end
     if boosterPro.queueCount >= boosterPro.queueCap then
         boosterPro.queueDropped = boosterPro.queueDropped + 1
-        return -- Graphics optimizations are optional; dropping beats freezing.
+        return -- Не блокируем рендер при бурной подгрузке.
     end
     boosterPro.queueTail = boosterPro.queueTail % boosterPro.queueCap + 1
     boosterPro.queued[boosterPro.queueTail] = obj
@@ -3804,10 +4705,12 @@ end)
 connect(Lighting.DescendantAdded, boosterPro.queueObject)
 task.spawn(function()
     while alive do
-        if state.booster and boosterPro.queueCount > 0 then
+        -- Во время первичного обхода не обрабатываем одни и те же детали дважды.
+        if state.booster and boosterPro.complete and not boosterPro.repairing and boosterPro.queueCount > 0 then
             local revision = boosterRevision
-            local count = math.min(32, boosterPro.queueCount)
-            for _ = 1, count do
+            local sliceStarted = os.clock()
+            local count = math.min(CONFIG.BoosterQueueBatch, boosterPro.queueCount)
+            for i = 1, count do
                 if not alive or not state.booster or revision ~= boosterRevision then break end
                 local index = boosterPro.queueHead
                 local obj = boosterPro.queued[index]
@@ -3816,11 +4719,55 @@ task.spawn(function()
                 boosterPro.queueCount = boosterPro.queueCount - 1
                 if obj then
                     boosterPro.queuedSeen[obj] = nil
-                    if obj.Parent then optimizeObject(obj) end
+                    if not boosterPro.queuedProcessed[obj] and obj.Parent then
+                        optimizeObject(obj)
+                    end
+                    boosterPro.queuedProcessed[obj] = nil
+                end
+                if i % 4 == 0 and
+                    (os.clock() - sliceStarted) * 1000 >= CONFIG.BoosterQueueSliceMs then
+                    break
                 end
             end
         end
-        task.wait(0.12)
+        -- Если StreamingEnabled переполнил кольцевую очередь,
+        -- один фоновый повторный проход восстановит пропущенные детали.
+        -- Проход ограничен тем же миллисекундным бюджетом; не бесконечный цикл.
+        -- После нескольких переполнений допускаем новые проверки.
+        -- Защита от вечного сканирования: максимум один запуск в 12 сек,
+        -- не более трёх повторов при постоянной ошибке API.
+        if state.booster and boosterPro.complete and boosterPro.queueCount == 0
+            and boosterPro.queueDropped > boosterPro.repairCoveredDrops
+            and not boosterPro.repairing and os.clock() >= boosterPro.repairRetryAt
+            and boosterPro.repairErrors < 3 then
+            boosterPro.repairing = true
+            boosterPro.repairRetryAt = os.clock() + 12
+            local repairRevision = boosterRevision
+            local coveredDrops = boosterPro.queueDropped
+            task.spawn(function()
+                local ok, result = pcall(function()
+                    return optimizeHierarchy(Workspace, repairRevision)
+                        and optimizeHierarchy(Lighting, repairRevision)
+                end)
+                if not alive or not state.booster or repairRevision ~= boosterRevision then
+                    return -- Новая ревизия владеет собственным состоянием.
+                end
+                boosterPro.repairing = false
+                if ok and result then
+                    boosterPro.repairCoveredDrops = coveredDrops
+                    boosterPro.repairErrors = 0
+                else
+                    boosterPro.repairErrors = boosterPro.repairErrors + 1
+                    if boosterPro.repairErrors <= 3 then
+                        warn("[124 Community Hub] Booster: повторный обход не завершён ("
+                            .. tostring(boosterPro.repairErrors) .. "/3)")
+                    end
+                end
+            end)
+        end
+        task.wait((not state.booster and 0.75)
+            or (boosterPro.complete and boosterPro.queueCount > 0 and 0)
+            or 0.12)
     end
 end)
 
@@ -3830,6 +4777,21 @@ for _, property in ipairs(lightingProperties) do
             enforceLightingProperty(property)
         end
     end)
+end
+
+-- Чанковый откат вместо синхронной массовой записи свойств: каждый проход
+-- отдаёт кадр после 16 объектов/2 мс. Работает и при hot reload.
+function boosterPro.restoreGraphicsSliced()
+    local started, count = os.clock(), 0
+    for obj, snapshot in pairs(savedGraphics) do
+        boosterPro.restoreObject(obj, snapshot)
+        count = count + 1
+        if count % 4 == 0 and ((os.clock() - started) * 1000 >=
+            CONFIG.BoosterSliceMs or count % CONFIG.BoosterBatch == 0) then
+            task.wait()
+            started = os.clock()
+        end
+    end
 end
 
 cleanup = function(safeStop)
@@ -3846,6 +4808,9 @@ cleanup = function(safeStop)
         state.espSkeleton = false
         state.fullbright = false
         state.antiAfk = false
+        state.bunnyHop = false
+        state.spamChat = false
+        state.sessionDiagnostics = false
         state.booster = false
         state.cameraFovEnabled = false
         -- Если запись файла запрещена, защита на следующем запуске
@@ -3854,7 +4819,10 @@ cleanup = function(safeStop)
     end
     pcall(flushConfig) -- Safety Stop сохраняет уже выключенные переключатели.
     releaseAntiAfk()
+    utilityFX.bunny.stop() -- Сразу возвращаем исходную скорость при Unload.
+    utilityFX.chat.stop() -- Прерываем ожидающую отправку и не посылаем сообщений.
     recoil.shutdown()
+    perfCounters.session.setEnabled(false)
     memoryFX.spin.reset()
     state.cameraFovEnabled = false
     memoryFX.camera.reset()
@@ -3866,6 +4834,8 @@ cleanup = function(safeStop)
     aimHeldKey = false
     captureAimKey = false
     state.antiAfk = false
+    state.bunnyHop = false
+    state.spamChat = false
     state.booster = false
     state.fullbright = false
     boosterRevision = boosterRevision + 1
@@ -3886,11 +4856,8 @@ cleanup = function(safeStop)
         perfCounters.espVisual.bound = false
     end
     pcall(applyLighting)
-    -- Сначала пробуем восстановить и объекты. После этого собираем ВСЕ
-    -- неудавшиеся снимки в один callback, переживающий hot-reexecute.
-    for obj, saved in pairs(savedGraphics) do
-        boosterPro.restoreObject(obj, saved)
-    end
+    -- Нагрузку распределяем по кадрам, сохраняя snapshots при частичном откате.
+    boosterPro.restoreGraphicsSliced()
     if savedLighting or savedTerrainDecoration or savedTerrainColors
         or next(savedGraphics) ~= nil or next(memoryFX.camera.saved) ~= nil
         or next(memoryFX.spin.pending) ~= nil then
@@ -3905,9 +4872,7 @@ cleanup = function(safeStop)
             pcall(applyLighting)
             if savedTerrainDecoration then restoreTerrainGrass() end
             if savedTerrainColors then restoreTerrainColors() end
-            for obj, snapshot in pairs(savedGraphics) do
-                boosterPro.restoreObject(obj, snapshot)
-            end
+            boosterPro.restoreGraphicsSliced()
             memoryFX.camera.reset()
             memoryFX.spin.restorePending()
             local done = not (savedLighting or savedTerrainDecoration or savedTerrainColors)
@@ -3931,18 +4896,12 @@ cleanup = function(safeStop)
     pcall(function() if shapeGui then shapeGui:Destroy() end end)
     pcall(function() if fovGui then fovGui:Destroy() end end)
     if env.ARMY124_CLEANUP == cleanup then env.ARMY124_CLEANUP = nil end
+    return true
 end
 
 env.ARMY124_CLEANUP = cleanup
--- LogService предоставляет только локально видимые сообщения.
--- Никаких перехватов Kick, RemoteEvent или попыток скрыть скрипт.
-do
-    local ok, result = pcall(function()
-        local logs = game:GetService("LogService")
-        return connect(logs.MessageOut, perfCounters.session.observe)
-    end)
-    perfCounters.session.listening = ok and result ~= nil
-end
+-- LogService не подписывается при загрузке: включается только из MISC.
+perfCounters.session.setEnabled(state.sessionDiagnostics)
 connect(close.Activated, function() if cleanup then cleanup() end end)
 connect(Players.PlayerRemoving, deleteRender)
 
@@ -3989,7 +4948,7 @@ task.spawn(function()
             if not ok then warn("[124 Community Hub] ESP: " .. tostring(err)) end
         end
         local tier = perfTier()
-        local interval = tier == "ECO" and 1.0 or tier == "QUALITY" and 0.35
+        local interval = tier == "ECO" and 1.25 or tier == "QUALITY" and 0.45
             or CONFIG.EspRefreshSeconds
         task.wait(interval)
     end
@@ -3998,9 +4957,22 @@ end)
 -- Smooth ESP v1.0.5: экранные рамки/кости/линии обновляются синхронно с
 -- камерой (без интервала 0.08–0.25 с). Частота равна реальным кадрам игры;
 -- новых игроков по-прежнему отбирает медленный refreshESP(), не рендер-цикл.
-perfCounters.espVisual.frame = function()
-    if not alive or not state.esp then return end
-    if not state.tracers and not state.espBox and not state.espSkeleton then return end
+local espVisualElapsed = 0
+perfCounters.espVisual.frame = function(dt)
+    if not alive or not state.esp then espVisualElapsed = 0; return end
+    if not state.tracers and not state.espBox and not state.espSkeleton then
+        espVisualElapsed = 0
+        return
+    end
+    -- AIM/Recoil идут каждый кадр. Только тяжёлые ESP GUI-примитивы
+    -- обновляем с отдельным пределом кадров при AUTO/ECO.
+    if type(dt) == "number" and dt > 0 then
+        local hz = perfTier() == "ECO" and CONFIG.EspVisualEcoHz
+            or perfTier() == "QUALITY" and 120 or CONFIG.EspVisualBalancedHz
+        espVisualElapsed = espVisualElapsed + math.min(dt, 0.12)
+        if espVisualElapsed < 1 / hz then return end
+        espVisualElapsed = 0
+    end
     if state.tracers then
         local ok, err = pcall(refreshTracers)
         if not ok then
@@ -4035,10 +5007,12 @@ end
 local frames, accumulated = 0, 0
 connect(RunService.RenderStepped, function(dt)
     if not alive then return end
+    perfCounters.frametime.observe(dt) -- O(1); статистика вычисляется только в MISC.
     frames = frames + 1
     accumulated = accumulated + math.max(dt, 0)
     if accumulated >= 1 then
         measuredFps = math.floor(frames / math.max(accumulated, 0.01) + 0.5)
+        updateAutoPerformanceTier()
         boosterPro.measure(measuredFps)
         frames, accumulated = 0, 0
     end
@@ -4049,8 +5023,22 @@ task.spawn(function()
         -- Отложенный откат после временного отказа записи API: до полной успешности
         -- не забываем исходные свойства. Не восстанавливаем Terrain при WHITE/ULTRA.
         if not state.fullbright and not state.booster
-            and type(env.ARMY124_RECOVERY) == "function" then
-            pcall(env.ARMY124_RECOVERY)
+            and type(env.ARMY124_RECOVERY) == "function"
+            and os.clock() >= boosterPro.recoveryNextAt then
+            local ok, done = pcall(env.ARMY124_RECOVERY)
+            if ok and done == true then
+                boosterPro.recoveryFailures = 0
+                boosterPro.recoveryNextAt = 0
+            else
+                boosterPro.recoveryFailures = boosterPro.recoveryFailures + 1
+                local seconds = math.min(120, 2 ^ math.min(boosterPro.recoveryFailures, 7))
+                boosterPro.recoveryNextAt = os.clock() + seconds
+                if boosterPro.recoveryFailures == 1 or boosterPro.recoveryFailures == 5 then
+                    warn("[124 Community Hub] Recovery не завершён (попытка "
+                        .. tostring(boosterPro.recoveryFailures)
+                        .. "); повтор через " .. tostring(seconds) .. " сек")
+                end
+            end
         end
         if state.fullbright or state.booster then
             for _, key in ipairs(lightingProperties) do enforceLightingProperty(key) end
@@ -4072,9 +5060,25 @@ task.spawn(function()
                 perfCounters.session.lastShown = summary
             end
         end
-        perfLabel.Text = string.format("FPS %d | ESP %d | Shape %d | Scan %.1f ms | %s",
-            measuredFps, perfCounters.espCount, perfCounters.shapeCount,
-            perfCounters.aimScanMs, perfTier())
+        if state.hud or state.activeHud or pages.MISC.Visible then
+            local display = string.format("FPS %d | ESP %d | Shape %d | Scan %.1f ms | %s",
+                measuredFps, perfCounters.espCount, perfCounters.shapeCount,
+                perfCounters.aimScanMs, perfTier())
+            if perfLabel.Text ~= display then perfLabel.Text = display end
+        end
+        -- O(N log N) percentile work only when the PERFORMANCE page is visible,
+        -- and no more than once every three seconds. Never in RenderStepped.
+        if panel.Visible and pages.MISC.Visible
+            and os.clock() - perfCounters.frametime.lastUpdated >= 3 then
+            perfCounters.frametime.lastUpdated = os.clock()
+            local summary = perfCounters.frametime.summary()
+            if summary ~= perfCounters.frametime.lastShown then
+                perfCounters.frametime.lastShown = summary
+                if perfCounters.frametime.label and perfCounters.frametime.label.Parent then
+                    perfCounters.frametime.label.Text = summary
+                end
+            end
+        end
         activeInfo.Visible = state.activeHud
         if state.activeHud then
             local features = {}
@@ -4085,6 +5089,8 @@ task.spawn(function()
             if state.cameraFovEnabled then table.insert(features, "FOV") end
             if state.booster then table.insert(features, "BOOST") end
             if state.fullbright then table.insert(features, "LIGHT") end
+            if state.bunnyHop then table.insert(features, "BHOP") end
+            if state.spamChat then table.insert(features, "CHAT") end
             activeInfo.Text = #features > 0 and table.concat(features, " | ") or "124 / IDLE"
         end
         aimTouchButton.Visible = state.aimbot and UserInputService.TouchEnabled
@@ -4101,7 +5107,7 @@ task.spawn(function()
             end
             stats.Text = string.format("%s | FPS %d | %sms", os.date("%H:%M:%S"), measuredFps, ping)
         end
-        task.wait(0.8)
+        task.wait((state.hud or state.activeHud) and 1.0 or 1.5)
     end
 end)
 
