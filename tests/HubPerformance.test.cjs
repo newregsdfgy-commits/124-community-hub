@@ -5,7 +5,7 @@ const fs = require("node:fs");
 const src = fs.readFileSync("Hub.lua", "utf8");
 
 function setting(name) {
-  const m = src.match(new RegExp("^\\s*" + name + "\\s*=\\s*(\\d+)", "m"));
+  const m = src.match(new RegExp(name + "\\s*=\\s*(\\d+)"));
   assert.ok(m, "missing numeric setting " + name);
   return Number(m[1]);
 }
