@@ -2864,7 +2864,7 @@ for idx, tab in ipairs(navigation) do
         Name = key .. "Tab", LayoutOrder = idx,
         BackgroundColor3 = P.panel,
         BorderSizePixel = 0,
-        Size = UDim2.new(0.2, -7, 1, 0),
+        Size = UDim2.new(0.2, -9, 0, 40),
         Text = tab.symbol .. "  " .. tab.label,
         Font = Enum.Font.GothamMedium, TextSize = 11,
         TextXAlignment = Enum.TextXAlignment.Center,
@@ -3226,7 +3226,7 @@ local function applyResponsiveLayout()
             tabUnderline[nav.key].Position = UDim2.fromOffset(0, 4)
             tabUnderline[nav.key].Size = UDim2.new(0, 3, 1, -8)
         else
-            button.Size = UDim2.new(0.2, -7, 1, 0)
+            button.Size = UDim2.new(0.2, -9, 0, 40)
             local short = nav.key == "MISC" and "PERF" or nav.key
             button.Text = width < 370 and short or (nav.symbol .. " " .. short)
             button.TextSize = width < 355 and 9 or 10
