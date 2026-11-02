@@ -3864,6 +3864,37 @@ repaintPerf = addChoice(pages.MISC, "Режим производительнос
     {value = "ECO", label = "ECO"},
     {value = "QUALITY", label = "QUALITY"},
 }, "performanceMode")
+addToggle(pages.MISC, "Performance Guard",
+    "OFF по умолчанию; при просадке снижает только ESP, не AIM",
+    "performanceGuard", function(enabled)
+        perfCounters.guard.reset()
+        perfCounters.guard.changed = os.clock() - CONFIG.GuardMinStepSeconds
+        if not enabled then
+            -- State is untouched; only effective visual budgets are restored.
+            perfCounters.guard.reset()
+        end
+    end)
+addToggle(pages.MISC, "Module CPU Monitor",
+    "Измеряет время обработчиков AIM/Recoil/ESP; OFF для минимального overhead",
+    "moduleCpuMonitor", function()
+        perfCounters.cpu.reset()
+    end)
+addButton(pages.MISC, "Нагрузка модулей (avg / peak)",
+    "Примерное время вызовов в мс, не общий процент CPU", function()
+        tell(perfCounters.cpu.summary())
+    end)
+addToggle(pages.MISC, "Lazy Loading",
+    "Создаёт ESP-слои только при первом включении функций",
+    "lazyLoading", function()
+        perfCounters.lazy.prepare()
+    end)
+addButton(pages.MISC, "Диагностика Performance",
+    "Текущий Guard, число ESP-слоёв, AIM не ограничивается", function()
+        tell(perfCounters.guard.description() .. " | lazy tracer "
+            .. tostring(perfCounters.lazy.tracersCreated)
+            .. " / shapes " .. tostring(perfCounters.lazy.shapesCreated)
+            .. " | " .. (state.lazyLoading and "Lazy ON" or "Lazy OFF"))
+    end)
 local perfLabel = mk("TextLabel", {Name = "PerfDiagnostics", BackgroundColor3 = CONFIG.Surface,
     BorderSizePixel = 0, Size = UDim2.new(1, 0, 0, 35),
     Text = "ESP 0 · Box 0 · Scan 0ms", TextColor3 = CONFIG.Muted,
@@ -5161,30 +5192,33 @@ else
     connect(RunService.Heartbeat, memoryFX.spin.frame)
 end
 
+perfCounters.cpu.wrapped.AIM = perfCounters.cpu.instrument("AIM", aimFrame)
+perfCounters.cpu.wrapped.Recoil = perfCounters.cpu.instrument("Recoil", recoil.frame)
+perfCounters.cpu.wrapped.ESPScan = perfCounters.cpu.instrument("ESP Scan", refreshESP)
 local okBind, errBind = pcall(function()
-    RunService:BindToRenderStep(aimBindingName, Enum.RenderPriority.Camera.Value + 2, aimFrame)
+    RunService:BindToRenderStep(aimBindingName, Enum.RenderPriority.Camera.Value + 2, perfCounters.cpu.wrapped.AIM)
 end)
 if okBind then
     aimBound = true
 else
     tell("BindToRenderStep недоступен; используем RenderStepped")
-    connect(RunService.RenderStepped, aimFrame)
+    connect(RunService.RenderStepped, perfCounters.cpu.wrapped.AIM)
 end
 
 local okRecoilBind, errRecoilBind = pcall(function()
-    RunService:BindToRenderStep(recoil.bindingName, Enum.RenderPriority.Camera.Value + 3, recoil.frame)
+    RunService:BindToRenderStep(recoil.bindingName, Enum.RenderPriority.Camera.Value + 3, perfCounters.cpu.wrapped.Recoil)
 end)
 if okRecoilBind then
     recoil.bound = true
 else
     tell("Recoil: BindToRenderStep недоступен — " .. tostring(errRecoilBind))
-    connect(RunService.RenderStepped, recoil.frame)
+    connect(RunService.RenderStepped, perfCounters.cpu.wrapped.Recoil)
 end
 
 task.spawn(function()
     while alive do
         if state.esp or next(renderData) ~= nil then
-            local ok, err = pcall(refreshESP)
+            local ok, err = pcall(perfCounters.cpu.wrapped.ESPScan)
             if not ok then warn("[124 Community Hub] ESP: " .. tostring(err)) end
         end
         local tier = perfTier()
@@ -5240,13 +5274,15 @@ perfCounters.espVisual.frame = function(dt)
         end
     end
 end
+perfCounters.cpu.wrapped.ESPDraw =
+    perfCounters.cpu.instrument("ESP Draw", perfCounters.espVisual.frame)
 perfCounters.espVisual.bound = pcall(function()
-    RunService:BindToRenderStep(perfCounters.espVisual.bindingName, Enum.RenderPriority.Camera.Value + 4, perfCounters.espVisual.frame)
+    RunService:BindToRenderStep(perfCounters.espVisual.bindingName, Enum.RenderPriority.Camera.Value + 4, perfCounters.cpu.wrapped.ESPDraw)
 end)
 if not perfCounters.espVisual.bound then
     -- Fallback: exec без BindToRenderStep. Используем тот же RenderStepped,
     -- без task.wait(), чтобы не возвращать старые 4–12 FPS.
-    connect(RunService.RenderStepped, perfCounters.espVisual.frame)
+    connect(RunService.RenderStepped, perfCounters.cpu.wrapped.ESPDraw)
     tell("ESP: Camera bind unavailable; using RenderStepped")
 end
 
