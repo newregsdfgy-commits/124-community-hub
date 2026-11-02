@@ -50,7 +50,7 @@ test("FPS auto rollback is never triggered during an incomplete scan",()=>{
 });
 test("graphics changes track real writes; restore verifies actual property value",()=>{
  const apply=region("local function optimizeObject(","-- Проходим дерево без GetDescendants()");
- assert.ok(apply.includes("if wrote then\n                boosterPro.changedProperties = boosterPro.changedProperties + 1"));
+ assert.ok(apply.includes("if checked and applied == target then\n                    boosterPro.changedProperties = boosterPro.changedProperties + 1"));
  const restore=region("function boosterPro.restoreObject(","-- Снимки могли появиться раньше");
  assert.ok(restore.includes("if obj[key] ~= original then error(\"restore mismatch\") end"));
  assert.ok(restore.includes("if ok or not obj.Parent then"));
