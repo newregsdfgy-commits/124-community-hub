@@ -91,7 +91,7 @@ local CONFIG = {
 }
 
 if game.PlaceId ~= CONFIG.PlaceId then
-    warn("[124 Community Hub] Неподдерживаемый PlaceId: " .. tostring(game.PlaceId))
+    warn("[124 Community Visuals] Неподдерживаемый PlaceId: " .. tostring(game.PlaceId))
     return
 end
 
@@ -104,12 +104,12 @@ local GuiService = game:GetService("GuiService")
 local VirtualUser = game:GetService("VirtualUser")
 local LocalPlayer = Players.LocalPlayer
 if not LocalPlayer then
-    warn("[124 Community Hub] Локальный игрок недоступен")
+    warn("[124 Community Visuals] Локальный игрок недоступен")
     return
 end
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui", 15)
 if not PlayerGui then
-    warn("[124 Community Hub] PlayerGui недоступен")
+    warn("[124 Community Visuals] PlayerGui недоступен")
     return
 end
 
@@ -126,7 +126,7 @@ if type(env.ARMY124_CLEANUP) == "function" then
     local previous = env.ARMY124_CLEANUP
     local ok, result = pcall(previous)
     if not ok or result == false or env.ARMY124_CLEANUP == previous then
-        warn("[124 Community Hub] Старый Hub не выгружен полностью; "
+        warn("[124 Community Visuals] Предыдущий Visuals не выгружен полностью; "
             .. "новый запуск отменён: " .. tostring(result))
         return
     end
@@ -134,7 +134,7 @@ end
 if type(env.ARMY124_RECOVERY) == "function" then
     local ok, restored = pcall(env.ARMY124_RECOVERY)
     if not ok or restored ~= true then
-        warn("[124 Community Hub] Прежняя графика/камера не восстановлены. "
+        warn("[124 Community Visuals] Прежняя графика/камера не восстановлены. "
             .. "Новый запуск отменён, сохранён callback восстановления.")
         return
     end
@@ -378,7 +378,7 @@ function perfCounters.session.setEnabled(enabled)
     else
         record.listening = false
         state.sessionDiagnostics = false
-        warn("[124 Community Hub] Log diagnostics unavailable: " .. tostring(connection))
+        warn("[124 Community Visuals] Log diagnostics unavailable: " .. tostring(connection))
     end
     record.lastShown = ""
 end
@@ -540,7 +540,7 @@ local function tell(message)
     if statusMessage and statusMessage.Parent then
         statusMessage.Text = message
     end
-    print("[124 Community Hub] " .. message)
+    print("[124 Community Visuals] " .. message)
 end
 
 -- ESP: исходная Highlight/Billboard логика из v0.1, с удалением после респавна.
@@ -906,7 +906,7 @@ local function applyLighting()
                     complete = false
                     boosterPro.restoreFailures = boosterPro.restoreFailures + 1
                     if boosterPro.restoreFailures <= 3 then
-                        warn("[124 Community Hub] Lighting: откат " .. tostring(key) .. " не выполнен; повторим")
+                        warn("[124 Community Visuals] Lighting: откат " .. tostring(key) .. " не выполнен; повторим")
                     end
                 end
             end
@@ -981,7 +981,7 @@ local function restoreTerrainGrass()
     else
         boosterPro.restoreFailures = boosterPro.restoreFailures + 1
         if boosterPro.restoreFailures <= 3 then
-            warn("[124 Community Hub] Booster: не удалось восстановить траву; снимок сохранён")
+            warn("[124 Community Visuals] Booster: не удалось восстановить траву; снимок сохранён")
         end
     end
     return ok
@@ -1038,7 +1038,7 @@ local function restoreTerrainColors()
             complete = false
             boosterPro.restoreFailures = boosterPro.restoreFailures + 1
             if boosterPro.restoreFailures <= 3 then
-                warn("[124 Community Hub] Booster: не удалось вернуть цвет Terrain; снимок сохранён")
+                warn("[124 Community Visuals] Booster: не удалось вернуть цвет Terrain; снимок сохранён")
             end
         end
     end
@@ -1170,7 +1170,7 @@ local function optimizeObject(obj, alreadyScreened)
                 else
                     boosterPro.restoreFailures = boosterPro.restoreFailures + 1
                     if boosterPro.restoreFailures <= 3 then
-                        warn("[124 Community Hub] Booster: ошибка смены режима, свойство " .. tostring(key))
+                        warn("[124 Community Visuals] Booster: ошибка смены режима, свойство " .. tostring(key))
                     end
                 end
             end
@@ -1282,7 +1282,7 @@ function boosterPro.restoreObject(obj, snapshot)
             left = true
             boosterPro.restoreFailures = boosterPro.restoreFailures + 1
             if boosterPro.restoreFailures <= 3 then
-                warn("[124 Community Hub] Booster: не удалось восстановить " .. tostring(key)
+                warn("[124 Community Visuals] Booster: не удалось восстановить " .. tostring(key)
                     .. " у " .. tostring(obj.Name))
             end
         end
@@ -1344,12 +1344,12 @@ local function setBooster(enabled, keepBaseline)
             end
         end)
         if not setupOk then
-            warn("[124 Community Hub] Booster: ошибка подготовки графики: "
+            warn("[124 Community Visuals] Booster: ошибка подготовки графики: "
                 .. tostring(setupErr))
             state.booster = false
             local rollbackOk, rollbackErr = pcall(setBooster, false)
             if not rollbackOk then
-                warn("[124 Community Hub] Booster: ошибка запуска отката: "
+                warn("[124 Community Visuals] Booster: ошибка запуска отката: "
                     .. tostring(rollbackErr))
             end
             if refreshToggles.booster then pcall(refreshToggles.booster) end
@@ -1383,12 +1383,12 @@ local function setBooster(enabled, keepBaseline)
             if not ok and alive and revision == boosterRevision and state.booster then
                 boosterPro.complete = false
                 boosterPro.failed = tostring(err)
-                warn("[124 Community Hub] Booster: ошибка полного обхода: " .. boosterPro.failed)
+                warn("[124 Community Visuals] Booster: ошибка полного обхода: " .. boosterPro.failed)
                 tell("FPS Booster остановлен: ошибка обработки карты; восстановление графики")
                 state.booster = false
                 local restored, restoreErr = pcall(setBooster, false)
                 if not restored then
-                    warn("[124 Community Hub] Ошибка запуска отката Booster: " .. tostring(restoreErr))
+                    warn("[124 Community Visuals] Ошибка запуска отката Booster: " .. tostring(restoreErr))
                 end
                 if refreshToggles.booster then pcall(refreshToggles.booster) end
                 requestSave()
@@ -1823,10 +1823,10 @@ end
 env.ARMY124_CLEANUP = abortPartialHub
 
 local function initializeHubUI()
--- 124 / RED PANEL — собственный интерфейс без внешних UI-библиотек.
+-- 124 Community Visuals / Purple Dashboard — pure Roblox GUI, no external UI dependency.
 -- Две колонки на больших экранах, одна колонка на телефонах.
 local gui = mk("ScreenGui", {
-    Name = "Army124CommunityHubV100",
+    Name = "Army124CommunityVisualsGUI",
     ResetOnSpawn = false,
     IgnoreGuiInset = true,
     DisplayOrder = 100,
@@ -2089,7 +2089,7 @@ function memoryFX.spin.frame(dt)
         end
     end)
     if not ok and now - spin.lastError > 3 then
-        warn("[124 Community Hub] Anti-Aim: " .. tostring(err))
+        warn("[124 Community Visuals] Anti-Aim: " .. tostring(err))
         spin.lastError = now
     end
 end
@@ -2888,7 +2888,7 @@ do
         Name = "DashboardScroll", BackgroundTransparency = 1, BorderSizePixel = 0,
         Size = UDim2.fromScale(1, 1), ScrollBarThickness = 3,
         ScrollBarImageColor3 = P.accent, AutomaticCanvasSize = Enum.AutomaticSize.Y,
-        CanvasSize = UDim2.new(), ScrollingDirection = Enum.ScrollingDirection.Y,
+        CanvasSize = UDim2.fromScale(0, 0), ScrollingDirection = Enum.ScrollingDirection.Y,
         Active = true,
     }, home)
     table.insert(scrollFrames, scroller)
@@ -4116,7 +4116,7 @@ addButton(pages.MISC, "Проверка клиентских предупреж�
     "Не видит серверный античит и не определяет риск бана", function()
     tell(perfCounters.session.summary() .. " | Совпадения не доказывают наличие античита")
 end)
-addButton(pages.MISC, "Safety Stop — завершить Hub",
+addButton(pages.MISC, "Safety Stop — закрыть Visuals",
     "Выключить модули и сохранить рискованные функции в состоянии OFF", function()
     tell("Safety Stop: выключаем Hub и сохраняем рискованные функции OFF")
     if cleanup then cleanup(true) end
@@ -5364,7 +5364,7 @@ task.spawn(function()
                 else
                     boosterPro.repairErrors = boosterPro.repairErrors + 1
                     if boosterPro.repairErrors <= 3 then
-                        warn("[124 Community Hub] Booster: повторный обход не завершён ("
+                        warn("[124 Community Visuals] Booster: повторный обход не завершён ("
                             .. tostring(boosterPro.repairErrors) .. "/3)")
                     end
                 end
@@ -5493,7 +5493,7 @@ cleanup = function(safeStop)
             return done and oldDone
         end
         env.ARMY124_RECOVERY = pendingRecovery
-        warn("[124 Community Hub] Откат графики/камеры/позы не завершён; данные сохранены для повтора")
+        warn("[124 Community Visuals] Откат графики/камеры/позы не завершён; данные сохранены для повтора")
     end
     for player in pairs(renderData) do deleteRender(player) end
     clearShapes()
@@ -5556,7 +5556,7 @@ task.spawn(function()
     while alive do
         if state.esp or next(renderData) ~= nil then
             local ok, err = pcall(perfCounters.cpu.wrapped.ESPScan)
-            if not ok then warn("[124 Community Hub] ESP: " .. tostring(err)) end
+            if not ok then warn("[124 Community Visuals] ESP: " .. tostring(err)) end
         end
         -- Visual guard may slow roster refresh independently of AIM scans.
         local tier = visualPerfTier()
@@ -5596,7 +5596,7 @@ perfCounters.espVisual.frame = function(dt)
         if not ok then
             local now = os.clock()
             if now - perfCounters.espVisual.errorAt >= 2 then
-                warn("[124 Community Hub] ESP tracers draw: " .. tostring(err))
+                warn("[124 Community Visuals] ESP tracers draw: " .. tostring(err))
                 perfCounters.espVisual.errorAt = now
             end
         end
@@ -5606,7 +5606,7 @@ perfCounters.espVisual.frame = function(dt)
         if not ok then
             local now = os.clock()
             if now - perfCounters.espVisual.errorAt >= 2 then
-                warn("[124 Community Hub] ESP shapes draw: " .. tostring(err))
+                warn("[124 Community Visuals] ESP shapes draw: " .. tostring(err))
                 perfCounters.espVisual.errorAt = now
             end
         end
@@ -5658,7 +5658,7 @@ task.spawn(function()
                 local seconds = math.min(120, 2 ^ math.min(boosterPro.recoveryFailures, 7))
                 boosterPro.recoveryNextAt = os.clock() + seconds
                 if boosterPro.recoveryFailures == 1 or boosterPro.recoveryFailures == 5 then
-                    warn("[124 Community Hub] Recovery не завершён (попытка "
+                    warn("[124 Community Visuals] Recovery не завершён (попытка "
                         .. tostring(boosterPro.recoveryFailures)
                         .. "); повтор через " .. tostring(seconds) .. " сек")
                 end
@@ -5748,14 +5748,14 @@ end)
 -- Применяем профиль после создания всей GUI и привязок.
 useProfile(profileName, true)
 refreshFovRing()
-print("[124 Community Hub] " .. CONFIG.Version .. " загружен | MEMORY / SESSION DIAGNOSTICS")
+print("[124 Community Visuals] " .. CONFIG.Version .. " загружен | MEMORY / SESSION DIAGNOSTICS")
 end -- initializeHubUI; isolates UI locals from root Luau limit.
 
 local initOk, initErr = xpcall(initializeHubUI, function(err)
     return tostring(err)
 end)
 if not initOk then
-    warn("[124 Community Hub] Ошибка инициализации UI: " .. tostring(initErr))
+    warn("[124 Community Visuals] Ошибка инициализации UI: " .. tostring(initErr))
     local registered = env.ARMY124_CLEANUP
     if type(registered) == "function" and registered ~= abortPartialHub then
         local cleaned, result = pcall(registered)
