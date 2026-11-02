@@ -58,7 +58,7 @@ local CONFIG = {
     BhopWalkSpeedCap = 32, -- Не разгоняем локальный WalkSpeed без ограничений.
     ChatMinInterval = 5, -- Уважаем штатные ограничения Roblox.
     ChatMaxInterval = 120,
-    ChatMaxGraphemes = 160,
+    ChatMaxCodepoints = 160,
     FullBrightBrightness = 2.1,
     FullBrightAmbient = Color3.fromRGB(170, 170, 170),
     FullBrightOutdoorAmbient = Color3.fromRGB(175, 175, 175),
@@ -1906,8 +1906,8 @@ local function validatedSettings(values)
                     local value = incoming:gsub("[%c]", " "):gsub("^%s+", ""):gsub("%s+$", "")
                     local count = utf8.len(value)
                     if count then
-                        if count > CONFIG.ChatMaxGraphemes then
-                            local stopAt = utf8.offset(value, CONFIG.ChatMaxGraphemes + 1)
+                        if count > CONFIG.ChatMaxCodepoints then
+                            local stopAt = utf8.offset(value, CONFIG.ChatMaxCodepoints + 1)
                             if stopAt then value = value:sub(1, stopAt - 1) end
                         end
                         result[key] = value
@@ -3311,7 +3311,7 @@ end)
 addSlider(pages.MISC, "Задержка прыжков", "Меньше секунд = чаще попытки", "bhopJumpInterval",
     CONFIG.BhopMinInterval, CONFIG.BhopMaxInterval, 0.02,
     function(v) return string.format("%.2f сек", v) end)
-addSlider(pages.MISC, "Скорость BHOP", "Локальная скорость движения (1.0–2.0x)", "bhopSpeedMultiplier",
+addSlider(pages.MISC, "Скорость движения", "Множитель WalkSpeed, не накопление импульса", "bhopSpeedMultiplier",
     1, CONFIG.BhopSpeedMultiplierCap, 0.1,
     function(v) return string.format("%.1fx", v) end, function()
         utilityFX.bunny.applySpeed()
@@ -3322,7 +3322,8 @@ addButton(pages.MISC, "Статус Bunny Hop", "Проверить текущу
     tell("BHOP " .. (state.bunnyHop and "ON" or "OFF")
         .. " | " .. tostring(state.bhopJumpInterval) .. " сек"
         .. " | x" .. tostring(state.bhopSpeedMultiplier)
-        .. " | WalkSpeed " .. (hum and tostring(hum.WalkSpeed) or "н/д"))
+        .. " | WalkSpeed " .. (hum and tostring(hum.WalkSpeed) or "н/д")
+        .. (b.suspended and " | PAUSED: игра изменила скорость" or ""))
 end)
 
 -- CHAT: обычный TextChannel. Применяется штатная фильтрация и лимиты Roblox.
@@ -3366,36 +3367,65 @@ utilityFX.chat.repaintText = function()
     end
 end
 connect(chatTextBox.Focused, function() chatEditing = true end)
-connect(chatTextBox.FocusLost, function()
-    chatEditing = false
+-- Единая нормализация текста при потере фокуса и при ручной отправке.
+utilityFX.chat.commitText = function()
     local value = chatTextBox.Text:gsub("[%c]", " ")
         :gsub("^%s+", ""):gsub("%s+$", "")
     local chars = utf8.len(value)
     if not chars then
-        tell("Chat: текст содержит некорректные символы")
-    else
-        if chars > CONFIG.ChatMaxGraphemes then
-            local cut = utf8.offset(value, CONFIG.ChatMaxGraphemes + 1)
-            if cut then value = value:sub(1, cut - 1) end
-        end
+        tell("Chat: некорректный UTF-8")
+        utilityFX.chat.repaintText()
+        return false
+    end
+    if chars > CONFIG.ChatMaxCodepoints then
+        local cut = utf8.offset(value, CONFIG.ChatMaxCodepoints + 1)
+        if cut then value = value:sub(1, cut - 1) end
+    end
+    if state.chatMessage ~= value then
         state.chatMessage = value
-        if state.spamChat and value == "" then utilityFX.chat.sync() end
         requestSave()
     end
+    if chatTextBox.Text ~= value then chatTextBox.Text = value end
+    return value ~= ""
+end
+connect(chatTextBox.FocusLost, function()
+    chatEditing = false
+    utilityFX.chat.commitText()
     utilityFX.chat.repaintText()
 end)
-addSlider(pages.MISC, "Задержка сообщений", "Не чаще одного раза в 5 секунд", "chatInterval",
+addSlider(pages.MISC, "Задержка сообщений", "Пауза между ручными отправками / напоминаниями", "chatInterval",
     CONFIG.ChatMinInterval, CONFIG.ChatMaxInterval, 1,
-    function(v) return tostring(v) .. " сек" end)
-addToggle(pages.MISC, "Spam Chat", "Автоотправка в RBXGeneral; возможны ограничения", "spamChat",
+    function(v) return tostring(v) .. " сек" end,
+    function() if state.spamChat then utilityFX.chat.sync() end end)
+addToggle(pages.MISC, "Chat Timer", "Напоминание о готовности; авторассылка недоступна", "spamChat",
     function() utilityFX.chat.sync() end)
-addButton(pages.MISC, "Статус чата", "Диагностика попыток (не гарантия доставки)", function()
-    tell("Chat " .. (state.spamChat and "ON" or "OFF")
-        .. " | Интервал " .. tostring(state.chatInterval) .. " сек"
-        .. " | Попыток " .. tostring(utilityFX.chat.sent)
-        .. " | Ошибок подряд " .. tostring(utilityFX.chat.errors)
-        .. " | Статус " .. tostring(utilityFX.chat.lastStatus or "н/д"))
+local chatStatus = mk("TextLabel", {
+    Name = "ChatTimerStatus", BackgroundColor3 = CONFIG.Surface,
+    BorderSizePixel = 0, Size = UDim2.new(1, 0, 0, 34),
+    TextWrapped = true, TextSize = 10, Font = Enum.Font.Code,
+    TextColor3 = P.dim, Text = "Chat Timer: OFF",
+}, columnFor(pages.MISC))
+registerWidget(pages.MISC, chatStatus)
+round(chatStatus, 5)
+utilityFX.chat.repaintStatus = function()
+    if not chatStatus.Parent then return end
+    local c = utilityFX.chat
+    chatStatus.Text = (state.spamChat and "TIMER ON" or "TIMER OFF")
+        .. " | интервал " .. tostring(state.chatInterval) .. " с"
+        .. " | " .. tostring(c.lastStatus)
+end
+addButton(pages.MISC, "Отправить сообщение", "Нажми вручную; не чаще заданного интервала",
+    function() utilityFX.chat.sendOnce() end)
+addButton(pages.MISC, "Статус чата", "Попытки отправки и готовность таймера", function()
+    local c = utilityFX.chat
+    tell("Chat " .. (state.spamChat and "TIMER ON" or "TIMER OFF")
+        .. " | интервал " .. tostring(state.chatInterval) .. " с"
+        .. " | подтверждений " .. tostring(c.sent)
+        .. " | напоминаний " .. tostring(c.readyCount)
+        .. " | ошибок " .. tostring(c.errors)
+        .. " | статус " .. tostring(c.lastStatus))
 end)
+utilityFX.chat.repaintStatus()
 
 addButton(pages.MISC, "Reset Character", "Локальный сброс Humanoid", function()
     local character = LocalPlayer.Character
