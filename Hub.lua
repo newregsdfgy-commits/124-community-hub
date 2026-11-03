@@ -901,8 +901,8 @@ local function refreshESP()
                     entry.player, entry.distanceSquared = player, dist2
                     candidates[index] = entry
                 end
-            elseif ch then
-                -- No visible BasePart yet: cannot draw an unstreamed character.
+            elseif not ch or not root then
+                -- We cannot invent positions for characters not replicated yet.
                 missingParts = missingParts + 1
             end
         end
