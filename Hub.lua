@@ -1,14 +1,14 @@
--- 124 Community Visuals v1.1.28 | per-player and camera connection lifecycle hardening
+-- 124 Community Visuals v1.1.29 | ESP range / character streaming reliability + lifecycle hardening
 -- PlaceId: 18537079992
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.1.28",
+    Version = "1.1.29",
     PlaceId = 18537079992,
-    EspRefreshSeconds = 0.75, -- Лёгкое обновление списка игроков; FPS на первом месте.
-    EspMaxPlayers = 12, -- Меньше Highlight и GUI-обновлений по умолчанию.
+    EspRefreshSeconds = 0.35, -- Быстрый поиск персонажей, без обновления UI каждый кадр.
+    EspMaxPlayers = 64, -- Видимый, настраиваемый лимит вместо скрытого TOP 6/12.
     StudMeters = 0.28, -- Стандартный масштаб Roblox: 1 stud ≈ 0.28 м.
     ConfigFile = "124_community_settings_v09.json",
     MenuKey = Enum.KeyCode.RightShift,
@@ -75,7 +75,7 @@ local CONFIG = {
     GuardVisualHzL1 = 12, GuardVisualHzL2 = 8,
     FrameTimeWindow = 240, -- Скользящее окно; 1% low — по худшим кадрам.
     FrameTimeSpikeMs = 50,
-    EspCacheIdleSeconds = 3.5, -- Коротко переиспользуем GUI за пределами TOP N.
+    EspCacheIdleSeconds = 2.0, -- Переиспользование без долгих невидимых устаревших объектов.
     EspCacheMaxExtra = 4, -- Всего не более 4 скрытых Highlight сверх лимита.
     BhopMinInterval = 0.08, -- Частота проверок прыжка; физика ограничивает реальный BHOP.
     BhopMaxInterval = 0.60,
@@ -201,6 +201,7 @@ local state = {
     espSkeleton = false,
     espEnemyOnly = false,
     espRangeMeters = 200,
+    espMaxTargets = CONFIG.EspMaxPlayers, -- Настраиваемая вместимость ESP, отдельно от метров.
     espColorPreset = "TEAM", -- TEAM / GOLD / GREEN / WHITE
     espLineThickness = 1, -- Новая тонкая графика по умолчанию.
     performanceMode = "AUTO", -- AUTO / ECO / QUALITY
@@ -374,7 +375,8 @@ function perfCounters.cpu.summary()
 end
 -- Покадровый рендер ESP (после Camera/AIM/Recoil); НЕ сканируем игроков каждый кадр.
 perfCounters.espVisual = {bound = false, bindingName = "Army124CommunityESP_" .. tostring(LocalPlayer.UserId),
-    errorAt = 0, active = {}, projected = {}, ordered = {}, candidatePool = {}}
+    errorAt = 0, scanErrorAt = 0, active = {}, projected = {}, ordered = {}, candidatePool = {},
+    eligible = 0, missing = 0, omitted = 0, lastScanAt = 0}
 -- Логи отключены без подписки. Игровые события могут приходить сотнями/сек.
 -- Подписка создаётся только после явного включения пользователем.
 perfCounters.session = {
@@ -483,6 +485,7 @@ local clearTracers = function() end
 local syncEspVisuals = function() end -- Переопределяется после создания ESP GUI.
 local flushConfig = function() end
 local releaseAntiAfk = function() end
+local stopESPWatchers = function() end
 local refreshSliders = {}
 local repaintAimMode = function() end
 local repaintColors = function() end
@@ -685,16 +688,25 @@ local function visualPerfTier()
     if state.performanceGuard and perfCounters.guard.level > 0 then return "ECO" end
     return perfTier()
 end
+-- AUTO/ECO now controls refresh frequency and 2D geometry only: it must
+-- never silently remove nearby players from the configured ESP radius.
 local function espLimit()
-    local tier = visualPerfTier()
-    local normal = tier == "ECO" and 6
-        or tier == "QUALITY" and 20 or CONFIG.EspMaxPlayers
-    if state.performanceGuard and perfCounters.guard.level == 2 then
-        return math.min(normal, CONFIG.GuardEspMaxL2)
-    elseif state.performanceGuard and perfCounters.guard.level == 1 then
-        return math.min(normal, CONFIG.GuardEspMaxL1)
-    end
-    return normal
+    return math.clamp(math.floor(state.espMaxTargets or CONFIG.EspMaxPlayers), 8, 96)
+end
+
+-- StreamingEnabled may give us Head or Torso before HumanoidRootPart.
+-- Use the first local visible BasePart as a temporary anchor, then upgrade
+-- as parts arrive. No invisible position/identity is manufactured.
+local function espParts(character)
+    if not character then return nil, nil, nil end
+    local root = character:FindFirstChild("HumanoidRootPart")
+    local head = character:FindFirstChild("Head")
+    local torso = character:FindFirstChild("UpperTorso") or character:FindFirstChild("Torso")
+    local anchor = head or torso or root
+    local positionPart = root or torso or anchor
+    if anchor and not anchor:IsA("BasePart") then anchor = nil end
+    if positionPart and not positionPart:IsA("BasePart") then positionPart = nil end
+    return anchor, positionPart, character:FindFirstChildOfClass("Humanoid")
 end
 
 -- Тонкий ESP. Ник над игроком; HP и дистанция в отдельной нижней строке.
@@ -712,7 +724,9 @@ local function createRender(player, character, head)
         Adornee = head,
         AlwaysOnTop = true,
         LightInfluence = 0,
-        MaxDistance = state.espRangeMeters / CONFIG.StudMeters,
+        -- BillboardGui.MaxDistance is camera-relative, while the ESP range
+        -- is player-relative. Leave the engine cap off and filter below.
+        MaxDistance = 0,
         Size = UDim2.fromOffset(CONFIG.EspLabelWidth, CONFIG.EspLabelHeight),
         StudsOffsetWorldSpace = Vector3.new(0, 2.1, 0),
         ResetOnSpawn = false,
@@ -775,10 +789,8 @@ local function updatePlayer(player, myRoot)
         return
     end
     local character = player.Character
-    local head = character and character:FindFirstChild("Head")
-    local root = character and character:FindFirstChild("HumanoidRootPart")
-    local hum = character and character:FindFirstChildOfClass("Humanoid")
-    if not (character and head and root and hum) or hum.Health <= 0 then
+    local head, root, hum = espParts(character)
+    if not (character and head and root) or (hum and hum.Health <= 0) then
         deleteRender(player)
         return
     end
@@ -791,6 +803,7 @@ local function updatePlayer(player, myRoot)
     if not item then item = createRender(player, character, head) end
     -- Кешируем части, которые рендерятся чаще, чем обновляется список игроков.
     item.head, item.root, item.humanoid = head, root, hum
+    setIfDifferent(item.billboard, "Adornee", head) -- Upgrade torso → Head after streaming.
     -- Повторно активируем готовые Highlights вместо Destroy/Instance.new.
     item.inactiveSince = nil
     setIfDifferent(item.highlight, "Enabled", true)
@@ -803,7 +816,7 @@ local function updatePlayer(player, myRoot)
     local nameSize = far and CONFIG.EspNameSizeFar
         or not near and CONFIG.EspNameSizeMid or CONFIG.EspNameSizeNear
     local metaSize = near and CONFIG.EspMetaSizeNear or CONFIG.EspMetaSizeFar
-    setIfDifferent(item.billboard, "MaxDistance", state.espRangeMeters / CONFIG.StudMeters)
+    setIfDifferent(item.billboard, "MaxDistance", 0) -- Real radius applied in refreshESP.
     setIfDifferent(item.highlight, "FillColor", color)
     setIfDifferent(item.highlight, "OutlineColor", color)
     setIfDifferent(item.nameLabel, "Text", state.names and player.DisplayName or "")
@@ -813,13 +826,17 @@ local function updatePlayer(player, myRoot)
     setIfDifferent(item.distanceLabel, "Text", state.distance and (tostring(meters) .. " м") or "")
     setIfDifferent(item.distanceLabel, "TextSize", metaSize)
     setIfDifferent(item.distanceLabel, "Visible", state.distance)
-    local maxHp = math.max(hum.MaxHealth, 1)
     if state.health then
-        local hp = math.clamp(hum.Health / maxHp, 0, 1)
-        setIfDifferent(item.healthLabel, "Text",
-            string.format("HP %d/%d", math.ceil(hum.Health), math.ceil(maxHp)))
-        setIfDifferent(item.healthLabel, "TextColor3",
-            Color3.fromRGB(math.floor(255 * (1 - hp)), math.floor(255 * hp), 90))
+        if hum then
+            local maxHp = math.max(hum.MaxHealth, 1)
+            local hp = math.clamp(hum.Health / maxHp, 0, 1)
+            setIfDifferent(item.healthLabel, "Text",
+                string.format("HP %d/%d", math.ceil(hum.Health), math.ceil(maxHp)))
+            setIfDifferent(item.healthLabel, "TextColor3",
+                Color3.fromRGB(math.floor(255 * (1 - hp)), math.floor(255 * hp), 90))
+        else
+            setIfDifferent(item.healthLabel, "Text", "HP --")
+        end
     end
     setIfDifferent(item.healthLabel, "TextSize", metaSize)
     setIfDifferent(item.healthLabel, "Visible", state.health)
@@ -845,14 +862,19 @@ local function refreshESP()
         for player in pairs(renderData) do deleteRender(player) end
         table.clear(perfCounters.espVisual.ordered)
         perfCounters.espCount = 0
+        perfCounters.espVisual.eligible = 0
+        perfCounters.espVisual.omitted = 0
+        perfCounters.espVisual.missing = 0
         return
     end
     local character = LocalPlayer.Character
-    local myRoot = character and character:FindFirstChild("HumanoidRootPart")
+    local _, myRoot = espParts(character)
     if not myRoot then
         for player in pairs(renderData) do deleteRender(player) end
         table.clear(perfCounters.espVisual.ordered)
         perfCounters.espCount = 0
+        perfCounters.espVisual.eligible = 0
+        perfCounters.espVisual.omitted = 0
         return
     end
     -- Рисуем ближайших, чтобы не создавать десятки дорогих Highlight.
@@ -861,12 +883,12 @@ local function refreshESP()
     local maxStuds = state.espRangeMeters / CONFIG.StudMeters
     local maxDistanceSquared = maxStuds * maxStuds
     table.clear(candidates)
+    local missingParts = 0
     for _, player in ipairs(perfCounters.roster) do
         if player ~= LocalPlayer and (not state.espEnemyOnly or not sameTeamESP(player)) then
             local ch = player.Character
-            local root = ch and ch:FindFirstChild("HumanoidRootPart")
-            local hum = ch and ch:FindFirstChildOfClass("Humanoid")
-            if root and hum and hum.Health > 0 then
+            local _, root, hum = espParts(ch)
+            if root and (not hum or hum.Health > 0) then
                 local offset = root.Position - myRoot.Position
                 local dist2 = offset:Dot(offset)
                 if dist2 <= maxDistanceSquared then
@@ -879,6 +901,9 @@ local function refreshESP()
                     entry.player, entry.distanceSquared = player, dist2
                     candidates[index] = entry
                 end
+            elseif ch then
+                -- No visible BasePart yet: cannot draw an unstreamed character.
+                missingParts = missingParts + 1
             end
         end
     end
@@ -897,10 +922,24 @@ local function refreshESP()
     table.clear(keep)
     table.clear(ordered)
     local limit = math.min(#candidates, espLimit())
+    perfCounters.espVisual.eligible = #candidates
+    perfCounters.espVisual.omitted = #candidates - limit
+    perfCounters.espVisual.missing = missingParts
+    perfCounters.espVisual.lastScanAt = os.clock()
     for i = 1, limit do
         local player = candidates[i].player
         keep[player] = true
-        updatePlayer(player, myRoot)
+        -- One broken/streaming avatar must not abort the entire ESP scan.
+        local ok, err = pcall(updatePlayer, player, myRoot)
+        if not ok then
+            deleteRender(player)
+            local now = os.clock()
+            if now - perfCounters.espVisual.scanErrorAt > 3 then
+                warn("[124 Community Visuals] ESP player " .. tostring(player.UserId)
+                    .. ": " .. tostring(err))
+                perfCounters.espVisual.scanErrorAt = now
+            end
+        end
         if renderData[player] then ordered[#ordered + 1] = player end
     end
     local now, cached = os.clock(), 0
@@ -925,6 +964,74 @@ local function refreshESP()
     end
     perfCounters.espCount = #ordered
 end
+
+-- Event-assisted ESP refresh. The periodic roster scan remains a fallback,
+-- while CharacterAdded and late-arriving body parts trigger a batched update.
+local espWatchers = {}
+local espRefreshQueued = false
+local function queueESPRefresh()
+    if not alive or not state.esp or espRefreshQueued then return end
+    espRefreshQueued = true
+    task.delay(0.06, function()
+        espRefreshQueued = false
+        if alive and state.esp then
+            local ok, err = pcall(refreshESP)
+            if not ok then warn("[124 Community Visuals] ESP event refresh: " .. tostring(err)) end
+        end
+    end)
+end
+local function isEspPart(obj)
+    return obj:IsA("Humanoid") or (obj:IsA("BasePart") and
+        (obj.Name == "Head" or obj.Name == "HumanoidRootPart"
+            or obj.Name == "UpperTorso" or obj.Name == "Torso"))
+end
+local function disconnectEspCharacter(entry)
+    if entry.partAdded then entry.partAdded:Disconnect(); entry.partAdded = nil end
+    if entry.partRemoved then entry.partRemoved:Disconnect(); entry.partRemoved = nil end
+end
+local function bindEspCharacter(entry, character)
+    disconnectEspCharacter(entry)
+    entry.character = character
+    if character then
+        entry.partAdded = character.DescendantAdded:Connect(function(obj)
+            if alive and isEspPart(obj) then queueESPRefresh() end
+        end)
+        entry.partRemoved = character.DescendantRemoving:Connect(function(obj)
+            if alive and isEspPart(obj) then queueESPRefresh() end
+        end)
+    end
+    queueESPRefresh()
+end
+local function unwatchEspPlayer(player)
+    local entry = espWatchers[player]
+    if not entry then return end
+    disconnectEspCharacter(entry)
+    if entry.added then entry.added:Disconnect() end
+    if entry.removing then entry.removing:Disconnect() end
+    espWatchers[player] = nil
+    queueESPRefresh()
+end
+local function watchEspPlayer(player)
+    if espWatchers[player] then return end
+    local entry = {}
+    espWatchers[player] = entry
+    entry.added = player.CharacterAdded:Connect(function(character)
+        bindEspCharacter(entry, character)
+    end)
+    entry.removing = player.CharacterRemoving:Connect(function()
+        bindEspCharacter(entry, nil)
+    end)
+    bindEspCharacter(entry, player.Character)
+end
+stopESPWatchers = function()
+    for player in pairs(espWatchers) do unwatchEspPlayer(player) end
+end
+for _, player in ipairs(perfCounters.roster) do watchEspPlayer(player) end
+connect(Players.PlayerAdded, watchEspPlayer)
+connect(Players.PlayerRemoving, function(player)
+    unwatchEspPlayer(player)
+    deleteRender(player)
+end)
 
 -- FullBright и FPS Booster имеют общую исходную копию освещения.
 local lightingProperties = {
