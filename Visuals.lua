@@ -58,9 +58,9 @@ local CONFIG = {
     EspVisualEcoHz = 12,
     EspLowFps = 42, EspLowHz = 12,
     EspCriticalFps = 30, EspCriticalHz = 8,
-    EspShapeEcoLimit = 6,
-    EspShapeBalancedLimit = 10,
-    EspShapeQualityLimit = 20,
+    EspShapeEcoLimit = 10,
+    EspShapeBalancedLimit = 18,
+    EspShapeQualityLimit = 32,
     PerfEcoEnterFps = 44,
     PerfEcoExitFps = 54, -- Гистерезис без прыгания ECO/BALANCED каждый замер.
     PerfTierEcoEnterDwell = 2, -- Быстрый переход в ECO при просадках FPS.
@@ -2046,6 +2046,7 @@ local function abortPartialHub()
     state.controlRecoil, state.antiAim, state.fullbright = false, false, false
     pcall(function() recoil.shutdown() end)
     pcall(boosterPro.stopWatchingPlayers)
+    pcall(stopESPWatchers)
     if boosterPro.layoutCameraConnection then
         pcall(function() boosterPro.layoutCameraConnection:Disconnect() end)
         boosterPro.layoutCameraConnection = nil
@@ -2593,7 +2594,7 @@ end
 local HttpService = game:GetService("HttpService")
 local storedKeys = {
     "esp", "tracers", "names", "health", "distance", "teamColors", "espBox", "espSkeleton",
-    "espEnemyOnly", "espRangeMeters", "espColorPreset", "espLineThickness", "performanceMode",
+    "espEnemyOnly", "espRangeMeters", "espMaxTargets", "espColorPreset", "espLineThickness", "performanceMode",
     "performanceGuard", "moduleCpuMonitor", "lazyLoading",
     "sessionDiagnostics",
     "aimbot", "aimRangeMeters", "aimSmoothness", "aimSmoothX", "aimSmoothY",
@@ -2605,7 +2606,8 @@ local storedKeys = {
     "cameraFovEnabled", "cameraFovDegrees", "antiAim", "antiAimSpeed", "antiAimTilt",
 }
 local numericRules = {
-    espRangeMeters = {10, 200}, espLineThickness = {1, 2},
+    espRangeMeters = {10, 200}, espMaxTargets = {8, 96},
+    espLineThickness = {1, 2},
     aimRangeMeters = {5, 180}, aimSmoothness = {0, 10},
     aimSmoothX = {1, 10}, aimSmoothY = {1, 10},
     predictionSeconds = {0, 0.25}, aimFovPixels = {40, 400},
@@ -3656,7 +3658,7 @@ local function refreshTracers()
     local viewportSize = camera.ViewportSize
     local source = Vector2.new(viewportSize.X * 0.5, 12)
     local myCharacter = LocalPlayer.Character
-    local myRoot = myCharacter and myCharacter:FindFirstChild("HumanoidRootPart")
+    local _, myRoot = espParts(myCharacter)
     if not myRoot then clearTracers(); return end
     for player, data in pairs(renderData) do
         local ch = data.character
@@ -3664,7 +3666,7 @@ local function refreshTracers()
         local visible = false
         local screenPosition
         if data.inactiveSince == nil and player.Parent == Players and ch == player.Character
-            and hum and hum.Parent == ch and hum.Health > 0
+            and (not hum or (hum.Parent == ch and hum.Health > 0))
             and head and head.Parent == ch and root and root.Parent == ch
             and (not state.espEnemyOnly or not sameTeamESP(player))
             and (root.Position - myRoot.Position).Magnitude * CONFIG.StudMeters <= state.espRangeMeters then
@@ -3770,7 +3772,7 @@ local function refreshShapes()
         return
     end
     local myCharacter = LocalPlayer.Character
-    local myRoot = myCharacter and myCharacter:FindFirstChild("HumanoidRootPart")
+    local _, myRoot = espParts(myCharacter)
     if not myRoot then
         for _, item in pairs(shapeData) do hideShape(item) end
         perfCounters.shapeCount = 0
@@ -3796,8 +3798,9 @@ local function refreshShapes()
         local char = info and info.character
         local head, root, hum = info and info.head, info and info.root, info and info.humanoid
         if info and player.Parent == Players and head and head.Parent == char
-            and root and root.Parent == char and hum and hum.Parent == char
-            and hum.Health > 0 and player.Character == char
+            and root and root.Parent == char
+            and (not hum or (hum.Parent == char and hum.Health > 0))
+            and player.Character == char
             and (not state.espEnemyOnly or not sameTeamESP(player))
             and (root.Position - myRoot.Position).Magnitude * CONFIG.StudMeters <= state.espRangeMeters then
             active[player] = true
@@ -4301,9 +4304,26 @@ addToggle(pages.ESP, "Только противники", "Не отобража
     refreshESP(); refreshShapes()
 end)
 addSection(pages.ESP, "ESP OPTIONS", "Дальность, стиль и подписи")
-addSlider(pages.ESP, "Дальность ESP", "До 200 метров", "espRangeMeters", 10, 200, 5,
+addSlider(pages.ESP, "Дальность ESP", "Радиус от персонажа: до 200 метров", "espRangeMeters", 10, 200, 5,
     function(v) return tostring(v) .. " м" end,
     function() refreshESP(); refreshShapes() end)
+addSlider(pages.ESP, "Максимум игроков ESP",
+    "Лимит объектов (8–96); при нехватке выбраны ближайшие",
+    "espMaxTargets", 8, 96, 8, function(v) return tostring(v) .. " игроков" end,
+    function() refreshESP(); refreshShapes() end)
+addButton(pages.ESP, "Диагностика ESP",
+    "Игроки в радиусе, лимит, неполные модели и время обновления", function()
+        local info = perfCounters.espVisual
+        tell("ESP " .. (state.esp and "ON" or "OFF")
+            .. " | Радиус " .. tostring(state.espRangeMeters) .. " м"
+            .. " | В радиусе " .. tostring(info.eligible)
+            .. " | На экране " .. tostring(perfCounters.espCount)
+            .. " | Не вошло в лимит " .. tostring(info.omitted)
+            .. " | Не загружены части " .. tostring(info.missing)
+            .. " | Лимит " .. tostring(espLimit())
+            .. " | Возраст скана " .. string.format("%.2f", math.max(0,
+                os.clock() - info.lastScanAt)) .. " сек")
+    end)
 addSlider(pages.ESP, "Толщина линий", "Box / Skeleton (1–2 px), Tracer всегда 1 px", "espLineThickness", 1, 2, 1,
     function(v) return tostring(v) .. " px" end, refreshShapes)
 repaintColors = addChoice(pages.ESP, "Цвет ESP", {
@@ -5882,6 +5902,7 @@ cleanup = function(safeStop)
     for player in pairs(renderData) do deleteRender(player) end
     clearShapes()
     boosterPro.stopWatchingPlayers()
+    stopESPWatchers()
     if boosterPro.layoutCameraConnection then
         pcall(function() boosterPro.layoutCameraConnection:Disconnect() end)
         boosterPro.layoutCameraConnection = nil
@@ -5950,7 +5971,7 @@ task.spawn(function()
         end
         -- Visual guard may slow roster refresh independently of AIM scans.
         local tier = visualPerfTier()
-        local interval = tier == "ECO" and 1.25 or tier == "QUALITY" and 0.45
+        local interval = tier == "ECO" and 0.55 or tier == "QUALITY" and 0.25
             or CONFIG.EspRefreshSeconds
         task.wait(interval)
     end
@@ -5971,7 +5992,7 @@ perfCounters.espVisual.frame = function(dt)
     if type(dt) == "number" and dt > 0 then
         local tier = visualPerfTier()
         local hz = tier == "ECO" and CONFIG.EspVisualEcoHz
-            or tier == "QUALITY" and 120 or CONFIG.EspVisualBalancedHz
+            or tier == "QUALITY" and 60 or CONFIG.EspVisualBalancedHz
         -- При просадках сразу ограничиваем ТОЛЬКО ESP GUI, AIM не затрагиваем.
         if state.performanceMode == "AUTO" then
             if measuredFps < CONFIG.EspCriticalFps then
