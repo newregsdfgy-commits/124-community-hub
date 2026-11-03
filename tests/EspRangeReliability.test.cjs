@@ -40,6 +40,8 @@ test("150m is only a label style change, not an ESP culling threshold",()=>{
  const scan=scope("local function refreshESP()","-- Event-assisted ESP refresh");
  assert.ok(update.includes("local far = meters >= CONFIG.EspFarDistanceMeters"));
  assert.ok(!scan.includes("CONFIG.EspFarDistanceMeters"));
+ assert.ok(val("EspNameSizeFar") >= 10); // not a barely visible 8px label at 150m
+ assert.ok(val("EspMetaSizeFar") >= 9);
 });
 test("performance AUTO/ECO cannot hide close players through implicit TOP 6/12 budget",()=>{
  const limit=scope("local function espLimit()","-- StreamingEnabled may give us");
