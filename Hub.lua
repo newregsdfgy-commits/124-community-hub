@@ -1,13 +1,14 @@
--- 124 Community Visuals v1.1.29 | ESP range / character streaming reliability + lifecycle hardening
+-- 124 Community Visuals v1.1.30 | ESP atomic creation, event scan pacing, safe initialization
 -- PlaceId: 18537079992
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.1.29",
+    Version = "1.1.30",
     PlaceId = 18537079992,
     EspRefreshSeconds = 0.35, -- Быстрый поиск персонажей, без обновления UI каждый кадр.
+    EspEventMinSeconds = 0.18, -- Коалесцированные события не запускают 16 полных сканов/сек.
     EspMaxPlayers = 64, -- Видимый, настраиваемый лимит вместо скрытого TOP 6/12.
     StudMeters = 0.28, -- Стандартный масштаб Roblox: 1 stud ≈ 0.28 м.
     ConfigFile = "124_community_settings_v09.json",
@@ -627,8 +628,11 @@ end
 local function deleteRender(player)
     local item = renderData[player]
     if not item then return end
-    for _, inst in ipairs({item.highlight, item.billboard, item.tracer}) do
-        if inst then pcall(function() inst:Destroy() end) end
+    -- Do not use ipairs on a table with possible nil holes. During a partial
+    -- GUI build highlight/billboard/tracer may be missing independently.
+    for _, property in ipairs({"highlight", "billboard", "tracer"}) do
+        local instance = item[property]
+        if instance then pcall(function() instance:Destroy() end) end
     end
     renderData[player] = nil
 end
@@ -700,13 +704,18 @@ end
 -- as parts arrive. No invisible position/identity is manufactured.
 local function espParts(character)
     if not character then return nil, nil, nil end
-    local root = character:FindFirstChild("HumanoidRootPart")
-    local head = character:FindFirstChild("Head")
-    local torso = character:FindFirstChild("UpperTorso") or character:FindFirstChild("Torso")
+    -- Some experiences have non-BasePart instances with common body names.
+    -- Filter each candidate before fallbacks; do not let a malformed "Head"
+    -- hide a usable Torso/Root while character replication is incomplete.
+    local function asPart(name)
+        local obj = character:FindFirstChild(name)
+        return obj and obj:IsA("BasePart") and obj or nil
+    end
+    local root = asPart("HumanoidRootPart")
+    local head = asPart("Head")
+    local torso = asPart("UpperTorso") or asPart("Torso")
     local anchor = head or torso or root
     local positionPart = root or torso or anchor
-    if anchor and not anchor:IsA("BasePart") then anchor = nil end
-    if positionPart and not positionPart:IsA("BasePart") then positionPart = nil end
     return anchor, positionPart, character:FindFirstChildOfClass("Humanoid")
 end
 
@@ -720,6 +729,11 @@ local function createRender(player, character, head)
         FillTransparency = CONFIG.EspFillTransparency,
         OutlineTransparency = CONFIG.EspOutlineTransparency,
     }, character)
+    -- Publish the highlight immediately. If any following Gui constructor
+    -- fails, the caller's protected error handler can destroy this partial
+    -- object rather than leave an orphaned Highlight in the avatar.
+    local item = {character = character, highlight = hl, inactiveSince = nil}
+    renderData[player] = item
     local bb = mk("BillboardGui", {
         Name = "Army124ESPLabel",
         Adornee = head,
@@ -732,6 +746,7 @@ local function createRender(player, character, head)
         StudsOffsetWorldSpace = Vector3.new(0, 2.1, 0),
         ResetOnSpawn = false,
     }, PlayerGui)
+    item.billboard = bb
     local nameLabel = mk("TextLabel", {
         BackgroundTransparency = 1,
         Position = UDim2.fromOffset(0, 0),
@@ -773,10 +788,8 @@ local function createRender(player, character, head)
         TextColor3 = Color3.fromRGB(220, 220, 220),
         Text = "",
     }, bb)
-    local item = {character = character, highlight = hl, billboard = bb,
-        nameLabel = nameLabel, healthLabel = healthLabel, distanceLabel = distanceLabel,
-        inactiveSince = nil}
-    renderData[player] = item
+    item.nameLabel, item.healthLabel, item.distanceLabel =
+        nameLabel, healthLabel, distanceLabel
     return item
 end
 
@@ -974,7 +987,9 @@ local espRefreshQueued = false
 local function queueESPRefresh()
     if not alive or not state.esp or espRefreshQueued then return end
     espRefreshQueued = true
-    task.delay(0.06, function()
+    local elapsed = os.clock() - perfCounters.espVisual.lastScanAt
+    local delaySeconds = math.max(0.06, CONFIG.EspEventMinSeconds - elapsed)
+    task.delay(delaySeconds, function()
         espRefreshQueued = false
         if alive and state.esp then
             local ok, err = pcall(refreshESP)
@@ -1014,16 +1029,40 @@ local function unwatchEspPlayer(player)
     queueESPRefresh()
 end
 local function watchEspPlayer(player)
-    if not state.esp or espWatchers[player] then return end
+    if not state.esp or player == LocalPlayer or espWatchers[player] then return end
     local entry = {}
     espWatchers[player] = entry
-    entry.added = player.CharacterAdded:Connect(function(character)
-        bindEspCharacter(entry, character)
+    local ok, err = pcall(function()
+        entry.added = player.CharacterAdded:Connect(function(character)
+            local bound, why = pcall(bindEspCharacter, entry, character)
+            if not bound then
+                warn("[124 Community Visuals] ESP respawn watcher: " .. tostring(why))
+                queueESPRefresh()
+            end
+        end)
+        entry.removing = player.CharacterRemoving:Connect(function()
+            local bound, why = pcall(bindEspCharacter, entry, nil)
+            if not bound then
+                warn("[124 Community Visuals] ESP removing watcher: " .. tostring(why))
+                queueESPRefresh()
+            end
+        end)
+        bindEspCharacter(entry, player.Character)
     end)
-    entry.removing = player.CharacterRemoving:Connect(function()
-        bindEspCharacter(entry, nil)
-    end)
-    bindEspCharacter(entry, player.Character)
+    if not ok then
+        -- A broken character/event must not abort refreshESP for everyone.
+        -- Reclaim any connections built before the exception.
+        pcall(disconnectEspCharacter, entry)
+        if entry.added then pcall(function() entry.added:Disconnect() end) end
+        if entry.removing then pcall(function() entry.removing:Disconnect() end) end
+        espWatchers[player] = nil
+        local now = os.clock()
+        if now - perfCounters.espVisual.scanErrorAt > 3 then
+            warn("[124 Community Visuals] ESP watcher " .. tostring(player.UserId)
+                .. ": " .. tostring(err))
+            perfCounters.espVisual.scanErrorAt = now
+        end
+    end
 end
 stopESPWatchers = function()
     for player in pairs(espWatchers) do unwatchEspPlayer(player) end
@@ -3116,7 +3155,9 @@ local function allowTap(input)
 end
 local function safeActivate(control, callback)
     return connect(control.Activated, function(input, ...)
-        if allowTap(input) then callback(input, ...) end
+        if not alive or not allowTap(input) then return end
+        local ok, err = pcall(callback, input, ...)
+        if not ok then tell("Ошибка UI: " .. tostring(err)) end
     end)
 end
 local navigation = {
