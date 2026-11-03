@@ -10,10 +10,10 @@ function region(a,b) {
  assert.ok(i>=0 && j>i, "Missing boundaries: "+a+" to "+b);
  return src.slice(i,j);
 }
-test("1.1.28 new branch is self-contained with identical executables",()=>{
+test("1.1.29 new branch is self-contained with identical executables",()=>{
  assert.equal(src,hub);
- assert.ok(src.includes('Version = "1.1.28"'));
- assert.ok(start.includes("v1.1.28-lifecycle-memory-test/Visuals.lua"));
+ assert.ok(src.includes('Version = "1.1.29"'));
+ assert.ok(start.includes("v1.1.29-esp-range-streaming-fix/Visuals.lua"));
 });
 test("new players have one dedicated character listener, not an eternal global registry item",()=>{
  const b=region("boosterPro.protectedCharacters =","-- Проверять каждую родительскую модель");
