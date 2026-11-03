@@ -18,8 +18,8 @@ function val(key) {
 test("new ESP fix is published in both identical entrypoints and proper Start.lua",()=>{
  assert.equal(src,hub);
  assert.equal(val("EspMaxPlayers"),64);
- assert.match(src,/Version\s*=\s*"1\.1\.29"/);
- assert.ok(loader.includes("v1.1.29-esp-range-streaming-fix/Visuals.lua"));
+ assert.match(src,/Version\s*=\s*"1\.1\.30"/);
+ assert.ok(loader.includes("v1.1.30-full-stability-audit-test/Visuals.lua"));
 });
 test("200m is a true player-relative radius, not a camera-relative Billboard cap",()=>{
  const create=scope("local function createRender(","local function setIfDifferent(");
@@ -74,7 +74,7 @@ test("streamed-in/out key parts and respawns schedule a coalesced refresh",()=>{
  const watches=scope("-- Event-assisted ESP refresh","-- FullBright");
  for(const phrase of [
   "local espRefreshQueued = false",
-  "task.delay(0.06, function()",
+  "task.delay(delaySeconds, function()",
   "character.DescendantAdded:Connect",
   "character.DescendantRemoving:Connect",
   "player.CharacterAdded:Connect",
@@ -84,6 +84,7 @@ test("streamed-in/out key parts and respawns schedule a coalesced refresh",()=>{
  ])assert.ok(watches.includes(phrase),phrase);
  assert.ok(watches.includes("if not alive or not state.esp or espRefreshQueued then return end"));
  assert.ok(src.includes("syncESPWatchers() -- No avatar event listeners while ESP is disabled."));
+ assert.ok(src.includes("local delaySeconds = math.max(0.06, CONFIG.EspEventMinSeconds - elapsed)"));
  assert.ok(watches.includes("if not state.esp or espWatchers[player] then return end"));
  assert.ok(watches.includes("if not state.esp then\n        stopESPWatchers()"));
 });
