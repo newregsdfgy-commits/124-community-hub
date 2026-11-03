@@ -486,6 +486,7 @@ local syncEspVisuals = function() end -- Переопределяется пос
 local flushConfig = function() end
 local releaseAntiAfk = function() end
 local stopESPWatchers = function() end
+local syncESPWatchers = function() end
 local refreshSliders = {}
 local repaintAimMode = function() end
 local repaintColors = function() end
@@ -858,6 +859,7 @@ end
 local espCandidateScratch = {}
 local espKeepScratch = {}
 local function refreshESP()
+    syncESPWatchers() -- No avatar event listeners while ESP is disabled.
     if not state.esp then
         for player in pairs(renderData) do deleteRender(player) end
         table.clear(perfCounters.espVisual.ordered)
@@ -1012,7 +1014,7 @@ local function unwatchEspPlayer(player)
     queueESPRefresh()
 end
 local function watchEspPlayer(player)
-    if espWatchers[player] then return end
+    if not state.esp or espWatchers[player] then return end
     local entry = {}
     espWatchers[player] = entry
     entry.added = player.CharacterAdded:Connect(function(character)
@@ -1026,7 +1028,13 @@ end
 stopESPWatchers = function()
     for player in pairs(espWatchers) do unwatchEspPlayer(player) end
 end
-for _, player in ipairs(perfCounters.roster) do watchEspPlayer(player) end
+syncESPWatchers = function()
+    if not state.esp then
+        stopESPWatchers()
+        return
+    end
+    for _, player in ipairs(perfCounters.roster) do watchEspPlayer(player) end
+end
 connect(Players.PlayerAdded, watchEspPlayer)
 connect(Players.PlayerRemoving, function(player)
     unwatchEspPlayer(player)
@@ -4564,7 +4572,7 @@ repaintPerf = addChoice(pages.MISC, "Режим производительнос
     {value = "QUALITY", label = "QUALITY"},
 }, "performanceMode")
 addToggle(pages.MISC, "Performance Guard",
-    "OFF по умолчанию; при просадке снижает только ESP, не AIM",
+    "При просадках снижает частоту Box/Skeleton, не число ESP-целей",
     "performanceGuard", function(enabled)
         perfCounters.guard.reset()
         perfCounters.guard.changed = os.clock() - CONFIG.GuardMinStepSeconds
