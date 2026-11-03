@@ -702,18 +702,18 @@ end
 -- StreamingEnabled may give us Head or Torso before HumanoidRootPart.
 -- Use the first local visible BasePart as a temporary anchor, then upgrade
 -- as parts arrive. No invisible position/identity is manufactured.
+local function espVisiblePart(character, name)
+    local object = character:FindFirstChild(name)
+    return object and object:IsA("BasePart") and object or nil
+end
 local function espParts(character)
     if not character then return nil, nil, nil end
-    -- Some experiences have non-BasePart instances with common body names.
-    -- Filter each candidate before fallbacks; do not let a malformed "Head"
-    -- hide a usable Torso/Root while character replication is incomplete.
-    local function asPart(name)
-        local obj = character:FindFirstChild(name)
-        return obj and obj:IsA("BasePart") and obj or nil
-    end
-    local root = asPart("HumanoidRootPart")
-    local head = asPart("Head")
-    local torso = asPart("UpperTorso") or asPart("Torso")
+    -- Filter named objects before fallback. A non-BasePart "Head" should
+    -- not hide a valid Torso/Root during StreamingEnabled.
+    local root = espVisiblePart(character, "HumanoidRootPart")
+    local head = espVisiblePart(character, "Head")
+    local torso = espVisiblePart(character, "UpperTorso")
+        or espVisiblePart(character, "Torso")
     local anchor = head or torso or root
     local positionPart = root or torso or anchor
     return anchor, positionPart, character:FindFirstChildOfClass("Humanoid")
