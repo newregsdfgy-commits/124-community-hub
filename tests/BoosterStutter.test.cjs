@@ -11,8 +11,8 @@ function setting(name) {
 }
 test("booster test branch files and startup match",()=>{
  assert.equal(src,hub);
- assert.ok(src.includes('Version = "1.1.28"'));
- assert.ok(fs.readFileSync("Start.lua", "utf8").includes("v1.1.28-lifecycle-memory-test"));
+ assert.ok(src.includes('Version = "1.1.29"'));
+ assert.ok(fs.readFileSync("Start.lua", "utf8").includes("v1.1.29-esp-range-streaming-fix"));
 });
 test("foreground traversal has smaller CPU and batch budgets",()=>{
  assert.ok(setting("BoosterBatch") >= 64 && setting("BoosterBatch") <= 128);
