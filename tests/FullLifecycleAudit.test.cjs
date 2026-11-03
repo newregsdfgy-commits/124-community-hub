@@ -10,11 +10,11 @@ function block(first,last){
  assert.ok(begin>=0 && end>begin,"unmatched block: "+first);
  return src.slice(begin,end);
 }
-test("audit 1: canonical files and checked Start URL agree on v1.1.29",()=>{
+test("audit 1: canonical files and checked Start URL agree on v1.1.30",()=>{
  assert.equal(src,alias);
- assert.ok(src.includes('Version = "1.1.29"'));
- assert.ok(start.includes("v1.1.29-esp-range-streaming-fix/Visuals.lua"));
- assert.ok(start.includes("loadstring(source)"));
+ assert.ok(src.includes('Version = "1.1.30"'));
+ assert.ok(start.includes("v1.1.30-full-stability-audit-test/Visuals.lua"));
+ assert.ok(start.includes("pcall(loadstring, source)"));
  assert.ok(start.includes('env.ARMY124_BOOT_PHASE ~= "ready"'));
 });
 test("audit 2: all documented core feature identifiers remain in source",()=>{
@@ -94,7 +94,7 @@ test("audit 11: rendering is capped at preexisting render callbacks",()=>{
  assert.ok(src.includes("if not alive or layoutPending then return end"));
 });
 test("audit 12: no gameplay mutation is performed in diagnostic Start before compilation",()=>{
- const p=start.indexOf("local chunk, compileError = loadstring(source)");
+ const p=start.indexOf("local compiled, chunk, compileError = pcall(loadstring, source)");
  const q=start.indexOf("xpcall(chunk");
  assert.ok(p>0 && q>p);
  assert.ok(start.includes("game:HttpGet(url)"));
