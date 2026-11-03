@@ -1,7 +1,7 @@
 "use strict";
 const fs=require("node:fs"),test=require("node:test"),assert=require("node:assert/strict");
 const src=fs.readFileSync("Visuals.lua","utf8"),hub=fs.readFileSync("Hub.lua","utf8");
-test("identical 1.1.21 entrypoints",()=>{assert.equal(src,hub);assert.ok(src.includes('Version = "1.1.27"'));});
+test("identical 1.1.21 entrypoints",()=>{assert.equal(src,hub);assert.ok(src.includes('Version = "1.1.28"'));});
 test("operator tabs retain function ids",()=>{
  const t=src.slice(src.indexOf("local navigation = {"),src.indexOf("local function makeColumn"));
  for(const k of ["HOME","ESP","AIM","MISC","CFG"])assert.ok(t.includes('key = "'+k+'"'));
