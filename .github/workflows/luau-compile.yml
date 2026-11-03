@@ -1,7 +1,7 @@
 name: 124 Community Visuals Luau compile
 on:
   push:
-    branches: [v1.1.19-community-visuals-ui-test, v1.1.20-performance-budget-test, v1.1.21-operator-ui-stability-test, v1.1.22-startup-check-test, v1.1.23-booster-stutter-test, v1.1.25-chat-permission-test, v1.1.26-booster-recovery-audit-test, v1.1.27-full-lifecycle-audit-test]
+    branches: [v1.1.19-community-visuals-ui-test, v1.1.20-performance-budget-test, v1.1.21-operator-ui-stability-test, v1.1.22-startup-check-test, v1.1.23-booster-stutter-test, v1.1.25-chat-permission-test, v1.1.26-booster-recovery-audit-test, v1.1.27-full-lifecycle-audit-test, v1.1.28-lifecycle-memory-test]
     paths:
       - 'Visuals.lua'
       - 'Hub.lua'
