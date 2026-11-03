@@ -98,5 +98,5 @@ test("audit 12: no gameplay mutation is performed in diagnostic Start before com
  const q=start.indexOf("xpcall(chunk");
  assert.ok(p>0 && q>p);
  assert.ok(start.includes("game:HttpGet(url)"));
- assert.ok(start.includes("return failure(\"COMPILE\", compileError)"));
+ assert.ok(start.includes("return failure(\"COMPILE\", compileError or "));
 });
