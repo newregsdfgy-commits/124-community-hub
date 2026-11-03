@@ -1,11 +1,11 @@
--- 124 Community Visuals v1.1.27 | lifecycle hardening and complete source audit
+-- 124 Community Visuals v1.1.28 | per-player and camera connection lifecycle hardening
 -- PlaceId: 18537079992
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.1.27",
+    Version = "1.1.28",
     PlaceId = 18537079992,
     EspRefreshSeconds = 0.75, -- Лёгкое обновление списка игроков; FPS на первом месте.
     EspMaxPlayers = 12, -- Меньше Highlight и GUI-обновлений по умолчанию.
@@ -1130,22 +1130,40 @@ end
 -- Кэшируем модели игроков: на больших картах нельзя вызывать GetPlayers() на каждой детали.
 boosterPro.protectedCharacters = setmetatable({}, {__mode = "k"})
 boosterPro.protectedNames = {}
+-- CharacterAdded is owned by the player lifetime, not by the hub lifetime.
+-- Keep one connection per active Player; disconnect immediately on leaving.
+boosterPro.playerConnections = {}
 function boosterPro.watchPlayer(person)
+    if not alive or boosterPro.playerConnections[person] then return end
     boosterPro.protectedNames[person.Name] = true
     if person.Character then boosterPro.protectedCharacters[person.Character] = true end
-    if person.CharacterAdded then
-        connect(person.CharacterAdded, function(character)
-            boosterPro.protectedCharacters[character] = true
-            -- Модель могла успеть получить белый материал ДО события CharacterAdded.
-            -- Восстанавливаем снимки сразу, не дожидаясь отключения Booster.
-            if boosterPro.restoreProtectedTree then
-                boosterPro.restoreProtectedTree(character)
-            end
-        end)
+    boosterPro.playerConnections[person] = person.CharacterAdded:Connect(function(character)
+        if not alive then return end
+        boosterPro.protectedCharacters[character] = true
+        -- Keep late avatars out of graphic simplification.
+        if boosterPro.restoreProtectedTree then
+            boosterPro.restoreProtectedTree(character)
+        end
+    end)
+end
+function boosterPro.unwatchPlayer(person)
+    local connection = boosterPro.playerConnections[person]
+    if connection then
+        pcall(function() connection:Disconnect() end)
+        boosterPro.playerConnections[person] = nil
     end
+    boosterPro.protectedNames[person.Name] = nil
+end
+function boosterPro.stopWatchingPlayers()
+    for person, connection in pairs(boosterPro.playerConnections) do
+        pcall(function() connection:Disconnect() end)
+        boosterPro.playerConnections[person] = nil
+    end
+    table.clear(boosterPro.protectedNames)
 end
 for _, person in ipairs(perfCounters.roster) do boosterPro.watchPlayer(person) end
-if Players.PlayerAdded then connect(Players.PlayerAdded, boosterPro.watchPlayer) end
+connect(Players.PlayerAdded, boosterPro.watchPlayer)
+connect(Players.PlayerRemoving, boosterPro.unwatchPlayer)
 
 -- Проверять каждую родительскую модель для каждой детали дорого.
 -- При обходе дерева достаточно проверить границу ветки ОДИН раз.
@@ -1920,6 +1938,11 @@ local function abortPartialHub()
     state.esp, state.aimbot, state.booster = false, false, false
     state.controlRecoil, state.antiAim, state.fullbright = false, false, false
     pcall(function() recoil.shutdown() end)
+    pcall(boosterPro.stopWatchingPlayers)
+    if boosterPro.layoutCameraConnection then
+        pcall(function() boosterPro.layoutCameraConnection:Disconnect() end)
+        boosterPro.layoutCameraConnection = nil
+    end
     for _, conn in ipairs(connections) do
         pcall(function() conn:Disconnect() end)
     end
@@ -3482,10 +3505,14 @@ local function trackLayoutCamera()
     if cameraLayoutConnection then
         pcall(function() cameraLayoutConnection:Disconnect() end)
         cameraLayoutConnection = nil
+        boosterPro.layoutCameraConnection = nil
     end
     currentLayoutCamera = camera
     if camera then
-        cameraLayoutConnection = connect(camera:GetPropertyChangedSignal("ViewportSize"),queueResponsiveLayout)
+        -- Not inserted into the global connections list: replaced cameras
+        -- otherwise leave disconnected entries retained until full Unload.
+        cameraLayoutConnection = camera:GetPropertyChangedSignal("ViewportSize"):Connect(queueResponsiveLayout)
+        boosterPro.layoutCameraConnection = cameraLayoutConnection
     end
 end
 trackLayoutCamera()
@@ -5747,6 +5774,11 @@ cleanup = function(safeStop)
     end
     for player in pairs(renderData) do deleteRender(player) end
     clearShapes()
+    boosterPro.stopWatchingPlayers()
+    if boosterPro.layoutCameraConnection then
+        pcall(function() boosterPro.layoutCameraConnection:Disconnect() end)
+        boosterPro.layoutCameraConnection = nil
+    end
     for _, conn in ipairs(connections) do pcall(function() conn:Disconnect() end) end
     table.clear(connections)
     hidePanelAnimation()
