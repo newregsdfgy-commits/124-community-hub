@@ -83,6 +83,9 @@ test("streamed-in/out key parts and respawns schedule a coalesced refresh",()=>{
   "connect(Players.PlayerRemoving, function(player)"
  ])assert.ok(watches.includes(phrase),phrase);
  assert.ok(watches.includes("if not alive or not state.esp or espRefreshQueued then return end"));
+ assert.ok(src.includes("syncESPWatchers() -- No avatar event listeners while ESP is disabled."));
+ assert.ok(watches.includes("if not state.esp or espWatchers[player] then return end"));
+ assert.ok(watches.includes("if not state.esp then\n        stopESPWatchers()"));
 });
 test("player event signals are always removed on Unload and failed initialization",()=>{
  const watches=scope("-- Event-assisted ESP refresh","-- FullBright");
