@@ -377,7 +377,8 @@ end
 -- Покадровый рендер ESP (после Camera/AIM/Recoil); НЕ сканируем игроков каждый кадр.
 perfCounters.espVisual = {bound = false, bindingName = "Army124CommunityESP_" .. tostring(LocalPlayer.UserId),
     errorAt = 0, scanErrorAt = 0, active = {}, projected = {}, ordered = {}, candidatePool = {},
-    eligible = 0, missing = 0, omitted = 0, lastScanAt = 0}
+    eligible = 0, missing = 0, omitted = 0, lastScanAt = 0,
+    localReady = false, renderFailures = 0, watcherFailures = 0}
 -- Логи отключены без подписки. Игровые события могут приходить сотнями/сек.
 -- Подписка создаётся только после явного включения пользователем.
 perfCounters.session = {
@@ -884,6 +885,7 @@ local function refreshESP()
     perfCounters.espVisual.lastScanAt = os.clock()
     syncESPWatchers() -- No avatar event listeners while ESP is disabled.
     if not state.esp then
+        perfCounters.espVisual.localReady = false
         for player in pairs(renderData) do deleteRender(player) end
         table.clear(perfCounters.espVisual.ordered)
         perfCounters.espCount = 0
@@ -894,12 +896,14 @@ local function refreshESP()
     end
     local character = LocalPlayer.Character
     local _, myRoot = espParts(character)
+    perfCounters.espVisual.localReady = myRoot ~= nil
     if not myRoot then
         for player in pairs(renderData) do deleteRender(player) end
         table.clear(perfCounters.espVisual.ordered)
         perfCounters.espCount = 0
         perfCounters.espVisual.eligible = 0
         perfCounters.espVisual.omitted = 0
+        perfCounters.espVisual.missing = 0
         return
     end
     -- Рисуем ближайших, чтобы не создавать десятки дорогих Highlight.
@@ -957,6 +961,7 @@ local function refreshESP()
         local ok, err = pcall(updatePlayer, player, myRoot)
         if not ok then
             deleteRender(player)
+            perfCounters.espVisual.renderFailures = perfCounters.espVisual.renderFailures + 1
             local now = os.clock()
             if now - perfCounters.espVisual.scanErrorAt > 3 then
                 warn("[124 Community Visuals] ESP player " .. tostring(player.UserId)
@@ -1068,6 +1073,7 @@ local function watchEspPlayer(player)
         if entry.added then pcall(function() entry.added:Disconnect() end) end
         if entry.removing then pcall(function() entry.removing:Disconnect() end) end
         espWatchers[player] = nil
+        perfCounters.espVisual.watcherFailures = perfCounters.espVisual.watcherFailures + 1
         local now = os.clock()
         if now - perfCounters.espVisual.scanErrorAt > 3 then
             warn("[124 Community Visuals] ESP watcher " .. tostring(player.UserId)
@@ -4383,6 +4389,9 @@ addButton(pages.ESP, "Диагностика ESP",
             .. " | На экране " .. tostring(perfCounters.espCount)
             .. " | Не вошло в лимит " .. tostring(info.omitted)
             .. " | Не загружены части " .. tostring(info.missing)
+            .. " | Мой персонаж " .. (info.localReady and "READY" or "LOADING")
+            .. " | Ошибки отрисовки/подписок "
+            .. tostring(info.renderFailures) .. "/" .. tostring(info.watcherFailures)
             .. " | Лимит " .. tostring(espLimit())
             .. " | Возраст скана " .. string.format("%.2f", math.max(0,
                 os.clock() - info.lastScanAt)) .. " сек")
