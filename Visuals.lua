@@ -1,11 +1,11 @@
--- 124 Community Visuals v1.1.30 | ESP atomic creation, event scan pacing, safe initialization
+-- 124 Community Visuals v1.1.31 | deep lifecycle audit, atomic instance creation and ESP retry safety
 -- PlaceId: 18537079992
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.1.30",
+    Version = "1.1.31",
     PlaceId = 18537079992,
     EspRefreshSeconds = 0.35, -- Быстрый поиск персонажей, без обновления UI каждый кадр.
     EspEventMinSeconds = 0.18, -- Коалесцированные события не запускают 16 полных сканов/сек.
@@ -595,9 +595,16 @@ end)
 
 local function mk(class, properties, parent)
     local instance = Instance.new(class)
-    for key, value in pairs(properties or {}) do instance[key] = value end
-    instance.Parent = parent
-    -- Даже ошибка посередине построения UI не оставит несколько GUI.
+    -- Transactional construction: a failed property or Parent assignment
+    -- must not leave an untracked, half-initialized Instance in memory.
+    local ok, err = pcall(function()
+        for key, value in pairs(properties or {}) do instance[key] = value end
+        instance.Parent = parent
+    end)
+    if not ok then
+        pcall(function() instance:Destroy() end)
+        error(err, 2)
+    end
     if class == "ScreenGui" and parent == PlayerGui then
         local roots = boosterPro.bootRoots
         roots[#roots + 1] = instance
@@ -872,6 +879,9 @@ end
 local espCandidateScratch = {}
 local espKeepScratch = {}
 local function refreshESP()
+    -- Record attempts even while the local character is streaming in: without
+    -- this event-triggered scans were permitted every 60ms indefinitely.
+    perfCounters.espVisual.lastScanAt = os.clock()
     syncESPWatchers() -- No avatar event listeners while ESP is disabled.
     if not state.esp then
         for player in pairs(renderData) do deleteRender(player) end
@@ -940,7 +950,6 @@ local function refreshESP()
     perfCounters.espVisual.eligible = #candidates
     perfCounters.espVisual.omitted = #candidates - limit
     perfCounters.espVisual.missing = missingParts
-    perfCounters.espVisual.lastScanAt = os.clock()
     for i = 1, limit do
         local player = candidates[i].player
         keep[player] = true
@@ -984,12 +993,15 @@ end
 -- while CharacterAdded and late-arriving body parts trigger a batched update.
 local espWatchers = {}
 local espRefreshQueued = false
+local espRefreshGeneration = 0
 local function queueESPRefresh()
     if not alive or not state.esp or espRefreshQueued then return end
     espRefreshQueued = true
+    local generation = espRefreshGeneration
     local elapsed = os.clock() - perfCounters.espVisual.lastScanAt
     local delaySeconds = math.max(0.06, CONFIG.EspEventMinSeconds - elapsed)
     task.delay(delaySeconds, function()
+        if generation ~= espRefreshGeneration then return end
         espRefreshQueued = false
         if alive and state.esp then
             local ok, err = pcall(refreshESP)
@@ -1065,6 +1077,8 @@ local function watchEspPlayer(player)
     end
 end
 stopESPWatchers = function()
+    espRefreshGeneration = espRefreshGeneration + 1
+    espRefreshQueued = false
     for player in pairs(espWatchers) do unwatchEspPlayer(player) end
 end
 syncESPWatchers = function()
