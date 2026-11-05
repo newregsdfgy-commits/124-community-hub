@@ -1,11 +1,11 @@
--- 124 Community Visuals v1.1.31 | deep lifecycle audit, atomic instance creation and ESP retry safety
+-- 124 Community Visuals v1.1.32 | deep runtime and recovery integrity
 -- PlaceId: 18537079992
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.1.31",
+    Version = "1.1.32",
     PlaceId = 18537079992,
     EspRefreshSeconds = 0.35, -- Быстрый поиск персонажей, без обновления UI каждый кадр.
     EspEventMinSeconds = 0.18, -- Коалесцированные события не запускают 16 полных сканов/сек.
@@ -489,6 +489,7 @@ local flushConfig = function() end
 local releaseAntiAfk = function() end
 local stopESPWatchers = function() end
 local syncESPWatchers = function() end
+local emergencyUIRollback = function() return true end
 local refreshSliders = {}
 local repaintAimMode = function() end
 local repaintColors = function() end
@@ -1583,6 +1584,20 @@ end
 
 -- Снимки могли появиться раньше, чем Roblox объявил Model персонажем.
 -- Инициируется CharacterAdded или поступлением Humanoid/частей тела.
+function boosterPro.restoreGraphicsEmergency()
+    local count, sliceStarted = 0, os.clock()
+    for obj, snapshot in pairs(savedGraphics) do
+        boosterPro.restoreObject(obj, snapshot)
+        count = count + 1
+        if count % 4 == 0 and ((os.clock() - sliceStarted) * 1000 >=
+            CONFIG.BoosterSliceMs or count % CONFIG.BoosterBatch == 0) then
+            task.wait()
+            sliceStarted = os.clock()
+        end
+    end
+    return next(savedGraphics) == nil
+end
+
 function boosterPro.restoreProtectedTree(character)
     if not character then return end
     -- Раньше перебирались ВСЕ сохранённые детали карты на каждое появление
@@ -2114,6 +2129,7 @@ local function abortPartialHub()
     pcall(function() recoil.shutdown() end)
     pcall(boosterPro.stopWatchingPlayers)
     pcall(stopESPWatchers)
+    for player in pairs(renderData) do pcall(deleteRender, player) end
     if boosterPro.layoutCameraConnection then
         pcall(function() boosterPro.layoutCameraConnection:Disconnect() end)
         boosterPro.layoutCameraConnection = nil
@@ -2134,9 +2150,38 @@ local function abortPartialHub()
         pcall(function() root:Destroy() end)
     end
     table.clear(boosterPro.bootRoots)
-    pcall(function() restoreTerrainGrass() end)
-    pcall(function() restoreTerrainColors() end)
-    pcall(function() applyLighting() end)
+    -- Retryable recovery for any graphics, camera or character pose writes
+    -- made before this UI initialization failed. Never silently discard
+    -- original property snapshots on a failed early shutdown.
+    local function tryPartialRestore()
+        local graphicsOk, graphicsRestored = pcall(boosterPro.restoreGraphicsEmergency)
+        pcall(restoreTerrainGrass)
+        pcall(restoreTerrainColors)
+        pcall(applyLighting)
+        local uiOk, uiRestored = pcall(emergencyUIRollback)
+        return graphicsOk and graphicsRestored == true
+            and savedLighting == nil and savedTerrainDecoration == nil
+            and savedTerrainColors == nil
+            and uiOk and uiRestored == true
+    end
+    local previousRecovery = env.ARMY124_RECOVERY
+    if not tryPartialRestore() then
+        local retry
+        retry = function()
+            local previousDone = true
+            if type(previousRecovery) == "function" then
+                local ok, done = pcall(previousRecovery)
+                previousDone = ok and done == true
+            end
+            local restored = tryPartialRestore()
+            if previousDone and restored and env.ARMY124_RECOVERY == retry then
+                env.ARMY124_RECOVERY = nil
+            end
+            return previousDone and restored
+        end
+        env.ARMY124_RECOVERY = retry
+        warn("[124 Community Visuals] Аварийный откат не завершён; сохранено восстановление.")
+    end
     if env.ARMY124_CLEANUP == abortPartialHub then
         env.ARMY124_CLEANUP = nil
     end
@@ -2265,7 +2310,10 @@ function memoryFX.camera.restore(camera)
     local controller = memoryFX.camera
     local old = camera and controller.saved[camera]
     if old == nil then return true end
-    local ok = pcall(function() camera.FieldOfView = old end)
+    local ok = pcall(function()
+        if camera.FieldOfView ~= old then camera.FieldOfView = old end
+        if camera.FieldOfView ~= old then error("Camera FOV restore mismatch") end
+    end)
     if ok then controller.saved[camera] = nil end
     return ok
 end
@@ -2314,7 +2362,10 @@ function memoryFX.spin.restorePending()
     local spin = memoryFX.spin
     for object, properties in pairs(spin.pending) do
         for property, value in pairs(properties) do
-            local ok = pcall(function() object[property] = value end)
+            local ok = pcall(function()
+                if object[property] ~= value then object[property] = value end
+                if object[property] ~= value then error("Spin pending restore mismatch") end
+            end)
             if ok then properties[property] = nil end
         end
         if not next(properties) then spin.pending[object] = nil end
@@ -2326,7 +2377,10 @@ function memoryFX.spin.reset()
     local spin = memoryFX.spin
     spin.restorePending()
     if spin.joint and spin.originalC0 then
-        local ok = pcall(function() spin.joint.C0 = spin.originalC0 end)
+        local ok = pcall(function()
+            if spin.joint.C0 ~= spin.originalC0 then spin.joint.C0 = spin.originalC0 end
+            if spin.joint.C0 ~= spin.originalC0 then error("Joint C0 restore mismatch") end
+        end)
         if not ok then
             local pending = spin.pending[spin.joint] or {}
             -- Не заменяем ранее сохранённый оригинал новым повреждённым состоянием.
@@ -2335,7 +2389,14 @@ function memoryFX.spin.reset()
         end
     end
     if spin.humanoid and spin.originalAuto ~= nil then
-        local ok = pcall(function() spin.humanoid.AutoRotate = spin.originalAuto end)
+        local ok = pcall(function()
+            if spin.humanoid.AutoRotate ~= spin.originalAuto then
+                spin.humanoid.AutoRotate = spin.originalAuto
+            end
+            if spin.humanoid.AutoRotate ~= spin.originalAuto then
+                error("AutoRotate restore mismatch")
+            end
+        end)
         if not ok then
             local pending = spin.pending[spin.humanoid] or {}
             if pending.AutoRotate == nil then pending.AutoRotate = spin.originalAuto end
@@ -2655,6 +2716,16 @@ do
         end
         chat.repaintStatus()
     end
+end
+
+
+emergencyUIRollback = function()
+    local bunnyOK = pcall(utilityFX.bunny.stop)
+    local chatOK = pcall(utilityFX.chat.stop)
+    local cameraOK, cameraRestored = pcall(memoryFX.camera.reset)
+    local spinOK, spinRestored = pcall(memoryFX.spin.reset)
+    return bunnyOK and chatOK and cameraOK and cameraRestored == true
+        and spinOK and spinRestored == true
 end
 
 -- Сохраняем только ограниченный набор настроек; код из JSON никогда не выполняется.
@@ -6263,6 +6334,14 @@ if not initOk then
     end
     bootFailure("UI INITIALIZATION", initErr)
 elseif not PlayerGui:FindFirstChild("Army124CommunityVisualsGUI") then
+    -- A script that executed all callbacks but lost its GUI is not ready.
+    -- Do not leave render hooks or graphics changes running invisibly.
+    local registered = env.ARMY124_CLEANUP
+    local cleanupOk, cleaned = pcall(function()
+        if type(registered) == "function" then return registered() end
+        return abortPartialHub()
+    end)
+    if not cleanupOk or cleaned == false then pcall(abortPartialHub) end
     bootFailure("GUI MISSING", "UI завершилась, но ScreenGui отсутствует.")
 else
     env.ARMY124_BOOT_PHASE = "ready"

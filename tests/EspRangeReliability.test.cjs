@@ -18,8 +18,8 @@ function val(key) {
 test("new ESP fix is published in both identical entrypoints and proper Start.lua",()=>{
  assert.equal(src,hub);
  assert.equal(val("EspMaxPlayers"),64);
- assert.match(src,/Version\s*=\s*"1\.1\.31"/);
- assert.ok(loader.includes("v1.1.31-deep-runtime-audit-test/Visuals.lua"));
+ assert.match(src,/Version\s*=\s*"1\.1\.32"/);
+ assert.ok(loader.includes("v1.1.32-integrated-stability-test/Visuals.lua"));
 });
 test("200m is a true player-relative radius, not a camera-relative Billboard cap",()=>{
  const create=scope("local function createRender(","local function setIfDifferent(");
