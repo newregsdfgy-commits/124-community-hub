@@ -31,7 +31,7 @@ test("event-driven ESP scan records attempts even if local character is missing"
 });
 test("stale queued ESP refresh callbacks cannot execute after OFF→ON",()=>{
  const fn=region("local function queueESPRefresh()","local function isEspPart(obj)");
- const stop=region("stopESPWatchers = function()","syncESPWatchers = function()");
+ const stop=region("stopESPWatchers = function()\n    espRefreshGeneration", "syncESPWatchers = function()");
  assert.ok(fn.includes("local generation = espRefreshGeneration"));
  assert.ok(fn.includes("if generation ~= espRefreshGeneration then return end"));
  assert.ok(stop.includes("espRefreshGeneration = espRefreshGeneration + 1"));
