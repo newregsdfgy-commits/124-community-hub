@@ -7,7 +7,7 @@ const compat = fs.readFileSync("Hub.lua", "utf8");
 
 test("both entrypoints are byte-for-byte identical", () => {
   assert.equal(visuals, compat);
-  assert.match(visuals, /Version = "1\.1\.32"/);
+  assert.match(visuals, /Version = "1\.1\.33"/);
 });
 test("old executor state keys and cleanup remain compatible", () => {
   assert.match(visuals, /env\.ARMY124_CLEANUP = abortPartialHub/);

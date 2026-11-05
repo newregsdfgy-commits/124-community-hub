@@ -1,11 +1,11 @@
--- 124 Community Visuals v1.1.32 | deep runtime and recovery integrity
+-- 124 Community Visuals v1.1.33 | isolated restore and profile error hardening
 -- PlaceId: 18537079992
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.1.32",
+    Version = "1.1.33",
     PlaceId = 18537079992,
     EspRefreshSeconds = 0.35, -- Быстрый поиск персонажей, без обновления UI каждый кадр.
     EspEventMinSeconds = 0.18, -- Коалесцированные события не запускают 16 полных сканов/сек.
@@ -269,6 +269,7 @@ local boosterPro = {
     queueLastAt = 0, slicePeakMs = 0, queuePeakMs = 0,
     changedProperties = 0, phase = "OFF", lastError = nil,
     recoveryFailures = 0, recoveryNextAt = 0,
+    restoreRetryAt = 0, restoreRetryRunning = false,
     bootRoots = {}, -- Единственные ScreenGui, созданные данной копией Hub.
 }
 -- Только для исполнителей, умеющих читать/писать Terrain.Decoration.
@@ -1618,6 +1619,9 @@ local function setBooster(enabled, keepBaseline)
     boosterRevision = boosterRevision + 1
     local revision = boosterRevision
     boosterPro.revision = revision
+    -- Любая новая ревизия отменяет ожидающий фоновый откат старой.
+    boosterPro.restoreRetryAt = 0
+    boosterPro.restoreRetryRunning = false
     boosterPro.complete = false
     boosterPro.readyAt = nil
     boosterPro.restoreFailures = 0
@@ -2479,7 +2483,8 @@ end
 
 -- MOVEMENT / CHAT: отдельный контроллер, без RenderStepped и автоматической рассылки.
 -- Chat Timer даёт уведомление о готовности; отправка ТОЛЬКО по нажатию пользователем.
-local utilityFX = {bunny = {token = 0}, chat = {
+local utilityFX = {bunny = {token = 0, retrying = false,
+    pending = setmetatable({}, {__mode = "k"})}, chat = {
     token = 0, sent = 0, errors = 0, readyCount = 0,
     inFlight = false, lastSentAt = -1e8,
     timerStatus = "OFF", sendStatus = "NOT SENT",
@@ -2492,17 +2497,53 @@ do
     local TextChatService = game:GetService("TextChatService")
 
     -- Восстанавливаем только собственный WalkSpeed, не перетираем изменения игры.
+    -- Храним неудавшиеся откаты отдельно от активного Humanoid.
+    -- При смене персонажа исходные значения старого рига не теряются.
+    function bunny.restorePending()
+        for hum, record in pairs(bunny.pending) do
+            local ok, done = pcall(function()
+                if not hum.Parent then return true end
+                local current = hum.WalkSpeed
+                -- Игра могла сама изменить скорость: чужое значение не перетираем.
+                if math.abs(current - record.applied) >= 0.05 then return true end
+                hum.WalkSpeed = record.original
+                return math.abs(hum.WalkSpeed - record.original) < 0.05
+            end)
+            if ok and done then bunny.pending[hum] = nil end
+        end
+        return next(bunny.pending) == nil
+    end
+
+    function bunny.queueRestoreRetry()
+        if bunny.retrying or not alive or next(bunny.pending) == nil then return end
+        bunny.retrying = true
+        task.spawn(function()
+            local failures = 0
+            while alive and next(bunny.pending) ~= nil do
+                task.wait(math.min(20, 2 ^ math.min(failures, 4)))
+                if not alive then break end
+                if bunny.restorePending() then break end
+                failures = failures + 1
+            end
+            bunny.retrying = false
+        end)
+    end
+
     function bunny.restore()
         local hum = bunny.humanoid
-        if hum and hum.Parent and bunny.originalSpeed and bunny.appliedSpeed then
-            pcall(function()
-                if math.abs(hum.WalkSpeed - bunny.appliedSpeed) < 0.05 then
-                    hum.WalkSpeed = bunny.originalSpeed
-                end
-            end)
+        if hum and hum.Parent and bunny.originalSpeed ~= nil
+            and bunny.appliedSpeed ~= nil then
+            local ok, current = pcall(function() return hum.WalkSpeed end)
+            if not ok or math.abs(current - bunny.appliedSpeed) < 0.05 then
+                bunny.pending[hum] = {
+                    original = bunny.originalSpeed, applied = bunny.appliedSpeed
+                }
+                bunny.restorePending()
+            end
         end
         bunny.humanoid, bunny.originalSpeed, bunny.appliedSpeed = nil, nil, nil
         bunny.suspended = false
+        bunny.queueRestoreRetry()
     end
 
     function bunny.applySpeed()
@@ -2533,8 +2574,13 @@ do
             bunny.appliedSpeed = speed
             return
         end
-        local ok = pcall(function() hum.WalkSpeed = speed end)
-        if ok then bunny.appliedSpeed = speed end
+        local ok, actual = pcall(function()
+            hum.WalkSpeed = speed
+            return hum.WalkSpeed
+        end)
+        if ok and type(actual) == "number" and math.abs(actual - speed) < 0.05 then
+            bunny.appliedSpeed = speed
+        end
     end
 
     function bunny.stop()
@@ -2551,6 +2597,10 @@ do
                 local char = LocalPlayer.Character
                 local hum = char and char:FindFirstChildOfClass("Humanoid")
                 if hum and hum.Parent and hum.Health > 0 then
+                    if bunny.pending[hum] then bunny.restorePending() end
+                    -- Нельзя брать новую базовую скорость, пока старый откат
+                    -- на том же Humanoid ещё не завершён.
+                    if not bunny.pending[hum] then
                     if bunny.humanoid ~= hum then
                         bunny.restore()
                         bunny.humanoid = hum
@@ -2565,6 +2615,7 @@ do
                         and not hum.Sit and not hum.PlatformStand then
                         hum.Jump = true
                     end
+                    end -- ожидаемый откат WalkSpeed препятствует новой записи
                 elseif bunny.humanoid then
                     bunny.restore()
                 end
@@ -2721,11 +2772,12 @@ end
 
 emergencyUIRollback = function()
     local bunnyOK = pcall(utilityFX.bunny.stop)
+    local bunnyPendingOK, bunnyRestored = pcall(utilityFX.bunny.restorePending)
     local chatOK = pcall(utilityFX.chat.stop)
     local cameraOK, cameraRestored = pcall(memoryFX.camera.reset)
     local spinOK, spinRestored = pcall(memoryFX.spin.reset)
-    return bunnyOK and chatOK and cameraOK and cameraRestored == true
-        and spinOK and spinRestored == true
+    return bunnyOK and bunnyPendingOK and bunnyRestored == true and chatOK
+        and cameraOK and cameraRestored == true and spinOK and spinRestored == true
 end
 
 -- Сохраняем только ограниченный набор настроек; код из JSON никогда не выполняется.
@@ -2907,8 +2959,17 @@ local function readProfileFile()
 end
 readProfileFile()
 
-local function applySettings(incoming, autoLoad)
+local function applySettingsGuard(action)
     restoring = true
+    local ok, err = xpcall(action, function(reason) return tostring(reason) end)
+    -- Даже при исключении внутри применения профиля сохраняем возможность
+    -- редактировать настройки и выполнить Safety Stop / следующий профиль.
+    restoring = false
+    return ok, err
+end
+
+local function applySettings(incoming, autoLoad)
+    local ok, err = applySettingsGuard(function()
     local sanitized = validatedSettings(incoming)
     local wasBooster = state.booster
     local oldBoosterMode = state.boosterMode
@@ -2975,7 +3036,12 @@ local function applySettings(incoming, autoLoad)
     memoryFX.camera.apply()
     aimTarget = nil
     aimNextScan = 0
-    restoring = false
+    end)
+    if not ok then
+        warn("[124 Community Visuals] Ошибка применения профиля: " .. tostring(err))
+        pcall(tell, "Ошибка применения профиля. Проверь Output.")
+        return false
+    end
     for _, update in pairs(refreshToggles) do pcall(update) end
     for _, update in pairs(refreshSliders) do pcall(update) end
     pcall(repaintAimMode)
@@ -2984,7 +3050,13 @@ local function applySettings(incoming, autoLoad)
     pcall(repaintPerf)
     if boosterPro.repaint then pcall(boosterPro.repaint) end
     pcall(repaintConfig)
-    syncEspVisuals() -- Полная синхронизация всех типов ESP после загрузки конфига.
+    local synced, syncErr = pcall(syncEspVisuals)
+    if not synced then
+        warn("[124 Community Visuals] Ошибка визуальной синхронизации профиля: "
+            .. tostring(syncErr))
+        return false
+    end
+    return true
 end
 
 local function useProfile(name, autoLoad)
@@ -2993,6 +3065,7 @@ local function useProfile(name, autoLoad)
         -- Сохраняем предыдущий CUSTOM до изменения активного имени.
         flushConfig()
     end
+    local previousProfileName = profileName
     profileName = name
     local values = table.clone(defaultSettings)
     if name == "CUSTOM" then
@@ -3012,12 +3085,16 @@ local function useProfile(name, autoLoad)
     if type(chatPreferences.chatInterval) == "number" then
         values.chatInterval = chatPreferences.chatInterval
     end
-    applySettings(values, autoLoad)
+    if not applySettings(values, autoLoad) then
+        profileName = previousProfileName
+        return false
+    end
     if not autoLoad then
         -- Записываем имя активного профиля. LEGIT/RAGE при этом не изменяются.
         flushConfig()
         tell("Профиль " .. name .. " загружен")
     end
+    return true
 end
 
 
@@ -5936,9 +6013,13 @@ end
 
 -- Чанковый откат вместо синхронной массовой записи свойств: каждый проход
 -- отдаёт кадр после 16 объектов/2 мс. Работает и при hot reload.
-function boosterPro.restoreGraphicsSliced()
+function boosterPro.restoreGraphicsSliced(expectedRevision)
     local started, count = os.clock(), 0
     for obj, snapshot in pairs(savedGraphics) do
+        -- Async restore must stop when Booster is re-enabled. Unload/recovery
+        -- calls without expectedRevision restore regardless of alive status.
+        if expectedRevision and (expectedRevision ~= boosterRevision
+            or state.booster or not alive) then return false end
         boosterPro.restoreObject(obj, snapshot)
         count = count + 1
         if count % 4 == 0 and ((os.clock() - started) * 1000 >=
@@ -5947,6 +6028,39 @@ function boosterPro.restoreGraphicsSliced()
             started = os.clock()
         end
     end
+    return next(savedGraphics) == nil
+end
+
+-- Failed property restores get a bounded, generation-safe retry while Booster
+-- stays OFF. No recurring map scans when graphics are already restored.
+function boosterPro.retryPendingGraphics()
+    if not alive or state.booster or boosterPro.phase ~= "RESTORE PENDING" then return end
+    local noObjects = next(savedGraphics) == nil
+    if noObjects and savedTerrainDecoration == nil and savedTerrainColors == nil then
+        boosterPro.phase = boosterPro.lastError and "FAILED" or "OFF"
+        return
+    end
+    local now = os.clock()
+    if noObjects or boosterPro.restoreRetryRunning
+        or now < boosterPro.restoreRetryAt then return end
+    local revision = boosterRevision
+    boosterPro.restoreRetryRunning = true
+    boosterPro.restoreRetryAt = now + 15
+    task.spawn(function()
+        local ok, complete = pcall(boosterPro.restoreGraphicsSliced, revision)
+        if revision ~= boosterRevision then return end
+        boosterPro.restoreRetryRunning = false
+        if not alive or state.booster then return end
+        boosterPro.restoreRetryAt = os.clock() + 20
+        if not ok then
+            boosterPro.lastError = "restore retry: " .. tostring(complete)
+            warn("[124 Community Visuals] Booster restore retry: " .. tostring(complete))
+        end
+        if ok and complete and savedTerrainDecoration == nil
+            and savedTerrainColors == nil then
+            boosterPro.phase = boosterPro.lastError and "FAILED" or "OFF"
+        end
+    end)
 end
 
 cleanup = function(safeStop)
@@ -6015,7 +6129,8 @@ cleanup = function(safeStop)
     boosterPro.restoreGraphicsSliced()
     if savedLighting or savedTerrainDecoration or savedTerrainColors
         or next(savedGraphics) ~= nil or next(memoryFX.camera.saved) ~= nil
-        or next(memoryFX.spin.pending) ~= nil then
+        or next(memoryFX.spin.pending) ~= nil
+        or next(utilityFX.bunny.pending) ~= nil then
         local previousRecovery = env.ARMY124_RECOVERY
         local pendingRecovery
         pendingRecovery = function()
@@ -6030,10 +6145,12 @@ cleanup = function(safeStop)
             boosterPro.restoreGraphicsSliced()
             memoryFX.camera.reset()
             memoryFX.spin.restorePending()
+            utilityFX.bunny.restorePending()
             local done = not (savedLighting or savedTerrainDecoration or savedTerrainColors)
                 and next(savedGraphics) == nil
                 and next(memoryFX.camera.saved) == nil
                 and next(memoryFX.spin.pending) == nil
+                and next(utilityFX.bunny.pending) == nil
             if done and oldDone and env.ARMY124_RECOVERY == pendingRecovery then
                 env.ARMY124_RECOVERY = nil
             end
@@ -6237,6 +6354,7 @@ task.spawn(function()
             if savedTerrainDecoration then restoreTerrainGrass() end
             if savedTerrainColors then restoreTerrainColors() end
         end
+        if not state.booster then boosterPro.retryPendingGraphics() end
         stats.Visible = state.hud
         if boosterPro.dashboard then boosterPro.dashboard.update() end
         if boosterPro.label and boosterPro.label.Parent then
@@ -6310,7 +6428,9 @@ task.spawn(function()
 end)
 
 -- Применяем профиль после создания всей GUI и привязок.
-useProfile(profileName, true)
+if not useProfile(profileName, true) then
+    error("Профиль не был загружен полностью")
+end
 refreshFovRing()
 print("[124 Community Visuals] " .. CONFIG.Version .. " загружен | MEMORY / SESSION DIAGNOSTICS")
 end -- initializeHubUI; isolates UI locals from root Luau limit.

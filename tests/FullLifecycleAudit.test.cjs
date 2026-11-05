@@ -10,10 +10,10 @@ function block(first,last){
  assert.ok(begin>=0 && end>begin,"unmatched block: "+first);
  return src.slice(begin,end);
 }
-test("audit 1: canonical files and checked Start URL agree on v1.1.32",()=>{
+test("audit 1: canonical files and checked Start URL agree on v1.1.33",()=>{
  assert.equal(src,alias);
- assert.ok(src.includes('Version = "1.1.32"'));
- assert.ok(start.includes("v1.1.32-integrated-stability-test/Visuals.lua"));
+ assert.ok(src.includes('Version = "1.1.33"'));
+ assert.ok(start.includes("v1.1.33-stability-isolation-test/Visuals.lua"));
  assert.ok(start.includes("pcall(loadstring, source)"));
  assert.ok(start.includes('env.ARMY124_BOOT_PHASE ~= "ready"'));
 });

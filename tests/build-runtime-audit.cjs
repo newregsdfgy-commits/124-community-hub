@@ -10,6 +10,10 @@ function extract(start, end) {
 }
 const mk = extract("local function mk(class, properties, parent)", "local function round(instance, radius)");
 const queue = extract("local function queueESPRefresh()", "local function isEspPart(obj)");
+const bunnyRestore = extract("    function bunny.restorePending()", "    function bunny.applySpeed()");
+const objectRestore = extract("function boosterPro.restoreObject(obj, snapshot)", "-- Снимки могли появиться раньше");
+const graphicsRestore = extract("function boosterPro.restoreGraphicsSliced(expectedRevision)", "cleanup = function(safeStop)");
+const settingsGuard = extract("local function applySettingsGuard(action)", "local function applySettings(incoming, autoLoad)");
 const program = `
 -- Pure Luau execution of actual extracted Visuals.lua functions.
 -- Roblox API objects are mocked; real engine behavior is NOT simulated.
@@ -74,6 +78,105 @@ scheduled[2].cb()
 assert(scans == 1, "new generation scan did not run")
 assert(espRefreshQueued == false)
 print("LUAU AUDIT PASS: queued ESP scans are coalesced and revocable")
+
+do
+    local restoring = false
+    ${settingsGuard}
+    local okFail, why = applySettingsGuard(function() error("forced profile failure") end)
+    assert(not okFail and restoring == false)
+    assert(string.find(tostring(why), "forced profile failure", 1, true))
+    local okSuccess = applySettingsGuard(function() return true end)
+    assert(okSuccess and restoring == false)
+    print("LUAU AUDIT PASS: profile errors always release restoring flag")
+end
+
+do
+    local alive = true
+    local started = {}
+    local task = {
+        spawn = function(fn) table.insert(started, fn) end,
+        wait = function() end
+    }
+    local bunny = {retrying = false, pending = setmetatable({}, {__mode = "k"})}
+    ${bunnyRestore}
+    local speed, blocked, ignored = 28, true, false
+    local hum = {Parent = {}}
+    setmetatable(hum, {
+        __index = function(_, key)
+            if key == "WalkSpeed" then return speed end
+        end,
+        __newindex = function(_, key, value)
+            if key == "WalkSpeed" then
+                if blocked then error("WalkSpeed setter blocked") end
+                if not ignored then speed = value end
+            else
+                rawset(hum, key, value)
+            end
+        end
+    })
+    bunny.humanoid, bunny.originalSpeed, bunny.appliedSpeed = hum, 16, 28
+    bunny.restore()
+    assert(bunny.humanoid == nil and bunny.pending[hum] ~= nil)
+    assert(speed == 28 and #started == 1)
+    blocked, ignored = false, true
+    assert(not bunny.restorePending() and speed == 28, "silent ignored setter must keep original")
+    ignored = false
+    assert(bunny.restorePending() and speed == 16)
+    assert(bunny.pending[hum] == nil)
+    speed = 23
+    bunny.pending[hum] = {original = 16, applied = 28}
+    assert(bunny.restorePending() and speed == 23, "foreign speed must not be overwritten")
+    print("LUAU AUDIT PASS: BHOP retries failed restoration and respects external speed")
+end
+
+do
+    local alive = true
+    local state = {booster = false}
+    local boosterRevision = 42
+    local boosterPro = {restoreFailures = 0, phase = "RESTORE PENDING",
+        restoreRetryRunning = false, restoreRetryAt = 0}
+    local CONFIG = {BoosterSliceMs = 1, BoosterBatch = 12}
+    local savedTerrainDecoration, savedTerrainColors = nil, nil
+    local savedGraphics = setmetatable({}, {__mode = "k"})
+    local retryJob = nil
+    local task = {wait = function() end, spawn = function(fn) retryJob = fn end}
+    local function warn(_) end
+    ${objectRestore}
+    ${graphicsRestore}
+    local current, blockWrite = false, true
+    local obj = {Parent = {}, Name = "MockPart"}
+    setmetatable(obj, {
+        __index = function(_, key)
+            if key == "CastShadow" then return current end
+        end,
+        __newindex = function(_, key, value)
+            if key == "CastShadow" then
+                if blockWrite then error("write blocked") end
+                current = value
+            else
+                rawset(obj, key, value)
+            end
+        end
+    })
+    savedGraphics[obj] = {CastShadow = true}
+    assert(not boosterPro.restoreGraphicsSliced(42))
+    assert(savedGraphics[obj] ~= nil and current == false)
+    assert(not boosterPro.restoreGraphicsSliced(41), "stale revision must not write")
+    assert(savedGraphics[obj] ~= nil)
+    blockWrite = false
+    boosterPro.retryPendingGraphics()
+    assert(boosterPro.restoreRetryRunning and retryJob ~= nil)
+    retryJob()
+    assert(current == true and savedGraphics[obj] == nil)
+    assert(boosterPro.phase == "OFF" and not boosterPro.restoreRetryRunning)
+    savedGraphics[obj] = {CastShadow = true}
+    current = false
+    state.booster = true
+    assert(not boosterPro.restoreGraphicsSliced(42))
+    assert(current == false and savedGraphics[obj] ~= nil)
+    print("LUAU AUDIT PASS: booster retries only after failure and cancels across revisions")
+end
+
 `;
 fs.writeFileSync("/tmp/Army124-RuntimeAudit.luau",program,"utf8");
 console.log("Generated Luau fault-injection harness from production functions");

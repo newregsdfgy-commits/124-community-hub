@@ -10,10 +10,10 @@ function section(startMark,endMark) {
  assert.ok(i>=0 && j>i,"section not found: "+startMark);
  return src.slice(i,j);
 }
-test("audit 01: identical v1.1.32 sources and branch-specific loader",()=>{
+test("audit 01: identical v1.1.33 sources and branch-specific loader",()=>{
  assert.equal(src,alias);
- assert.ok(src.includes('Version = "1.1.32"'));
- assert.ok(start.includes("v1.1.32-integrated-stability-test/Visuals.lua"));
+ assert.ok(src.includes('Version = "1.1.33"'));
+ assert.ok(start.includes("v1.1.33-stability-isolation-test/Visuals.lua"));
  assert.ok(start.includes("pcall(loadstring, source)"));
 });
 test("audit 02: crash rollback owns all saved graphics even if UI never completed",()=>{
