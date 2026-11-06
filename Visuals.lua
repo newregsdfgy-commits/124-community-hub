@@ -1,11 +1,11 @@
--- 124 Visuals v1.1.39 LITE | simplify modules and optimize frame load
+-- 124 Visuals v1.1.40 LITE | coalesced ESP and guarded Booster/teardown
 -- PlaceId: 18537079992
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.1.39",
+    Version = "1.1.40",
     PlaceId = 18537079992,
     EspRefreshSeconds = 0.35, -- Быстрый поиск персонажей, без обновления UI каждый кадр.
     EspEventMinSeconds = 0.18, -- Коалесцированные события не запускают 16 полных сканов/сек.
@@ -4977,10 +4977,13 @@ local function buildReferenceMenu()
                     elseif key == "espBox" then
                         if not state.espBox then clearShapes() end
                     elseif key == "tracers" then
-                        if state.tracers then refreshTracers()
-                        else clearTracers() end
+                        -- Keep OFF immediate; the existing visual frame owns
+                        -- all ON redraws to avoid a camera-frame spike.
+                        if not state.tracers then clearTracers() end
                     else
-                        refreshESP()
+                        -- Labels/health/distance are refreshed by the shared
+                        -- event queue, never synchronously in a tap callback.
+                        queueESPRefresh()
                     end
                 end)
                 if not ok then
@@ -6138,14 +6141,17 @@ end
 
 task.spawn(function()
     while alive do
-        if state.esp or next(renderData) ~= nil then
-            local ok, err = pcall(perfCounters.cpu.wrapped.ESPScan)
-            if not ok then warn("[124 Community Visuals] ESP: " .. tostring(err)) end
-        end
-        -- Visual guard may slow roster refresh independently of AIM scans.
+        -- Read the current mode before deciding whether this periodic pass
+        -- is due. An event-triggered scan may have completed moments ago.
         local tier = visualPerfTier()
         local interval = tier == "ECO" and 0.55 or tier == "QUALITY" and 0.25
             or CONFIG.EspRefreshSeconds
+        local needsCleanup = not state.esp and next(renderData) ~= nil
+        local due = os.clock() - perfCounters.espVisual.lastScanAt >= interval
+        if needsCleanup or (state.esp and due) then
+            local ok, err = pcall(perfCounters.cpu.wrapped.ESPScan)
+            if not ok then warn("[124 Community Visuals] ESP: " .. tostring(err)) end
+        end
         task.wait(interval)
     end
 end)
