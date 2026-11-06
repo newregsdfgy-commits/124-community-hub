@@ -6,10 +6,10 @@ const src = fs.readFileSync("Visuals.lua", "utf8");
 const hub = fs.readFileSync("Hub.lua", "utf8");
 const start = fs.readFileSync("Start.lua", "utf8");
 const send = src.slice(src.indexOf("function chat.sendOnce()"), src.indexOf("-- Сохраняем только ограниченный набор настроек"));
-test("v1.1.36 entrypoints and loader target are identical",()=>{
+test("v1.1.37 entrypoints and loader target are identical",()=>{
  assert.equal(src,hub);
- assert.ok(src.includes('Version = "1.1.36"'));
- assert.ok(start.includes("v1.1.36-ui-polish-stability-test"));
+ assert.ok(src.includes('Version = "1.1.37"'));
+ assert.ok(start.includes("v1.1.37-ui-startup-hotfix-test"));
 });
 test("manual sending checks account-wide permission before selecting channel",()=>{
  const check = send.indexOf("TextChatService:CanUserChatAsync(LocalPlayer.UserId)");

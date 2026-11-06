@@ -9,9 +9,9 @@ function region(from,to) {
  assert.ok(a>=0 && b>a,"missing "+from);
  return src.slice(a,b);
 }
-test("source, compatibility file, and launcher agree on v1.1.36",()=>{
- assert.equal(src,hub);assert.ok(src.includes('Version = "1.1.36"'));
- assert.ok(start.includes("v1.1.36-ui-polish-stability-test/Visuals.lua"));
+test("source, compatibility file, and launcher agree on v1.1.37",()=>{
+ assert.equal(src,hub);assert.ok(src.includes('Version = "1.1.37"'));
+ assert.ok(start.includes("v1.1.37-ui-startup-hotfix-test/Visuals.lua"));
 });
 test("factory does not leak unfinished Instances if property or Parent assignment throws",()=>{
  const mk=region("local function mk(class, properties, parent)","local function round(instance, radius)");

@@ -17,8 +17,8 @@ function setting(name){
 }
 test("complete audit: identical entries, launcher, no hidden version gap",()=>{
  assert.equal(src,alias);
- assert.ok(src.includes('Version = "1.1.36"'));
- assert.ok(loader.includes("v1.1.36-ui-polish-stability-test/Visuals.lua"));
+ assert.ok(src.includes('Version = "1.1.37"'));
+ assert.ok(loader.includes("v1.1.37-ui-startup-hotfix-test/Visuals.lua"));
  assert.ok(loader.includes('ARMY124_BOOT_PHASE ~= "ready"'));
 });
 test("recover from excessively slow v1.1.23 traversal; bounded slices remain",()=>{

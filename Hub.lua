@@ -1,11 +1,11 @@
--- 124 Visuals v1.1.36 | refined graphite UI, guarded touch interactions and layout
+-- 124 Visuals v1.1.37 | slider initialization hotfix with runtime regression tests
 -- PlaceId: 18537079992
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.1.36",
+    Version = "1.1.37",
     PlaceId = 18537079992,
     EspRefreshSeconds = 0.35, -- Быстрый поиск персонажей, без обновления UI каждый кадр.
     EspEventMinSeconds = 0.18, -- Коалесцированные события не запускают 16 полных сканов/сек.
@@ -5661,7 +5661,10 @@ local function buildReferenceMenu()
         local dirty = false
         local lastApplyAt = -1e8
         local function update()
-            if not container.Parent then return end
+            -- The reference slider creates 'area', not 'container'.
+            -- Referencing the undefined variable crashed initializeHubUI
+            -- on the first update() call before the menu could be shown.
+            if not area.Parent then return end
             local fraction = math.clamp((state[key] - lo) / (hi - lo), 0, 1)
             fill.Size = UDim2.fromScale(fraction, 1)
             thumb.Position = UDim2.fromScale(fraction, 0.5)
