@@ -3593,7 +3593,7 @@ do
     mk("TextLabel", {
         BackgroundTransparency = 1, Position = UDim2.fromOffset(17, 9),
         Size = UDim2.new(1, -30, 0, 20),
-        Text = "124 Community Visuals", Font = Enum.Font.GothamBold,
+        Text = "124 Visuals", Font = Enum.Font.GothamBold,
         TextSize = 13, TextColor3 = P.text,
         TextXAlignment = Enum.TextXAlignment.Left,
     }, info)
@@ -5443,9 +5443,14 @@ local function buildReferenceMenu()
     mk("UIStroke", {Color = border, Transparency = 0.2}, left)
     textLabel(left, "ESPHeader", "◎   ESP SETTINGS", UDim2.fromOffset(18, 11),
         UDim2.new(1, -28, 0, 22), 15, light, Enum.Font.GothamBold)
-    local list = mk("Frame", {Name = "ESPSettingsList",
+    local list = mk("ScrollingFrame", {Name = "ESPSettingsList",
         Position = UDim2.fromOffset(17, 45), Size = UDim2.new(1, -34, 1, -53),
-        BackgroundTransparency = 1}, left)
+        BackgroundTransparency = 1, BorderSizePixel = 0,
+        ScrollBarThickness = 2, ScrollBarImageColor3 = border,
+        ScrollingDirection = Enum.ScrollingDirection.Y,
+        AutomaticCanvasSize = Enum.AutomaticSize.Y,
+        CanvasSize = UDim2.fromOffset(0, 0), Active = true}, left)
+    table.insert(scrollFrames, list)
     mk("UIListLayout", {SortOrder = Enum.SortOrder.LayoutOrder,
         Padding = UDim.new(0, 2)}, list)
     local rows = {}

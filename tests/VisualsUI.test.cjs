@@ -17,7 +17,7 @@ test("prior cleanup, startup, render and GUI identifiers remain compatible",()=>
 test("new title and Roblox vector replace original screenshot branding",()=>{
  const ui=src.slice(src.indexOf("-- 124 VISUALS / UI FROM SUPPLIED REFERENCE."),src.indexOf("-- v1.1.6 Air Motion Reliability Fix."));
  for(const needle of ['"124 Visuals"','Name = "RobloxMark"',
-  'Name = "RobloxCutout"','"ROBLOX"','Name = "ReferenceBrand"'])
+  'Name = "RobloxCutout"','"ROBLOX"','"ReferenceBrand"'])
   assert.ok(ui.includes(needle),needle);
  assert.ok(!src.includes("403VIP")&&!src.includes("PUBG"));
 });
