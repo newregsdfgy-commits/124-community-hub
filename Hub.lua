@@ -2651,8 +2651,6 @@ local function applySettings(incoming, autoLoad)
         state.moduleCpuMonitor = false -- Тяжёлая телеметрия включается вручную.
         state.antiAfk = false
         state.antiAim = false
-        state.bunnyHop = false
-        state.spamChat = false
         -- Prevent an old saved profile from activating Booster before a baseline.
         -- The user may still enable it manually after loading the game.
         state.booster = false
@@ -2662,10 +2660,7 @@ local function applySettings(incoming, autoLoad)
             state.esp = false
             state.tracers = false
             state.espBox = false
-            state.espSkeleton = false
             state.controlRecoil = false
-            state.bunnyHop = false
-            state.spamChat = false
             state.fullbright = false
             state.booster = false
             state.cameraFovEnabled = false
@@ -2691,9 +2686,6 @@ local function applySettings(incoming, autoLoad)
     perfCounters.lazy.prepare()
     if not state.performanceGuard then perfCounters.guard.reset() end
     if not state.moduleCpuMonitor then perfCounters.cpu.reset() end
-    utilityFX.bunny.sync()
-    utilityFX.chat.sync()
-    utilityFX.chat.repaintText()
     memoryFX.spin.reset()
     memoryFX.camera.apply()
     aimTarget = nil
@@ -2711,7 +2703,6 @@ local function applySettings(incoming, autoLoad)
     pcall(repaintColors)
     pcall(repaintPerf)
     if boosterPro.repaint then pcall(boosterPro.repaint) end
-    pcall(repaintConfig)
     local synced, syncErr = pcall(syncEspVisuals)
     if not synced then
         warn("[124 Community Visuals] Ошибка визуальной синхронизации профиля: "
@@ -4146,33 +4137,27 @@ end
 addSection(pages.ESP, "VISUALS", "Компактные подписи и тонкие ESP-линии")
 
 addToggle(pages.ESP, "ESP подсветка", "Игроки за объектами до 200 м", "esp", function()
-    refreshESP()
-    refreshTracers()
-    refreshShapes()
+    syncEspVisuals()
 end)
 addToggle(pages.ESP, "Линия над игроками", "От верха экрана к игрокам до 200 м", "tracers", function(enabled)
-    if not enabled then clearTracers() else refreshTracers() end
+    if not enabled then clearTracers() end
     if enabled and not state.esp then tell("Включи ESP, чтобы отображать линии") end
 end)
 addToggle(pages.ESP, "2D Box", "Контур (при включённом ESP)", "espBox", function(enabled)
-    refreshShapes()
+    if not enabled then clearShapes() end
     if enabled and not state.esp then tell("Включи ESP для отображения 2D Box") end
 end)
-addToggle(pages.ESP, "Skeleton ESP", "Кости R6/R15 (при включённом ESP)", "espSkeleton", function(enabled)
-    refreshShapes()
-    if enabled and not state.esp then tell("Включи ESP для Skeleton") end
-end)
 addToggle(pages.ESP, "Только противники", "Не отображать свою команду", "espEnemyOnly", function()
-    refreshESP(); refreshShapes()
+    queueESPRefresh()
 end)
 addSection(pages.ESP, "ESP OPTIONS", "Дальность, стиль и подписи")
 addSlider(pages.ESP, "Дальность ESP", "Радиус от персонажа: до 200 метров", "espRangeMeters", 10, 200, 5,
     function(v) return tostring(v) .. " м" end,
-    function() refreshESP(); refreshShapes() end)
+    function() queueESPRefresh() end)
 addSlider(pages.ESP, "Максимум игроков ESP",
     "Лимит объектов (8–96); при нехватке выбраны ближайшие",
     "espMaxTargets", 8, 96, 8, function(v) return tostring(v) .. " игроков" end,
-    function() refreshESP(); refreshShapes() end)
+    function() queueESPRefresh() end)
 addButton(pages.ESP, "Диагностика ESP",
     "Игроки в радиусе, лимит, неполные модели и время обновления", function()
         local info = perfCounters.espVisual
@@ -4189,12 +4174,12 @@ addButton(pages.ESP, "Диагностика ESP",
             .. " | Возраст скана " .. string.format("%.2f", math.max(0,
                 os.clock() - info.lastScanAt)) .. " сек")
     end)
-addSlider(pages.ESP, "Толщина линий", "Box / Skeleton (1–2 px), Tracer всегда 1 px", "espLineThickness", 1, 2, 1,
-    function(v) return tostring(v) .. " px" end, refreshShapes)
+addSlider(pages.ESP, "Толщина линий", "Box (1–2 px), Tracer всегда 1 px", "espLineThickness", 1, 2, 1,
+    function(v) return tostring(v) .. " px" end)
 repaintColors = addChoice(pages.ESP, "Цвет ESP", {
     {value="TEAM", label="TEAM"}, {value="GOLD", label="GOLD"},
     {value="GREEN", label="GREEN"}, {value="WHITE", label="WHITE"},
-}, "espColorPreset", function() refreshESP(); refreshShapes() end)
+}, "espColorPreset", function() queueESPRefresh() end)
 addToggle(pages.ESP, "Имена", "DisplayName над персонажами", "names")
 addToggle(pages.ESP, "Здоровье", "HP над персонажами", "health")
 addToggle(pages.ESP, "Дистанция", "Расстояние в метрах (≈)", "distance")
@@ -4960,8 +4945,7 @@ local function buildReferenceMenu()
         return {row = row, label = title, update = update}
     end
     local controls = {
-        {"ESP Master", "esp"}, {"Bone ESP", "espSkeleton"},
-        {"Box ESP", "espBox"}, {"Line ESP", "tracers"},
+        {"ESP Master", "esp"}, {"Box ESP", "espBox"}, {"Line ESP", "tracers"},
         {"Health Bar", "health"}, {"Name", "names"}, {"Distance", "distance"},
         {"Weapon", nil}, {"Team ID", nil},
         {"Enemy Count", nil}, {"Game Info", nil},
@@ -4979,8 +4963,8 @@ local function buildReferenceMenu()
                 local ok, err = pcall(function()
                     if key == "esp" then
                         syncEspVisuals()
-                    elseif key == "espBox" or key == "espSkeleton" then
-                        refreshShapes()
+                    elseif key == "espBox" then
+                        if not state.espBox then clearShapes() end
                     elseif key == "tracers" then
                         if state.tracers then refreshTracers()
                         else clearTracers() end
@@ -6002,11 +5986,8 @@ cleanup = function(safeStop)
         state.esp = false
         state.tracers = false
         state.espBox = false
-        state.espSkeleton = false
         state.fullbright = false
         state.antiAfk = false
-        state.bunnyHop = false
-        state.spamChat = false
         state.sessionDiagnostics = false
         state.booster = false
         state.cameraFovEnabled = false
@@ -6031,8 +6012,6 @@ cleanup = function(safeStop)
     aimHeldKey = false
     captureAimKey = false
     state.antiAfk = false
-    state.bunnyHop = false
-    state.spamChat = false
     state.booster = false
     state.fullbright = false
     boosterRevision = boosterRevision + 1
