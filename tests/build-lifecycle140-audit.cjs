@@ -13,7 +13,7 @@ const code=String.raw`
 do
     local alive=true
     local savedGraphics=setmetatable({},{__mode="k"})
-    local boosterPro={restoreFailures=0}
+    local boosterPro={restoreFailures=0, protectedRestoreQueue={},\n        protectedRestoreSeen=setmetatable({},{__mode="k"}),\n        protectedRestoreRunning=false}
     local CONFIG={BoosterLowFpsSliceMs=0.35}
     local jobs,waits,restored,lookups={},0,0,0
     local task={
