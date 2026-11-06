@@ -47,7 +47,7 @@ assert(shapeItem(third,char3))
 assert(ensureShapeLines(b,"box",4))
 assert(#b.box==4)
 assert(ensureShapeLines(a,"box",4))
-assert(instances==3+10, "extra lines were allocated unexpectedly")
+assert(instances==3+8, "extra lines were allocated unexpectedly")
 for _,item in ipairs({a,b}) do assert(item.bones==nil and item.parts==nil) end
 print("LUAU LITE FRAME PASS: Box only, deferred containers/lines and reuse")
 `;

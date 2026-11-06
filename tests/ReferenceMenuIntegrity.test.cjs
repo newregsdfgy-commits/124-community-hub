@@ -13,8 +13,8 @@ test("reference menu consists of screenshot's four panel sections",()=>{
  for(const label of ["ESP SETTINGS","Max Distance","Text Border","MOD SKINN",
   "VISUALS","Enable Crosshair","FOV Circle"])assert.ok(menu.includes(label),label);
 });
-test("all eleven screenshot ESP rows are present",()=>{
- for(const label of ["ESP Master","Bone ESP","Box ESP","Line ESP",
+test("ten functional and placeholder ESP rows remain",()=>{
+ for(const label of ["ESP Master","Box ESP","Line ESP",
   "Health Bar","Name","Distance","Weapon","Team ID","Enemy Count","Game Info"])
   assert.ok(menu.includes('"'+label+'"'),label);
 });

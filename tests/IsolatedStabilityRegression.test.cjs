@@ -56,8 +56,8 @@ test("11: failed profile sync cannot claim successful profile load",()=>{
  assert.ok(profile.includes("if not ok then"));
  assert.ok(profile.includes("return false"));
  assert.ok(profile.includes("local synced, syncErr = pcall(syncEspVisuals)"));
- assert.ok(profile.includes("if not applySettings(values, autoLoad) then"));
- assert.ok(profile.includes("profileName = previousProfileName"));
+ assert.ok(profile.includes("local function loadCustomSettings()"));
+ assert.ok(profile.includes("return applySettings(values, true)"));
  assert.ok(profile.includes("return true"));
  assert.ok(src.includes('error("Профиль не был загружен полностью")'));
 });

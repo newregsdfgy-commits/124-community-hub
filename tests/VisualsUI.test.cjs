@@ -29,7 +29,7 @@ test("desktop uses reference proportions; mobile controls stay reachable",()=>{
  assert.ok(src.includes("page.Position = UDim2.fromOffset(14, 81)"));
  assert.ok(src.includes("search.Visible, safe.Visible"));
  assert.ok(src.includes("close.Position = wide and UDim2.new(1, -218, 0, 22)"));
- assert.ok(src.includes("button.Size = UDim2.new(0.25, -8, 0, 40)"));
+ assert.ok(src.includes("button.Size = UDim2.new(1 / 3, -8, 0, 40)"));
  assert.ok(src.includes("referenceESP.root.Visible = wide"));
  assert.ok(src.includes("espColumns.left.Visible = not wide"));
  assert.ok(src.includes("navigationLayout.FillDirection = Enum.FillDirection.Vertical"));
