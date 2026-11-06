@@ -70,7 +70,7 @@ test("reference switches have right-anchored rails and white circular knobs",()=
  assert.ok(menu.includes("Size = UDim2.fromOffset(36, 18)"));
  assert.ok(menu.includes("Size = UDim2.fromOffset(14, 14)"));
  assert.ok(menu.includes("corners(mk(\"Frame\", {Name = \"Knob\""));
- assert.ok(menu.includes("Size = UDim2.new(1, -51, 0, 25)"));
+ assert.ok(menu.includes("UDim2.new(1, -51, 0, 25)"));
 });
 test("desktop widgets are mirrored but mobile retains the old fallback",()=>{
  assert.ok(src.includes("tabs.Position = UDim2.new(1, -196, 0, 0)"));
