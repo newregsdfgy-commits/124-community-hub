@@ -1,11 +1,11 @@
--- 124 Community Visuals v1.1.33 | isolated restore and profile error hardening
+-- 124 Visuals v1.1.34 | reference-matched four-tab Roblox GUI
 -- PlaceId: 18537079992
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.1.33",
+    Version = "1.1.34",
     PlaceId = 18537079992,
     EspRefreshSeconds = 0.35, -- Быстрый поиск персонажей, без обновления UI каждый кадр.
     EspEventMinSeconds = 0.18, -- Коалесцированные события не запускают 16 полных сканов/сек.
@@ -3100,15 +3100,17 @@ end
 
 local viewport = Workspace.CurrentCamera and Workspace.CurrentCamera.ViewportSize or Vector2.new(390, 720)
 local TweenService = game:GetService("TweenService")
+-- Neutral graphite palette matched to the supplied reference screenshot.
+-- UI-only: gameplay and ESP graphics retain their existing configuration.
 local P = {
-    background = CONFIG.Window,
-    panel = Color3.fromRGB(23, 28, 32),
-    tile = CONFIG.Surface,
-    border = Color3.fromRGB(64, 73, 81),
-    text = Color3.fromRGB(235, 238, 240),
-    dim = CONFIG.Muted,
-    accent = CONFIG.Accent,
-    off = Color3.fromRGB(55, 62, 69),
+    background = Color3.fromRGB(16, 17, 19),
+    panel = Color3.fromRGB(21, 22, 25),
+    tile = Color3.fromRGB(34, 35, 39),
+    border = Color3.fromRGB(47, 48, 53),
+    text = Color3.fromRGB(242, 243, 245),
+    dim = Color3.fromRGB(163, 165, 171),
+    accent = Color3.fromRGB(225, 226, 230),
+    off = Color3.fromRGB(74, 75, 80),
 }
 -- На телефоне даже альбомный экран остаётся одноколоночным: элементы
 -- управления не должны уменьшаться до нечитабельного размера.
@@ -3118,10 +3120,10 @@ local function windowMetrics(view)
     local wide = (not mobile) and view.X >= 770
     local landscape = view.X > view.Y
     local availableWidth = math.max(160, view.X - (mobile and 22 or 32))
-    local preferredWidth = wide and 960 or (mobile and landscape and 520 or 410)
+    local preferredWidth = wide and 950 or (mobile and landscape and 520 or 410)
     local width = math.min(availableWidth, preferredWidth)
     local availableHeight = math.max(120, view.Y - (mobile and 22 or 38))
-    local height = math.min(wide and 624 or 610, availableHeight)
+    local height = math.min(wide and 520 or 610, availableHeight)
     return width, height, wide
 end
 local winWidth, winHeight = windowMetrics(viewport)
@@ -3134,8 +3136,8 @@ local panel = mk("Frame", {
     BorderSizePixel = 0,
     Active = true, ClipsDescendants = true,
 }, gui)
-round(panel, 4)
-mk("UIStroke", {Color = P.border, Transparency = 0.08, Thickness = 1}, panel)
+round(panel, 14)
+mk("UIStroke", {Color = P.border, Transparency = 0.04, Thickness = 1}, panel)
 local panelScale = mk("UIScale", {Scale = 1}, panel)
 -- AnchorPoint-aware экранный clamp: возвращает панель / плавающую кнопку в кадр.
 -- GUI работает с IgnoreGuiInset=true, поэтому размеры берём из ViewportSize.
@@ -3170,16 +3172,16 @@ local function hidePanelAnimation()
 end
 -- The accent mark is inexpensive; no animated gradients, glow or overlays.
 mk("Frame", {
-    Name = "TopAccent", BorderSizePixel = 0,
+    Name = "TopAccent", Visible = false, BorderSizePixel = 0,
     BackgroundColor3 = P.accent,
     Position = UDim2.fromOffset(14, 0), Size = UDim2.fromOffset(83, 2),
 }, panel)
 local bar = mk("Frame", {
     Name = "DragBar", BackgroundTransparency = 1,
-    Size = UDim2.new(1, 0, 0, 74), Active = true,
+    Size = UDim2.new(1, 0, 0, 76), Active = true,
 }, panel)
 local emblem = mk("Frame", {
-    Name = "BrandMark", BackgroundColor3 = P.tile,
+    Name = "BrandMark", Visible = false, BackgroundColor3 = P.tile,
     BorderSizePixel = 0, Position = UDim2.fromOffset(16, 17),
     Size = UDim2.fromOffset(37, 37),
 }, bar)
@@ -3192,15 +3194,15 @@ mk("TextLabel", {
 }, emblem)
 mk("TextLabel", {
     Name = "BrandTitle", BackgroundTransparency = 1,
-    Position = UDim2.fromOffset(66, 16), Size = UDim2.new(1, -183, 0, 21),
-    Text = "124 / COMMUNITY", TextColor3 = P.text, TextSize = 14,
+    Position = UDim2.fromOffset(19, 14), Size = UDim2.new(1, -183, 0, 21),
+    Text = "124 Visuals", TextColor3 = P.text, TextSize = 19,
     Font = Enum.Font.GothamBold, TextXAlignment = Enum.TextXAlignment.Left,
     TextTruncate = Enum.TextTruncate.AtEnd,
 }, bar)
 mk("TextLabel", {
     Name = "BrandCaption", BackgroundTransparency = 1,
-    Position = UDim2.fromOffset(66, 38), Size = UDim2.new(1, -183, 0, 16),
-    Text = "OPERATOR  /  v" .. CONFIG.Version,
+    Position = UDim2.fromOffset(21, 39), Size = UDim2.new(1, -183, 0, 16),
+    Text = "v" .. CONFIG.Version,
     TextColor3 = P.dim, Font = Enum.Font.Code,
     TextSize = 10, TextXAlignment = Enum.TextXAlignment.Left,
     TextTruncate = Enum.TextTruncate.AtEnd,
@@ -3237,12 +3239,12 @@ local close = mk("TextButton", {
 round(close, 6)
 mk("Frame", {
     Name = "HeaderDivider", BorderSizePixel = 0, BackgroundColor3 = P.border,
-    Position = UDim2.fromOffset(15, 73), Size = UDim2.new(1, -30, 0, 1),
+    Position = UDim2.fromOffset(0, 75), Size = UDim2.new(1, 0, 0, 1),
 }, panel)
 
 -- Sidebar on desktop; bottom navigation stays accessible on small screens.
 local tabs = mk("Frame", {
-    Name = "VisualsNavigation", BackgroundColor3 = P.panel, BorderSizePixel = 0,
+    Name = "VisualsNavigation", BackgroundColor3 = P.background, BorderSizePixel = 0,
     Position = UDim2.new(0, 0, 1, -57), Size = UDim2.new(1, 0, 0, 57),
 }, panel)
 round(tabs, 3)
@@ -3268,7 +3270,8 @@ local navigationLayout = mk("UIListLayout", {
     Padding = UDim.new(0, 4),
 }, navSlots)
 local tabButtons, tabUnderline, tabOutlines, pages, pageColumns = {}, {}, {}, {}, {}
-local currentPage = "HOME"
+local referenceESP = nil
+local currentPage = "ESP"
 -- Защита от ложных нажатий: палец сдвигает страницу, а не переключатель.
 local scrollFrames = {}
 local touchGestures = setmetatable({}, {__mode = "k"})
@@ -3328,12 +3331,13 @@ local function safeActivate(control, callback)
         if not ok then tell("Ошибка UI: " .. tostring(err)) end
     end)
 end
+-- HOME remains accessible from the top Active pill; four visible sidebar tabs.
 local navigation = {
-    {key = "HOME", label = "Обзор", symbol = "01"},
-    {key = "ESP", label = "ESP", symbol = "02"},
-    {key = "AIM", label = "AIM", symbol = "03"},
-    {key = "MISC", label = "Производительность", symbol = "04"},
-    {key = "CFG", label = "Настройки", symbol = "05"},
+    {key = "HOME", label = "Overview", symbol = "⌂", hidden = true},
+    {key = "ESP", label = "ESP", symbol = "◎"},
+    {key = "AIM", label = "Aim", symbol = "⌁"},
+    {key = "MISC", label = "Memory", symbol = "▦"},
+    {key = "CFG", label = "Settings", symbol = "⚙"},
 }
 local function makeColumn(parent, name)
     local scroll = mk("ScrollingFrame", {
@@ -3370,8 +3374,9 @@ for idx, tab in ipairs(navigation) do
         Name = key .. "Tab", LayoutOrder = idx,
         BackgroundColor3 = P.panel,
         BorderSizePixel = 0,
-        Size = UDim2.new(0.2, -9, 0, 40),
+        Size = UDim2.new(0.25, -8, 0, 40),
         Text = tab.symbol .. "  " .. tab.label,
+        Visible = not tab.hidden,
         Font = Enum.Font.GothamMedium, TextSize = 11,
         TextXAlignment = Enum.TextXAlignment.Center,
         TextColor3 = P.dim, AutoButtonColor = false,
@@ -3699,13 +3704,13 @@ local function applyResponsiveLayout()
             boosterPro.floatingButton.Size, boosterPro.floatingButton.AnchorPoint)
     end
     wideLayout = wide
-    pageHeader.Visible, pageSubHeader.Visible = wide, wide
+    pageHeader.Visible, pageSubHeader.Visible = false, false
     if wide then
-        -- Desktop: screenshot-inspired left sidebar; real contents on the right.
+        -- Desktop proportions of the reference: title, four icon tabs, Roblox logo.
         tabs.Position = UDim2.fromOffset(0, 0)
-        tabs.Size = UDim2.new(0, 188, 1, 0)
-        navSlots.Position = UDim2.fromOffset(0, 87)
-        navSlots.Size = UDim2.new(1, 0, 1, -150)
+        tabs.Size = UDim2.new(0, 196, 1, 0)
+        navSlots.Position = UDim2.fromOffset(0, 93)
+        navSlots.Size = UDim2.new(1, 0, 1, -190)
         navigationLayout.FillDirection = Enum.FillDirection.Vertical
         navigationLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
         navigationLayout.VerticalAlignment = Enum.VerticalAlignment.Top
@@ -3724,14 +3729,14 @@ local function applyResponsiveLayout()
     for _, nav in ipairs(navigation) do
         local button = tabButtons[nav.key]
         if wide then
-            button.Size = UDim2.new(1, -18, 0, 44)
+            button.Size = UDim2.new(1, -16, 0, 54)
             button.Text = "   " .. nav.symbol .. "    " .. nav.label
-            button.TextSize = 12
+            button.TextSize = 14
             button.TextXAlignment = Enum.TextXAlignment.Left
             tabUnderline[nav.key].Position = UDim2.fromOffset(0, 4)
             tabUnderline[nav.key].Size = UDim2.new(0, 3, 1, -8)
         else
-            button.Size = UDim2.new(0.2, -9, 0, 40)
+            button.Size = UDim2.new(0.25, -8, 0, 40)
             local short = nav.key == "MISC" and "PERF" or nav.key
             button.Text = short
             button.TextSize = width < 355 and 9 or 10
@@ -3742,10 +3747,10 @@ local function applyResponsiveLayout()
     end
     for _, page in pairs(pages) do
         if wide then
-            page.Position = UDim2.fromOffset(198, 82)
-            page.Size = UDim2.new(1, -211, 1, -99)
+            page.Position = UDim2.fromOffset(210, 81)
+            page.Size = UDim2.new(1, -224, 1, -95)
         else
-            page.Position = UDim2.fromOffset(12, 82)
+            page.Position = UDim2.fromOffset(12, 81)
             page.Size = UDim2.new(1, -24, 1, -155)
         end
         local info = pageColumns[page]
@@ -3766,6 +3771,15 @@ local function applyResponsiveLayout()
                 if item.object.Parent ~= desired then item.object.Parent = desired end
             end
         end
+    end
+    if referenceESP then
+        referenceESP.root.Visible = wide
+        local espColumns = pageColumns[pages.ESP]
+        if espColumns then
+            espColumns.left.Visible = not wide
+            espColumns.right.Visible = false
+        end
+        referenceESP.layout(wide)
     end
     if boosterPro.dashboard then boosterPro.dashboard.layout(wide) end
     local brandTitle = bar:FindFirstChild("BrandTitle")
@@ -3810,7 +3824,7 @@ for name, button in pairs(tabButtons) do
 end
 boosterPro.dashboard.openSettings = function() showPage("MISC") end
 applyResponsiveLayout()
-showPage("HOME")
+showPage("ESP")
 local currentLayoutCamera = nil
 local cameraLayoutConnection = nil
 local layoutPending = false
@@ -6357,6 +6371,7 @@ task.spawn(function()
         if not state.booster then boosterPro.retryPendingGraphics() end
         stats.Visible = state.hud
         if boosterPro.dashboard then boosterPro.dashboard.update() end
+        if referenceESP and referenceESP.tick then referenceESP.tick() end
         if boosterPro.label and boosterPro.label.Parent then
             boosterPro.label.Text = boosterPro.readout()
         end
