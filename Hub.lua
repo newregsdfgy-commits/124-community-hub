@@ -647,6 +647,8 @@ local function deleteRender(player)
     renderData[player] = nil
 end
 
+-- The Text Border control in the reference menu affects actual ESP labels.
+local referenceStrokeEnabled = true
 local cachedGreen = Color3.fromRGB(93, 210, 152)
 local cachedWhite = Color3.fromRGB(229, 229, 223)
 local function getPlayerColor(player)
@@ -827,6 +829,10 @@ local function updatePlayer(player, myRoot)
     if not item then item = createRender(player, character, head) end
     -- Кешируем части, которые рендерятся чаще, чем обновляется список игроков.
     item.head, item.root, item.humanoid = head, root, hum
+    local strokeAlpha = referenceStrokeEnabled and 0.55 or 1
+    setIfDifferent(item.nameLabel, "TextStrokeTransparency", strokeAlpha)
+    setIfDifferent(item.healthLabel, "TextStrokeTransparency", strokeAlpha)
+    setIfDifferent(item.distanceLabel, "TextStrokeTransparency", strokeAlpha)
     setIfDifferent(item.billboard, "Adornee", head) -- Upgrade torso → Head after streaming.
     -- Повторно активируем готовые Highlights вместо Destroy/Instance.new.
     item.inactiveSince = nil
@@ -5343,6 +5349,348 @@ do
         veil.Visible = false
     end)
 end
+
+-- 124 VISUALS / UI FROM SUPPLIED REFERENCE. All controls go through
+-- existing state, refresh, and save handlers; no changes to ESP targeting.
+local function buildReferenceMenu()
+    local bg = P.background
+    local surface = Color3.fromRGB(29, 30, 33)
+    local raised = Color3.fromRGB(36, 37, 41)
+    local border = Color3.fromRGB(46, 47, 52)
+    local light = Color3.fromRGB(240, 241, 244)
+    local muted = Color3.fromRGB(164, 165, 171)
+    local function corners(obj, radius)
+        mk("UICorner", {CornerRadius = UDim.new(0, radius)}, obj)
+        return obj
+    end
+    local function textLabel(parent, name, caption, position, size, fontSize, color, font)
+        return mk("TextLabel", {Name = name, BackgroundTransparency = 1,
+            Position = position, Size = size, Text = caption, TextSize = fontSize,
+            TextColor3 = color or light, Font = font or Enum.Font.GothamMedium,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            TextTruncate = Enum.TextTruncate.AtEnd}, parent)
+    end
+    -- Screenshot's upper-left brand, with v1.0 underneath.
+    local brand = textLabel(tabs, "ReferenceBrand", "124 Visuals",
+        UDim2.fromOffset(26, 18), UDim2.fromOffset(166, 35), 24, light,
+        Enum.Font.GothamBlack)
+    local version = textLabel(tabs, "ReferenceVersion", "v1.0",
+        UDim2.fromOffset(96, 50), UDim2.fromOffset(78, 17), 10, muted,
+        Enum.Font.Gotham)
+    -- Vector Roblox mark: tilted square with the distinctive square cutout.
+    -- No remote image and no fragile undocumented Roblox asset ID.
+    local robloxMark = corners(mk("Frame", {
+        Name = "RobloxMark", Position = UDim2.new(0.5, -20, 1, -95),
+        Size = UDim2.fromOffset(40, 40), Rotation = 25, BorderSizePixel = 0,
+        BackgroundColor3 = Color3.fromRGB(111, 113, 119),
+    }, tabs), 2)
+    mk("Frame", {Name = "RobloxCutout", Position = UDim2.fromOffset(13, 13),
+        Size = UDim2.fromOffset(14, 14), BorderSizePixel = 0,
+        BackgroundColor3 = bg}, robloxMark)
+    local robloxName = textLabel(tabs, "RobloxCaption", "ROBLOX",
+        UDim2.new(0.5, -36, 1, -44), UDim2.fromOffset(80, 20), 11, muted,
+        Enum.Font.GothamBold)
+
+    -- Topbar: search / local status / session uptime / dashboard.
+    local search = corners(mk("TextBox", {Name = "ReferenceSearch",
+        Position = UDim2.fromOffset(212, 14), Size = UDim2.new(1, -585, 0, 45),
+        BackgroundColor3 = Color3.fromRGB(26, 27, 30),
+        BorderSizePixel = 0, ClearTextOnFocus = false, Text = "",
+        PlaceholderText = "⌕   Search functions...",
+        PlaceholderColor3 = Color3.fromRGB(124, 126, 131),
+        Font = Enum.Font.Gotham, TextColor3 = light, TextSize = 13,
+        TextXAlignment = Enum.TextXAlignment.Left}, bar), 12)
+    mk("UIStroke", {Color = border, Transparency = 0.35, Thickness = 1}, search)
+    mk("UIPadding", {PaddingLeft = UDim.new(0, 15),
+        PaddingRight = UDim.new(0, 9)}, search)
+    local safe = corners(mk("TextLabel", {Name = "ReferenceSafe",
+        AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -280, 0, 17),
+        Size = UDim2.fromOffset(75, 40), Text = "●  Safe",
+        BackgroundColor3 = Color3.fromRGB(23, 24, 27),
+        TextColor3 = Color3.fromRGB(115, 225, 135), TextSize = 13,
+        Font = Enum.Font.GothamMedium, BorderSizePixel = 0}, bar), 10)
+    mk("UIStroke", {Color = border, Transparency = 0.5}, safe)
+    local clock = corners(mk("TextLabel", {Name = "ReferenceTimer",
+        AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -155, 0, 17),
+        Size = UDim2.fromOffset(112, 40), Text = "◷  00:00:00",
+        BackgroundColor3 = Color3.fromRGB(23, 24, 27),
+        TextColor3 = light, TextSize = 12, Font = Enum.Font.Code,
+        BorderSizePixel = 0}, bar), 10)
+    mk("UIStroke", {Color = border, Transparency = 0.5}, clock)
+    local active = corners(mk("TextButton", {Name = "ReferenceActive",
+        AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -37, 0, 17),
+        Size = UDim2.fromOffset(95, 40), Text = "Active",
+        BackgroundColor3 = Color3.fromRGB(23, 24, 27),
+        TextColor3 = Color3.fromRGB(124, 220, 133), TextSize = 13,
+        Font = Enum.Font.GothamMedium, AutoButtonColor = false,
+        BorderSizePixel = 0}, bar), 10)
+    mk("UIStroke", {Color = border, Transparency = 0.5}, active)
+    safeActivate(active, function() showPage("HOME") end)
+    -- Existing close/minimize actions remain wired, now less intrusive.
+    hide.Text, hide.BackgroundTransparency = "‹", 1
+    hide.TextColor3, hide.TextSize = muted, 22
+    close.BackgroundTransparency, close.TextColor3 = 1, muted
+    close.Position, close.Size = UDim2.new(1, -23, 0, 22), UDim2.fromOffset(17, 26)
+
+    local root = mk("Frame", {Name = "ScreenshotESP", BackgroundTransparency = 1,
+        Size = UDim2.fromScale(1, 1), BorderSizePixel = 0, Visible = wideLayout}, pages.ESP)
+    local left = corners(mk("Frame", {Name = "ESPSettingsCard",
+        Position = UDim2.fromScale(0, 0), Size = UDim2.new(0.452, -4, 1, 0),
+        BackgroundColor3 = surface, BorderSizePixel = 0}, root), 12)
+    local right = mk("Frame", {Name = "ReferenceRightColumn",
+        Position = UDim2.new(0.452, 4, 0, 0),
+        Size = UDim2.new(0.548, -4, 1, 0), BackgroundTransparency = 1}, root)
+    mk("UIStroke", {Color = border, Transparency = 0.2}, left)
+    textLabel(left, "ESPHeader", "◎   ESP SETTINGS", UDim2.fromOffset(18, 11),
+        UDim2.new(1, -28, 0, 22), 15, light, Enum.Font.GothamBold)
+    local list = mk("Frame", {Name = "ESPSettingsList",
+        Position = UDim2.fromOffset(17, 45), Size = UDim2.new(1, -34, 1, -53),
+        BackgroundTransparency = 1}, left)
+    mk("UIListLayout", {SortOrder = Enum.SortOrder.LayoutOrder,
+        Padding = UDim.new(0, 2)}, list)
+    local rows = {}
+    local toggleColorOn = Color3.fromRGB(199, 201, 205)
+    local toggleColorOff = Color3.fromRGB(75, 76, 81)
+    local function paintSwitch(track, knob, enabled, available)
+        track.BackgroundColor3 = enabled and toggleColorOn or toggleColorOff
+        knob.Position = UDim2.fromOffset(enabled and 21 or 3, 2)
+        knob.BackgroundColor3 = available and light or Color3.fromRGB(165, 166, 171)
+    end
+    local function miniSwitch(parent, name, title, position, stateReader, action)
+        local row = mk("TextButton", {Name = name, Text = "", AutoButtonColor = false,
+            Position = position, Size = UDim2.new(1, 0, 0, 28),
+            BackgroundTransparency = 1}, parent)
+        local caption = textLabel(row, "Title", title, UDim2.fromOffset(0, 1),
+            UDim2.new(1, -51, 0, 25), 13, light, Enum.Font.Gotham)
+        local pill = corners(mk("Frame", {Name = "Switch",
+            Position = UDim2.new(1, -40, 0.5, -9), Size = UDim2.fromOffset(36, 18),
+            BackgroundColor3 = toggleColorOff, BorderSizePixel = 0}, row), 10)
+        local knob = corners(mk("Frame", {Name = "Knob",
+            Position = UDim2.fromOffset(3, 2), Size = UDim2.fromOffset(14, 14),
+            BackgroundColor3 = light, BorderSizePixel = 0}, pill), 8)
+        local function update()
+            paintSwitch(pill, knob, stateReader(), action ~= nil)
+            caption.TextColor3 = action and light or muted
+        end
+        safeActivate(row, function()
+            if not action then
+                tell(title .. ": модуль отсутствует в этой версии")
+                return
+            end
+            action()
+            update()
+        end)
+        update()
+        return {row = row, label = title, update = update}
+    end
+    local controls = {
+        {"ESP Master", "esp"}, {"Bone ESP", "espSkeleton"},
+        {"Box ESP", "espBox"}, {"Line ESP", "tracers"},
+        {"Health Bar", "health"}, {"Name", "names"}, {"Distance", "distance"},
+        {"Weapon", nil}, {"Team ID", nil},
+        {"Enemy Count", nil}, {"Game Info", nil},
+    }
+    for index, spec in ipairs(controls) do
+        local key = spec[2]
+        local item = miniSwitch(list, "ReferenceESP_" .. index, spec[1],
+            UDim2.fromOffset(0, 0),
+            function() return key ~= nil and state[key] == true end,
+            key and function()
+                state[key] = not state[key]
+                if key == "esp" then
+                    pcall(syncEspVisuals)
+                elseif key == "espBox" or key == "espSkeleton" then
+                    pcall(refreshShapes)
+                elseif key == "tracers" then
+                    if state.tracers then pcall(refreshTracers)
+                    else pcall(clearTracers) end
+                else
+                    pcall(refreshESP)
+                end
+                local old = refreshToggles[key]
+                if old then pcall(old) end
+                requestSave()
+            end or nil)
+        item.row.LayoutOrder = index
+        rows[#rows + 1] = item
+        if key then
+            local previous = refreshToggles[key]
+            refreshToggles[key] = function()
+                if previous then pcall(previous) end
+                item.update()
+            end
+        end
+    end
+
+    local function card(name, y, h)
+        local frame = corners(mk("Frame", {Name = name,
+            Position = UDim2.new(0, 0, y, 0),
+            Size = UDim2.new(1, 0, h, -6),
+            BackgroundColor3 = surface, BorderSizePixel = 0}, right), 12)
+        mk("UIStroke", {Color = border, Transparency = 0.2}, frame)
+        return frame
+    end
+    local top = card("DistanceAndBorder", 0, 0.38)
+    local skins = card("ModSkinn", 0.38, 0.31)
+    local visual = card("VisualControls", 0.69, 0.31)
+    skins.Position = UDim2.new(0, 0, 0.38, 4)
+    visual.Position = UDim2.new(0, 0, 0.69, 8)
+    visual.Size = UDim2.new(1, 0, 0.31, -8)
+    local pointer = nil
+    local function makeSlider(parent, label, key, lo, hi, step, formatter, y, onChanged)
+        textLabel(parent, key .. "Title", label, UDim2.fromOffset(15, y),
+            UDim2.new(1, -120, 0, 20), 13, light, Enum.Font.Gotham)
+        local value = corners(mk("TextLabel", {Name = key .. "Value",
+            Position = UDim2.new(1, -82, 0, y - 1), Size = UDim2.fromOffset(68, 24),
+            BackgroundColor3 = raised, BorderSizePixel = 0, TextColor3 = light,
+            Font = Enum.Font.GothamMedium, TextSize = 11}, parent), 9)
+        local area = mk("TextButton", {Name = key .. "Area", Text = "",
+            AutoButtonColor = false, BackgroundTransparency = 1,
+            Position = UDim2.new(0, 14, 0, y + 25), Size = UDim2.new(1, -32, 0, 24)}, parent)
+        local track = corners(mk("Frame", {Name = "SliderTrack",
+            Position = UDim2.new(0, 4, 0.5, -2), Size = UDim2.new(1, -8, 0, 4),
+            BackgroundColor3 = Color3.fromRGB(15, 16, 18), BorderSizePixel = 0}, area), 3)
+        local fill = corners(mk("Frame", {Name = "SliderFill",
+            Size = UDim2.fromScale(0, 1), BackgroundColor3 = Color3.fromRGB(174, 175, 180),
+            BorderSizePixel = 0}, track), 3)
+        local thumb = corners(mk("Frame", {Name = "SliderThumb",
+            AnchorPoint = Vector2.new(0.5, 0.5),
+            Size = UDim2.fromOffset(16, 16), Position = UDim2.fromScale(0, 0.5),
+            BackgroundColor3 = light, BorderSizePixel = 0}, track), 9)
+        local function update()
+            local fraction = math.clamp((state[key] - lo) / (hi - lo), 0, 1)
+            fill.Size = UDim2.fromScale(fraction, 1)
+            thumb.Position = UDim2.fromScale(fraction, 0.5)
+            value.Text = formatter(state[key])
+        end
+        local old = refreshSliders[key]
+        refreshSliders[key] = function()
+            if old then pcall(old) end
+            update()
+        end
+        local function setFromX(x)
+            if not alive or not track.Parent then return end
+            local fraction = math.clamp((x - track.AbsolutePosition.X)
+                / math.max(track.AbsoluteSize.X, 1), 0, 1)
+            local raw = lo + fraction * (hi - lo)
+            local nextValue = math.clamp(lo + math.floor((raw - lo) / step + 0.5) * step, lo, hi)
+            if state[key] ~= nextValue then
+                state[key] = nextValue
+                if onChanged then pcall(onChanged) end
+                requestSave()
+            end
+            update()
+        end
+        connect(area.InputBegan, function(input)
+            local kind = input.UserInputType
+            if kind == Enum.UserInputType.Touch or kind == Enum.UserInputType.MouseButton1 then
+                pointer = {input = input, set = setFromX, touch = kind == Enum.UserInputType.Touch}
+                setFromX(input.Position.X)
+            end
+        end)
+        update()
+    end
+    connect(UserInputService.InputChanged, function(input)
+        local drag = pointer
+        if not drag then return end
+        if (drag.touch and input == drag.input)
+            or (not drag.touch and input.UserInputType == Enum.UserInputType.MouseMovement) then
+            drag.set(input.Position.X)
+        end
+    end)
+    connect(UserInputService.InputEnded, function(input)
+        local drag = pointer
+        if drag and (input == drag.input or (not drag.touch
+            and input.UserInputType == Enum.UserInputType.MouseButton1)) then
+            pointer = nil
+        end
+    end)
+    -- Original ESP limit is 200 m; don't silently change the game logic to 350.
+    makeSlider(top, "Max Distance", "espRangeMeters", 10, 200, 5,
+        function(value) return tostring(value) .. "m" end, 17,
+        function() refreshESP(); refreshShapes() end)
+    mk("Frame", {Name = "ReferenceDivider", Position = UDim2.fromOffset(15, 86),
+        Size = UDim2.new(1, -30, 0, 1), BackgroundColor3 = border,
+        BorderSizePixel = 0}, top)
+    local borderSwitch = miniSwitch(top, "TextBorder", "Text Border",
+        UDim2.new(0, 15, 0, 102), function() return referenceStrokeEnabled end,
+        function()
+            referenceStrokeEnabled = not referenceStrokeEnabled
+            pcall(refreshESP)
+        end)
+    borderSwitch.row.Size = UDim2.new(1, -30, 0, 28)
+    textLabel(skins, "SkinsHeader", "◇   MOD SKINN", UDim2.fromOffset(16, 10),
+        UDim2.new(1, -28, 0, 22), 15, light, Enum.Font.GothamBold)
+    local skinOptions = {"XSuit", "Bag", "Helmet"}
+    for i, caption in ipairs(skinOptions) do
+        local entry = miniSwitch(skins, "Unsupported_" .. caption, caption,
+            UDim2.fromOffset(16, 35 + (i - 1) * 29), function() return false end, nil)
+        entry.row.Size = UDim2.new(1, -32, 0, 28)
+    end
+    textLabel(visual, "VisualHeader", "◉   VISUALS", UDim2.fromOffset(16, 10),
+        UDim2.new(1, -28, 0, 22), 15, light, Enum.Font.GothamBold)
+    local crosshair = mk("Frame", {Name = "124VisualsCrosshair",
+        AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+        Size = UDim2.fromOffset(26, 26), BackgroundTransparency = 1,
+        Visible = false, ZIndex = 200}, gui)
+    for _, rect in ipairs({
+        {12, 0, 2, 9}, {12, 17, 2, 9}, {0, 12, 9, 2}, {17, 12, 9, 2},
+    }) do
+        mk("Frame", {Position = UDim2.fromOffset(rect[1], rect[2]),
+            Size = UDim2.fromOffset(rect[3], rect[4]), BorderSizePixel = 0,
+            BackgroundColor3 = light, ZIndex = 200}, crosshair)
+    end
+    local crosshairEnabled = false
+    local cross = miniSwitch(visual, "EnableCrosshair", "Enable Crosshair",
+        UDim2.fromOffset(15, 36), function() return crosshairEnabled end,
+        function()
+            crosshairEnabled = not crosshairEnabled
+            crosshair.Visible = crosshairEnabled
+        end)
+    cross.row.Size = UDim2.new(1, -30, 0, 26)
+    makeSlider(visual, "FOV Circle", "aimFovPixels", CONFIG.AimFovMinPixels,
+        CONFIG.AimFovMaxPixels, 5, function(value) return tostring(value) .. "px" end,
+        72, refreshFovRing)
+
+    connect(search:GetPropertyChangedSignal("Text"), function()
+        if not alive then return end
+        local query = string.lower(search.Text)
+        for _, item in ipairs(rows) do
+            item.row.Visible = query == "" or string.find(string.lower(item.label),
+                query, 1, true) ~= nil
+        end
+        if query ~= "" then showPage("ESP") end
+    end)
+    local started = os.clock()
+    local function tick()
+        local elapsed = math.max(0, math.floor(os.clock() - started))
+        clock.Text = string.format("◷  %02d:%02d:%02d",
+            math.floor(elapsed / 3600), math.floor(elapsed / 60) % 60, elapsed % 60)
+    end
+    local function layout(wide)
+        brand.Visible, version.Visible = wide, wide
+        robloxMark.Visible, robloxName.Visible = wide, wide
+        search.Visible, safe.Visible, clock.Visible, active.Visible = wide, wide, wide, wide
+        local title = bar:FindFirstChild("BrandTitle")
+        local caption = bar:FindFirstChild("BrandCaption")
+        if title then title.Visible = not wide end
+        if caption then caption.Visible = not wide end
+        hide.Parent = wide and tabs or bar
+        hide.Position = wide and UDim2.new(0, 3, 0.5, -15)
+            or UDim2.new(1, -77, 0, 21)
+        hide.Size = wide and UDim2.fromOffset(22, 32) or UDim2.fromOffset(28, 28)
+        close.Position = wide and UDim2.new(1, -23, 0, 22)
+            or UDim2.new(1, -42, 0, 21)
+        close.Size = wide and UDim2.fromOffset(17, 26)
+            or UDim2.fromOffset(27, 28)
+    end
+    tick()
+    return {root = root, layout = layout, tick = tick}
+end
+referenceESP = buildReferenceMenu()
+applyResponsiveLayout()
+showPage("ESP")
+
 -- v1.1.6 Air Motion Reliability Fix. Пассивная эвристика: не утверждает, что пользователь
 -- читер или модератор, не просматривает роли и не вмешивается в сетевые вызовы.
 -- Короткие прыжки, падения, телепорты, транспорт и касание платформ отбрасываются.

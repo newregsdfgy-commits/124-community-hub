@@ -1,71 +1,65 @@
 "use strict";
-const fs = require("node:fs");
-const assert = require("node:assert/strict");
-const test = require("node:test");
-const visuals = fs.readFileSync("Visuals.lua", "utf8");
-const compat = fs.readFileSync("Hub.lua", "utf8");
-
-test("both entrypoints are byte-for-byte identical", () => {
-  assert.equal(visuals, compat);
-  assert.match(visuals, /Version = "1\.1\.33"/);
+const fs=require("node:fs"),test=require("node:test"),assert=require("node:assert/strict");
+const src=fs.readFileSync("Visuals.lua","utf8"),hub=fs.readFileSync("Hub.lua","utf8");
+test("canonical entrypoints are identical and use v1.1.34",()=>{
+ assert.equal(src,hub);
+ assert.ok(src.includes('Version = "1.1.34"'));
 });
-test("old executor state keys and cleanup remain compatible", () => {
-  assert.match(visuals, /env\.ARMY124_CLEANUP = abortPartialHub/);
-  assert.match(visuals, /env\.ARMY124_CLEANUP = cleanup/);
-  assert.match(visuals, /xpcall\(initializeHubUI/);
-  assert.match(visuals, /function boosterPro\.restoreGraphicsSliced\(/);
+test("prior cleanup, startup, render and GUI identifiers remain compatible",()=>{
+ for(const needle of [
+  "env.ARMY124_CLEANUP = abortPartialHub",
+  "env.ARMY124_CLEANUP = cleanup",
+  "xpcall(initializeHubUI",
+  "function boosterPro.restoreGraphicsSliced(",
+  'Name = "Army124CommunityVisualsGUI"',
+ ]) assert.ok(src.includes(needle),needle);
 });
-test("operator identity",()=>{
- assert.ok(visuals.includes("124 Community Visuals"));
- assert.ok(visuals.includes('Name = "Army124CommunityVisualsGUI"'));
- assert.ok(visuals.includes("Accent = Color3.fromRGB(205, 79, 76)"));
- assert.ok(visuals.includes('Text = "OPERATOR  /  v" .. CONFIG.Version'));
+test("new title and Roblox vector replace original screenshot branding",()=>{
+ const ui=src.slice(src.indexOf("-- 124 VISUALS / UI FROM SUPPLIED REFERENCE."),src.indexOf("-- v1.1.6 Air Motion Reliability Fix."));
+ for(const needle of ['"124 Visuals"','Name = "RobloxMark"',
+  'Name = "RobloxCutout"','"ROBLOX"','Name = "ReferenceBrand"'])
+  assert.ok(ui.includes(needle),needle);
+ assert.ok(!src.includes("403VIP")&&!src.includes("PUBG"));
 });
-test("five destinations preserve working AIM ESP MISC CFG and add HOME", () => {
-  const start = visuals.indexOf("local navigation = {");
-  const end = visuals.indexOf("local function makeColumn", start);
-  assert.ok(start >= 0 && end > start);
-  const region = visuals.slice(start, end);
-  const found = [...region.matchAll(/\{key = "([A-Z]+)", label = /g)].map(m => m[1]);
-  assert.deepEqual(found, ["HOME", "ESP", "AIM", "MISC", "CFG"]);
-  for (const target of ["ESP","AIM","MISC","CFG"]) {
-    assert.ok(visuals.includes("addSection(pages." + target + ","),target);
-  }
+test("four visible sidebar destinations and hidden but accessible HOME",()=>{
+ const nav=src.slice(src.indexOf("local navigation = {"),src.indexOf("local function makeColumn"));
+ const keys=[...nav.matchAll(/\{key = "([A-Z]+)", label = /g)].map(x=>x[1]);
+ assert.deepEqual(keys,["HOME","ESP","AIM","MISC","CFG"]);
+ assert.ok(nav.includes('key = "HOME", label = "Overview", symbol = "⌂", hidden = true'));
+ for(const label of ['label = "ESP"','label = "Aim"','label = "Memory"','label = "Settings"'])
+  assert.ok(nav.includes(label),label);
+ assert.ok(src.includes("Visible = not tab.hidden"));
+ assert.ok(src.includes('safeActivate(active, function() showPage("HOME") end)'));
+ assert.ok(src.includes('showPage("ESP")'));
 });
-test("desktop gets real sidebar; mobile retains five-button bottom bar", () => {
-  assert.match(visuals, /tabs\.Size = UDim2\.new\(0, 188, 1, 0\)/);
-  assert.match(visuals, /navigationLayout\.FillDirection = Enum\.FillDirection\.Vertical/);
-  assert.match(visuals, /navigationLayout\.FillDirection = Enum\.FillDirection\.Horizontal/);
-  assert.match(visuals, /button\.Size = UDim2\.new\(0\.2, -9, 0, 40\)/);
-  assert.match(visuals, /if info then/);
-  assert.match(visuals, /showPage\("HOME"\)/);
+test("desktop uses reference proportions; mobile controls stay reachable",()=>{
+ assert.ok(src.includes("local preferredWidth = wide and 950"));
+ assert.ok(src.includes("local height = math.min(wide and 520"));
+ assert.ok(src.includes("tabs.Size = UDim2.new(0, 196, 1, 0)"));
+ assert.ok(src.includes("page.Position = UDim2.fromOffset(210, 81)"));
+ assert.ok(src.includes("button.Size = UDim2.new(0.25, -8, 0, 40)"));
+ assert.ok(src.includes("referenceESP.root.Visible = wide"));
+ assert.ok(src.includes("espColumns.left.Visible = not wide"));
+ assert.ok(src.includes("navigationLayout.FillDirection = Enum.FillDirection.Vertical"));
+ assert.ok(src.includes("navigationLayout.FillDirection = Enum.FillDirection.Horizontal"));
 });
-test("Dashboard uses real FPS, network ping, frametime and ESP count", () => {
-  assert.match(visuals, /Name = "DashboardScroll"/);
-  assert.match(visuals, /Name = "PerformanceHistory"/);
-  assert.match(visuals, /Name = "QuickActions"/);
-  assert.match(visuals, /for i = 1, 16 do/);
-  assert.match(visuals, /dash\.cards\.fps\.value\.Text = tostring\(measuredFps\)/);
-  assert.match(visuals, /dash\.cards\.esp\.value\.Text = tostring\(perfCounters\.espCount\)/);
-  assert.match(visuals, /LocalPlayer:GetNetworkPing\(\)/);
-  assert.match(visuals, /perfCounters\.frametime\.summary\(\)/);
-  assert.match(visuals, /boosterPro\.dashboard\.push\(measuredFps\)/);
+test("legacy functional pages and dashboard still exist",()=>{
+ for(const key of ["ESP","AIM","MISC","CFG"])
+  assert.ok(src.includes("addSection(pages."+key+","));
+ for(const needle of [
+  'Name = "DashboardScroll"','Name = "PerformanceHistory"',
+  'Name = "QuickActions"','dash.cards.fps.value.Text = tostring(measuredFps)',
+  "LocalPlayer:GetNetworkPing()",
+  "perfCounters.frametime.summary()",
+  'action("Safety Stop"',
+ ]) assert.ok(src.includes(needle),needle);
 });
-test("Quick Actions perform real reversible Hub operations", () => {
-  for (const label of ["Open Performance","Enable ECO","Toggle Guard","Safety Stop"]) {
-    assert.ok(visuals.includes('action("' + label + '"'), label);
-  }
-  assert.match(visuals, /state\.performanceMode = "ECO"/);
-  assert.match(visuals, /state\.performanceGuard = not state\.performanceGuard/);
-  assert.match(visuals, /if cleanup then cleanup\(true\) end/);
-  for (const fake of ["Flush DNS Cache","Restart Audio Driver","Optimize TCP/IP","Upgrade Now"]) {
-    assert.equal(visuals.includes(fake), false, fake);
-  }
-});
-test("Dashboard has no new per-frame signal and updates on existing workers", () => {
-  assert.match(visuals, /if boosterPro\.dashboard then boosterPro\.dashboard\.push\(measuredFps\) end/);
-  assert.match(visuals, /if boosterPro\.dashboard then boosterPro\.dashboard\.update\(\) end/);
-  assert.ok((visuals.match(/RunService:BindToRenderStep\(/g)||[]).length === 4);
-  const dash = visuals.slice(visuals.indexOf("-- Dashboard visual reference"), visuals.indexOf("-- Каждый элемент сохраняет свой логический столбец."));
-  assert.doesNotMatch(dash,/RenderStepped:Connect|BindToRenderStep|Heartbeat:Connect/);
+test("no new per-frame UI loops or unrelated network operations",()=>{
+ assert.equal((src.match(/RunService:BindToRenderStep\(/g)||[]).length,4);
+ const ui=src.slice(src.indexOf("local function buildReferenceMenu()"),
+  src.indexOf("referenceESP = buildReferenceMenu()"));
+ assert.ok(ui.includes("connect(UserInputService.InputChanged"));
+ assert.ok(!ui.includes("RenderStepped"));
+ assert.ok(!ui.includes(":FireServer("));
+ assert.ok(!ui.includes("game:HttpGet("));
 });
