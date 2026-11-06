@@ -3,11 +3,11 @@ const fs=require("node:fs"),test=require("node:test"),assert=require("node:asser
 const src=fs.readFileSync("Visuals.lua","utf8");
 const loader=fs.readFileSync("Start.lua","utf8");
 function block(a,b){const x=src.indexOf(a),y=src.indexOf(b,x+a.length);assert.ok(x>=0&&y>x,"missing "+a);return src.slice(x,y)}
-test("1: v1.1.39 files and loader agree",()=>{
- assert.ok(src.includes('Version = "1.1.39"'));
+test("1: v1.1.40 files and loader agree",()=>{
+ assert.ok(src.includes('Version = "1.1.40"'));
  assert.equal(src,fs.readFileSync("Hub.lua","utf8"));
- assert.ok(loader.includes("v1.1.39-lite-performance-test/Visuals.lua"));
- assert.ok(loader.includes('Version = "1.1.39"'));
+ assert.ok(loader.includes("v1.1.40-stability-frametime-test/Visuals.lua"));
+ assert.ok(loader.includes('Version = "1.1.40"'));
 });
 test("2: ESP shape creation is bounded separately from display target limit",()=>{
  for(const needle of ["ShapeNewContainersPerDraw = 2","ShapeNewLinesPerDraw = 8",
@@ -35,7 +35,7 @@ test("5: Booster processes conservative batches without removing recovery rules"
  for(const v of ["BoosterBatch = 64","BoosterSliceMs = 0.65",
    "BoosterLowFpsSliceMs = 0.35","BoosterQueueBatch = 32",
    "BoosterQueueSliceMs = 0.45"])assert.ok(b.includes(v),v);
- assert.ok(src.includes("boosterPro.restoreGraphicsSliced()"));
+ assert.ok(src.includes("pcall(boosterPro.restoreGraphicsSliced)"));
  assert.ok(src.includes("boosterPro.repairRetryAt = os.clock() + CONFIG.BoosterRepairCooldown"));
 });
 test("6: no more per-frame render callbacks or network operations",()=>{

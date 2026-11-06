@@ -1,9 +1,9 @@
 "use strict";
 const fs=require("node:fs"),test=require("node:test"),assert=require("node:assert/strict");
 const src=fs.readFileSync("Visuals.lua","utf8"),hub=fs.readFileSync("Hub.lua","utf8");
-test("canonical entrypoints are identical and use v1.1.39",()=>{
+test("canonical entrypoints are identical and use v1.1.40",()=>{
  assert.equal(src,hub);
- assert.ok(src.includes('Version = "1.1.39"'));
+ assert.ok(src.includes('Version = "1.1.40"'));
 });
 test("prior cleanup, startup, render and GUI identifiers remain compatible",()=>{
  for(const needle of [

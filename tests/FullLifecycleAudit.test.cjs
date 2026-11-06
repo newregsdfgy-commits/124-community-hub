@@ -10,10 +10,10 @@ function block(first,last){
  assert.ok(begin>=0 && end>begin,"unmatched block: "+first);
  return src.slice(begin,end);
 }
-test("audit 1: canonical files and checked Start URL agree on v1.1.39",()=>{
+test("audit 1: canonical files and checked Start URL agree on v1.1.40",()=>{
  assert.equal(src,alias);
- assert.ok(src.includes('Version = "1.1.39"'));
- assert.ok(start.includes("v1.1.39-lite-performance-test/Visuals.lua"));
+ assert.ok(src.includes('Version = "1.1.40"'));
+ assert.ok(start.includes("v1.1.40-stability-frametime-test/Visuals.lua"));
  assert.ok(start.includes("pcall(loadstring, source)"));
  assert.ok(start.includes('env.ARMY124_BOOT_PHASE ~= "ready"'));
 });
@@ -60,7 +60,7 @@ test("audit 7: all streaming events append to bounded queue, not spawn per objec
 test("audit 8: cleanup unregisters handlers, restores state, and exposes recovery only when needed",()=>{
  const b=block("cleanup = function(safeStop)", 'env.ARMY124_CLEANUP = cleanup');
  for(const needle of ["alive = false", "boosterRevision = boosterRevision + 1",
-  "boosterPro.restoreGraphicsSliced()", "table.clear(connections)",
+  "pcall(boosterPro.restoreGraphicsSliced)", "table.clear(connections)",
   "RunService:UnbindFromRenderStep", "env.ARMY124_RECOVERY = pendingRecovery",
   "if env.ARMY124_CLEANUP == cleanup then env.ARMY124_CLEANUP = nil end"])
   assert.ok(b.includes(needle),needle);
