@@ -5499,6 +5499,11 @@ local function buildReferenceMenu()
             Color3.fromRGB(27, 28, 32))}, left)
     textLabel(left, "ESPHeader", "◎   ESP SETTINGS", UDim2.fromOffset(18, 11),
         UDim2.new(1, -28, 0, 22), 15, light, Enum.Font.GothamBold)
+    local emptySearch = textLabel(left, "EmptySearch", "No matching functions",
+        UDim2.new(0, 15, 0.5, -12), UDim2.new(1, -30, 0, 24), 12, muted,
+        Enum.Font.Gotham)
+    emptySearch.TextXAlignment = Enum.TextXAlignment.Center
+    emptySearch.Visible = false
     local list = mk("ScrollingFrame", {Name = "ESPSettingsList",
         Position = UDim2.fromOffset(17, 45), Size = UDim2.new(1, -34, 1, -53),
         BackgroundTransparency = 1, BorderSizePixel = 0,
@@ -5572,16 +5577,27 @@ local function buildReferenceMenu()
             UDim2.fromOffset(0, 0),
             function() return key ~= nil and state[key] == true end,
             key and function()
-                state[key] = not state[key]
-                if key == "esp" then
+                local previous = state[key]
+                state[key] = not previous
+                -- An API failure must not leave a toggle saved as ON when
+                -- the corresponding feature could not be refreshed.
+                local ok, err = pcall(function()
+                    if key == "esp" then
+                        syncEspVisuals()
+                    elseif key == "espBox" or key == "espSkeleton" then
+                        refreshShapes()
+                    elseif key == "tracers" then
+                        if state.tracers then refreshTracers()
+                        else clearTracers() end
+                    else
+                        refreshESP()
+                    end
+                end)
+                if not ok then
+                    state[key] = previous
                     pcall(syncEspVisuals)
-                elseif key == "espBox" or key == "espSkeleton" then
-                    pcall(refreshShapes)
-                elseif key == "tracers" then
-                    if state.tracers then pcall(refreshTracers)
-                    else pcall(clearTracers) end
-                else
-                    pcall(refreshESP)
+                    tell("ESP " .. tostring(key) .. ": " .. tostring(err))
+                    return
                 end
                 local old = refreshToggles[key]
                 if old then pcall(old) end
@@ -5753,6 +5769,8 @@ local function buildReferenceMenu()
     borderSwitch.row.Size = UDim2.new(1, -30, 0, 28)
     textLabel(skins, "SkinsHeader", "◇   MOD SKINN", UDim2.fromOffset(16, 10),
         UDim2.new(1, -28, 0, 22), 15, light, Enum.Font.GothamBold)
+    textLabel(skins, "UnavailableTag", "PREVIEW", UDim2.new(1, -73, 0, 12),
+        UDim2.fromOffset(62, 18), 9, muted, Enum.Font.GothamMedium)
     local skinOptions = {"XSuit", "Bag", "Helmet"}
     for i, caption in ipairs(skinOptions) do
         local entry = miniSwitch(skins, "Unsupported_" .. caption, caption,
@@ -5787,10 +5805,14 @@ local function buildReferenceMenu()
     connect(search:GetPropertyChangedSignal("Text"), function()
         if not alive then return end
         local query = string.lower(search.Text)
+        local matches = 0
         for _, item in ipairs(rows) do
-            item.row.Visible = query == "" or string.find(string.lower(item.label),
+            local found = query == "" or string.find(string.lower(item.label),
                 query, 1, true) ~= nil
+            item.row.Visible = found
+            if found then matches = matches + 1 end
         end
+        emptySearch.Visible = matches == 0
         if query ~= "" then showPage("ESP") end
     end)
     local started = os.clock()
