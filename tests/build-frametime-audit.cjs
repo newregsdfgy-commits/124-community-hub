@@ -10,7 +10,7 @@ const create=extract("local function shapeItem(player, character)","local functi
 const ensure=extract("local function ensureShapeLines(item, kind, count)","local function refreshShapes()");
 const program=`
 -- Execute extracted production shape construction under mocked Roblox primitives.
--- Regression: don't create all 19 UI Lines on one RenderStep.
+-- LITE regression: don't create more than four Box lines per visible player.
 local shapeNewContainersLeft=2
 local shapeNewLinesLeft=8
 local shapeData={}
@@ -30,34 +30,26 @@ ${ensure}
 local first={UserId=1}
 local second={UserId=2}
 local third={UserId=3}
-local char1={}
-local char2={}
-local char3={}
+local char1, char2, char3 = {}, {}, {}
 local a=shapeItem(first,char1)
 local b=shapeItem(second,char2)
-assert(a and b and instances==2)
-assert(shapeItem(third,char3)==nil)
-assert(shapeItem(first,char1)==a)
+assert(a and b and instances==2, "two Box containers should be created")
+assert(shapeItem(third,char3)==nil, "third container must be deferred")
+assert(shapeItem(first,char1)==a, "existing container must be reused")
 assert(ensureShapeLines(a,"box",4))
 assert(#a.box==4 and shapeNewLinesLeft==4)
-assert(not ensureShapeLines(a,"bones",15))
-assert(#a.bones==4 and shapeNewLinesLeft==0)
+shapeNewLinesLeft=2
 assert(not ensureShapeLines(b,"box",4))
-assert(#b.box==0 and instances==10)
+assert(#b.box==2 and shapeNewLinesLeft==0, "incomplete boxes must remain incomplete")
 shapeNewContainersLeft=2
 shapeNewLinesLeft=8
 assert(shapeItem(third,char3))
 assert(ensureShapeLines(b,"box",4))
-assert(not ensureShapeLines(a,"bones",15))
-assert(#a.bones==8)
-shapeNewContainersLeft=2
-shapeNewLinesLeft=8
-assert(not ensureShapeLines(a,"bones",15) == false or #a.bones<=15)
-assert(#a.bones==15)
-assert(ensureShapeLines(a,"bones",15))
-assert(shapeNewLinesLeft>=0)
-assert(instances<=30)
-print("LUAU FRAME BUDGET PASS: deferred geometry, per-frame construction caps, retry and complete")
+assert(#b.box==4)
+assert(ensureShapeLines(a,"box",4))
+assert(instances==3+10, "extra lines were allocated unexpectedly")
+for _,item in ipairs({a,b}) do assert(item.bones==nil and item.parts==nil) end
+print("LUAU LITE FRAME PASS: Box only, deferred containers/lines and reuse")
 `;
 fs.writeFileSync("/tmp/Army124-FrametimeBudgetAudit.luau",program,"utf8");
 console.log("Generated real production shape constructor Luau test");

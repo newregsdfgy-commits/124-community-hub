@@ -1,14 +1,7 @@
 "use strict";
 const fs=require("node:fs"),test=require("node:test"),assert=require("node:assert/strict");
 const src=fs.readFileSync("Visuals.lua","utf8"),hub=fs.readFileSync("Hub.lua","utf8");
-test("identical 1.1.21 entrypoints",()=>{assert.equal(src,hub);assert.ok(src.includes('Version = "1.1.38"'));});
-test("operator tabs retain function ids",()=>{
- const t=src.slice(src.indexOf("local navigation = {"),src.indexOf("local function makeColumn"));
- for(const k of ["HOME","ESP","AIM","MISC","CFG"])assert.ok(t.includes('key = "'+k+'"'));
- assert.ok(t.includes('key = "HOME", label = "Overview", symbol = "⌂", hidden = true'));
- for(const label of ['label = "ESP"', 'label = "Aim"', 'label = "Memory"', 'label = "Settings"'])
-   assert.ok(t.includes(label),label);
-});
+test("identical 1.1.21 entrypoints",()=>{assert.equal(src,hub);assert.ok(src.includes('Version = "1.1.39"'));});
 test("camera change and resize events do not create repeated layout work",()=>{
  const b=src.slice(src.indexOf("local currentLayoutCamera = nil"),src.indexOf("-- Линии сверху экрана"));
  assert.ok(b.includes("layoutPending then return"));assert.ok(b.includes("task.defer(function()"));

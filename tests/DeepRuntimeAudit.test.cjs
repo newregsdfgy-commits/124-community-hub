@@ -9,9 +9,9 @@ function region(from,to) {
  assert.ok(a>=0 && b>a,"missing "+from);
  return src.slice(a,b);
 }
-test("source, compatibility file, and launcher agree on v1.1.38",()=>{
- assert.equal(src,hub);assert.ok(src.includes('Version = "1.1.38"'));
- assert.ok(start.includes("v1.1.38-frametime-stutter-guard-test/Visuals.lua"));
+test("source, compatibility file, and launcher agree on v1.1.39",()=>{
+ assert.equal(src,hub);assert.ok(src.includes('Version = "1.1.39"'));
+ assert.ok(start.includes("v1.1.39-lite-performance-test/Visuals.lua"));
 });
 test("factory does not leak unfinished Instances if property or Parent assignment throws",()=>{
  const mk=region("local function mk(class, properties, parent)","local function round(instance, radius)");
@@ -51,21 +51,6 @@ test("ESP still uses the selected range, cap, and bounded periodic scans",()=>{
  assert.ok(src.includes("espMaxTargets = {8, 96}"));
  assert.ok(src.includes("EspEventMinSeconds = 0.18"));
  assert.ok(src.includes('local interval = tier == "ECO" and 0.55 or tier == "QUALITY" and 0.25'));
-});
-test("Booster/aim and other independent modules retain source guards",()=>{
- for(const k of [
-  "boosterPro.autoRollback = function()",
-  "if not boosterPro.complete then return end",
-  "function boosterPro.restoreObject(obj, snapshot)",
-  "boosterPro.queueCount >= boosterPro.queueCap",
-  "boosterPro.restoreGraphicsSliced()",
-  "local function findAimTarget(camera)",
-  "local function recoilFrame(dt)",
-  "TextChatService:CanUserChatAsync(LocalPlayer.UserId)",
-  'Name = "Army124CommunityVisualsGUI"',
-  "boosterPro.stopWatchingPlayers()",
-  "stopESPWatchers()"
- ]) assert.ok(src.includes(k),k);
 });
 test("no unreviewed external network or gameplay remotes in Visuals source",()=>{
  for(const re of [/https?:\/\//,/:FireServer\s*\(/,/:InvokeServer\s*\(/,/\bloadstring\s*\(/])

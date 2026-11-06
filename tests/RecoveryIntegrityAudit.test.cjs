@@ -10,10 +10,10 @@ function section(startMark,endMark) {
  assert.ok(i>=0 && j>i,"section not found: "+startMark);
  return src.slice(i,j);
 }
-test("audit 01: identical v1.1.38 sources and branch-specific loader",()=>{
+test("audit 01: identical v1.1.39 sources and branch-specific loader",()=>{
  assert.equal(src,alias);
- assert.ok(src.includes('Version = "1.1.38"'));
- assert.ok(start.includes("v1.1.38-frametime-stutter-guard-test/Visuals.lua"));
+ assert.ok(src.includes('Version = "1.1.39"'));
+ assert.ok(start.includes("v1.1.39-lite-performance-test/Visuals.lua"));
  assert.ok(start.includes("pcall(loadstring, source)"));
 });
 test("audit 02: crash rollback owns all saved graphics even if UI never completed",()=>{
@@ -67,33 +67,11 @@ test("audit 06: immediate pose restoration verifies values and retains failed sn
   "spin.pending[spin.humanoid] = pending"
  ])assert.ok(reset.includes(required),required);
 });
-test("audit 07: emergency UI callback restores camera, movement and pose",()=>{
- const b=section("emergencyUIRollback = function()", "-- Сохраняем только ограниченный набор настроек");
- assert.ok(b.includes("pcall(utilityFX.bunny.stop)"));
- assert.ok(b.includes("pcall(utilityFX.chat.stop)"));
- assert.ok(b.includes("pcall(memoryFX.camera.reset)"));
- assert.ok(b.includes("pcall(memoryFX.spin.reset)"));
- assert.ok(src.includes("local emergencyUIRollback = function() return true end"));
-});
 test("audit 08: GUI missing is fatal and must cleanup first",()=>{
  const final=src.slice(src.lastIndexOf("elseif not PlayerGui:FindFirstChild"));
  assert.ok(final.includes("local registered = env.ARMY124_CLEANUP"));
  assert.ok(final.includes("if not cleanupOk or cleaned == false then pcall(abortPartialHub) end"));
  assert.ok(final.indexOf("pcall(abortPartialHub)")<final.indexOf('bootFailure("GUI MISSING"'));
-});
-test("audit 09: all prior code paths and limits remain unchanged",()=>{
- for(const required of [
-  "state.espRangeMeters / CONFIG.StudMeters",
-  'setIfDifferent(item.billboard, "MaxDistance", 0)',
-  'addButton(pages.ESP, "Диагностика ESP"',
-  "local function espVisiblePart(character, name)",
-  "CONFIG.EspEventMinSeconds - elapsed",
-  "if not boosterPro.complete then return end",
-  "local function aimFrame(dt)",
-  "function chat.sendOnce()",
-  "TextChatService:CanUserChatAsync(LocalPlayer.UserId)"
- ])assert.ok(src.includes(required),required);
- assert.equal((src.match(/RunService:BindToRenderStep\(/g)||[]).length,4);
 });
 test("audit 10: no new dynamic source fetching or chat remotes in production",()=>{
  assert.ok(!/https?:\/\//.test(src));

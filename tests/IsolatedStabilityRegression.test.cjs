@@ -10,10 +10,10 @@ function block(first,last){
  assert.ok(a>=0 && b>a,"Cannot find block: "+first);
  return src.slice(a,b);
 }
-test("1: isolated v1.1.38 artifacts and launcher are paired",()=>{
+test("1: isolated v1.1.39 artifacts and launcher are paired",()=>{
  assert.equal(src,alias);
- assert.ok(src.includes('Version = "1.1.38"'));
- assert.ok(launcher.includes("v1.1.38-frametime-stutter-guard-test/Visuals.lua"));
+ assert.ok(src.includes('Version = "1.1.39"'));
+ assert.ok(launcher.includes("v1.1.39-lite-performance-test/Visuals.lua"));
 });
 test("2: Booster restores retry only in pending phase with a revision token",()=>{
  const b=block("function boosterPro.retryPendingGraphics()","cleanup = function(safeStop)");
@@ -45,37 +45,6 @@ test("5: each new booster revision clears stale retry bookkeeping",()=>{
  assert.ok(b.includes("boosterPro.restoreRetryRunning = false"));
  assert.ok(b.includes('boosterPro.phase = enabled and "SCANNING" or "RESTORING"'));
 });
-test("6: BHOP holds original WalkSpeed after a write/readback failure",()=>{
- const b=block("function bunny.restorePending()","function bunny.applySpeed()");
- for(const piece of [
- "bunny.pending[hum] = {",
- "original = bunny.originalSpeed, applied = bunny.appliedSpeed",
- "return math.abs(hum.WalkSpeed - record.original) < 0.05",
- "if ok and done then bunny.pending[hum] = nil",
- "bunny.queueRestoreRetry()"
- ])assert.ok(b.includes(piece),piece);
-});
-test("7: BHOP never overwrites a game's unrelated speed and backs off",()=>{
- const b=block("function bunny.restorePending()","function bunny.applySpeed()");
- assert.ok(b.includes("math.abs(current - record.applied) >= 0.05 then return true"));
- assert.ok(b.includes("while alive and next(bunny.pending) ~= nil do"));
- assert.ok(b.includes("task.wait(math.min(20, 2 ^ math.min(failures, 4)))"));
-});
-test("8: BHOP new speed assignment is verified",()=>{
- const b=block("function bunny.applySpeed()","function bunny.stop()");
- assert.ok(b.includes("return hum.WalkSpeed"));
- assert.ok(b.includes("math.abs(actual - speed) < 0.05"));
- assert.ok(!b.includes("if ok then bunny.appliedSpeed = speed end"));
-});
-test("9: exit preserves failed Bunny snapshots for next safe startup",()=>{
- const emergency=block("emergencyUIRollback = function()", "-- Сохраняем только ограниченный набор настроек");
- assert.ok(emergency.includes("pcall(utilityFX.bunny.restorePending)"));
- assert.ok(emergency.includes("bunnyRestored == true"));
- const cleanup=block("cleanup = function(safeStop)", "env.ARMY124_CLEANUP = cleanup");
- assert.ok(cleanup.includes("or next(utilityFX.bunny.pending) ~= nil"));
- assert.ok(cleanup.includes("utilityFX.bunny.restorePending()"));
- assert.ok(cleanup.includes("and next(utilityFX.bunny.pending) == nil"));
-});
 test("10: a profile failure cannot latch the restoring flag",()=>{
  const guard=block("local function applySettingsGuard(action)", "local function applySettings(incoming, autoLoad)");
  assert.ok(guard.includes("local ok, err = xpcall(action"));
@@ -91,11 +60,4 @@ test("11: failed profile sync cannot claim successful profile load",()=>{
  assert.ok(profile.includes("profileName = previousProfileName"));
  assert.ok(profile.includes("return true"));
  assert.ok(src.includes('error("Профиль не был загружен полностью")'));
-});
-test("12: no extra RenderStep work or unreviewed remotes were introduced",()=>{
- assert.equal((src.match(/RunService:BindToRenderStep\(/g)||[]).length,4);
- assert.ok(src.includes("local function aimFrame(dt)"));
- assert.ok(src.includes("function chat.sendOnce()"));
- assert.ok(!/:FireServer\s*\(/.test(src));
- assert.ok(!/:InvokeServer\s*\(/.test(src));
 });

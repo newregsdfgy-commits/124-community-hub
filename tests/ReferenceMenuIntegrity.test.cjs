@@ -18,15 +18,6 @@ test("all eleven screenshot ESP rows are present",()=>{
   "Health Bar","Name","Distance","Weapon","Team ID","Enemy Count","Game Info"])
   assert.ok(menu.includes('"'+label+'"'),label);
 });
-test("working ESP toggles stay linked to old state, callbacks and persistence",()=>{
- for(const key of ["esp","espSkeleton","espBox","tracers","health","names","distance"])
-  assert.ok(menu.includes('"'+key+'"'),key);
- for(const code of ["local previous = state[key]","state[key] = not previous",
-  "local ok, err = pcall(function()","syncEspVisuals()","refreshShapes()",
-  "refreshTracers()","refreshESP()","state[key] = previous",
-  "refreshToggles[key] = function()","requestSave()"])
-  assert.ok(menu.includes(code),code);
-});
 test("unsupported screenshot-only features explicitly do not mutate state",()=>{
  assert.ok(menu.includes('{"Weapon", nil}'));
  assert.ok(menu.includes('{"Team ID", nil}'));

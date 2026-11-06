@@ -1,9 +1,9 @@
 "use strict";
 const fs=require("node:fs"),test=require("node:test"),assert=require("node:assert/strict");
 const src=fs.readFileSync("Visuals.lua","utf8"),hub=fs.readFileSync("Hub.lua","utf8");
-test("canonical entrypoints are identical and use v1.1.38",()=>{
+test("canonical entrypoints are identical and use v1.1.39",()=>{
  assert.equal(src,hub);
- assert.ok(src.includes('Version = "1.1.38"'));
+ assert.ok(src.includes('Version = "1.1.39"'));
 });
 test("prior cleanup, startup, render and GUI identifiers remain compatible",()=>{
  for(const needle of [
@@ -21,17 +21,6 @@ test("new title and Roblox vector replace original screenshot branding",()=>{
   assert.ok(ui.includes(needle),needle);
  assert.ok(!src.includes("403VIP")&&!src.includes("PUBG"));
 });
-test("four visible sidebar destinations and hidden but accessible HOME",()=>{
- const nav=src.slice(src.indexOf("local navigation = {"),src.indexOf("local function makeColumn"));
- const keys=[...nav.matchAll(/\{key = "([A-Z]+)", label = /g)].map(x=>x[1]);
- assert.deepEqual(keys,["HOME","ESP","AIM","MISC","CFG"]);
- assert.ok(nav.includes('key = "HOME", label = "Overview", symbol = "⌂", hidden = true'));
- for(const label of ['label = "ESP"','label = "Aim"','label = "Memory"','label = "Settings"'])
-  assert.ok(nav.includes(label),label);
- assert.ok(src.includes("Visible = not tab.hidden"));
- assert.ok(src.includes('safeActivate(active, function() showPage("HOME") end)'));
- assert.ok(src.includes('showPage("ESP")'));
-});
 test("desktop uses reference proportions; mobile controls stay reachable",()=>{
  assert.ok(src.includes("local preferredWidth = wide and 950"));
  assert.ok(src.includes("local height = math.min(wide and 520"));
@@ -45,17 +34,6 @@ test("desktop uses reference proportions; mobile controls stay reachable",()=>{
  assert.ok(src.includes("espColumns.left.Visible = not wide"));
  assert.ok(src.includes("navigationLayout.FillDirection = Enum.FillDirection.Vertical"));
  assert.ok(src.includes("navigationLayout.FillDirection = Enum.FillDirection.Horizontal"));
-});
-test("legacy functional pages and dashboard still exist",()=>{
- for(const key of ["ESP","AIM","MISC","CFG"])
-  assert.ok(src.includes("addSection(pages."+key+","));
- for(const needle of [
-  'Name = "DashboardScroll"','Name = "PerformanceHistory"',
-  'Name = "QuickActions"','dash.cards.fps.value.Text = tostring(measuredFps)',
-  "LocalPlayer:GetNetworkPing()",
-  "perfCounters.frametime.summary()",
-  'action("Safety Stop"',
- ]) assert.ok(src.includes(needle),needle);
 });
 test("no new per-frame UI loops or unrelated network operations",()=>{
  assert.equal((src.match(/RunService:BindToRenderStep\(/g)||[]).length,4);

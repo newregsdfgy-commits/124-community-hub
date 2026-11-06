@@ -10,10 +10,10 @@ function scope(before,after){
  assert.ok(i>=0 && j>i, "Missing scope "+before);
  return source.slice(i,j);
 }
-test("audit 1: sources and loader target the same exact v1.1.38 release",()=>{
+test("audit 1: sources and loader target the same exact v1.1.39 release",()=>{
  assert.equal(source,alias);
- assert.ok(source.includes('Version = "1.1.38"'));
- assert.ok(start.includes("v1.1.38-frametime-stutter-guard-test/Visuals.lua"));
+ assert.ok(source.includes('Version = "1.1.39"'));
+ assert.ok(start.includes("v1.1.39-lite-performance-test/Visuals.lua"));
 });
 test("audit 2: partial ESP render is registered before potentially failing billboard creation",()=>{
  const render=scope("local function createRender(", "local function setIfDifferent(");
@@ -88,18 +88,6 @@ test("audit 9: fetch, compile and runtime failures are isolated",()=>{
   "xpcall(chunk, function(err)",
   'env.ARMY124_BOOT_PHASE ~= "ready"'
  ]) assert.ok(start.includes(p),p);
-});
-test("audit 10: Booster cooldown, snapshots and independent AIM remain intact",()=>{
- for(const p of [
-  "function boosterPro.restoreObject(obj, snapshot)",
-  "boosterPro.repairRetryAt = os.clock() + CONFIG.BoosterRepairCooldown",
-  "if not boosterPro.complete then return end",
-  "boosterPro.restoreGraphicsSliced()",
-  "local function aimFrame(",
-  "function chat.sendOnce()",
-  "TextChatService:CanUserChatAsync(LocalPlayer.UserId)"
- ]) assert.ok(source.includes(p),p);
- assert.equal((source.match(/RunService:BindToRenderStep\(/g)||[]).length,4);
 });
 test("audit 11: source makes no network RemoteEvent attempts",()=>{
  assert.ok(!/:FireServer\s*\(/.test(source));

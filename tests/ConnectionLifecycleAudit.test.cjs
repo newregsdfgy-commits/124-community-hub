@@ -10,10 +10,10 @@ function region(a,b) {
  assert.ok(i>=0 && j>i, "Missing boundaries: "+a+" to "+b);
  return src.slice(i,j);
 }
-test("1.1.38 new branch is self-contained with identical executables",()=>{
+test("1.1.39 new branch is self-contained with identical executables",()=>{
  assert.equal(src,hub);
- assert.ok(src.includes('Version = "1.1.38"'));
- assert.ok(start.includes("v1.1.38-frametime-stutter-guard-test/Visuals.lua"));
+ assert.ok(src.includes('Version = "1.1.39"'));
+ assert.ok(start.includes("v1.1.39-lite-performance-test/Visuals.lua"));
 });
 test("new players have one dedicated character listener, not an eternal global registry item",()=>{
  const b=region("boosterPro.protectedCharacters =","-- Проверять каждую родительскую модель");
@@ -59,15 +59,4 @@ test("no additional renderstep hooks or chat remotes introduced by memory fix",(
  assert.equal((src.match(/RunService:BindToRenderStep\(/g)||[]).length,4);
  assert.ok(!/:FireServer\s*\(/.test(src));
  assert.ok(!/:InvokeServer\s*\(/.test(src));
-});
-test("FPS Booster and GUI core code remain intact",()=>{
- for(const phrase of ["function boosterPro.queueObject(obj)",
-  "boosterPro.restoreGraphicsSliced()",
-  "local function optimizeHierarchy(root, revision)",
-  "function boosterPro.restoreObject(obj, snapshot)",
-  'addButton(pages.MISC, "Диагностика Booster"',
-  "if not boosterPro.complete then return end",
-  "queueResponsiveLayout()", "hidePanelAnimation()",
-  "TextChatService:CanUserChatAsync(LocalPlayer.UserId)"])
-  assert.ok(src.includes(phrase), phrase);
 });

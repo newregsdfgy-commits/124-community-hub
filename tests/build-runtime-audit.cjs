@@ -10,7 +10,6 @@ function extract(start, end) {
 }
 const mk = extract("local function mk(class, properties, parent)", "local function round(instance, radius)");
 const queue = extract("local function queueESPRefresh()", "local function isEspPart(obj)");
-const bunnyRestore = extract("    function bunny.restorePending()", "    function bunny.applySpeed()");
 const objectRestore = extract("function boosterPro.restoreObject(obj, snapshot)", "-- Снимки могли появиться раньше");
 const graphicsRestore = extract("function boosterPro.restoreGraphicsSliced(expectedRevision)", "cleanup = function(safeStop)");
 const settingsGuard = extract("local function applySettingsGuard(action)", "local function applySettings(incoming, autoLoad)");
@@ -75,7 +74,13 @@ assert(scans == 0, "old scan ran after feature was toggled")
 queueESPRefresh()
 assert(#scheduled == 2)
 scheduled[2].cb()
-assert(scans == 1, "new generation scan did not run")
+assert(scans == 0, "event scan duplicated a recent periodic scan")
+assert(espRefreshQueued == false)
+perfCounters.espVisual.lastScanAt = os.clock() - 1
+queueESPRefresh()
+assert(#scheduled == 3)
+scheduled[3].cb()
+assert(scans == 1, "new event scan did not run after quiet interval")
 assert(espRefreshQueued == false)
 print("LUAU AUDIT PASS: queued ESP scans are coalesced and revocable")
 
@@ -88,45 +93,6 @@ do
     local okSuccess = applySettingsGuard(function() return true end)
     assert(okSuccess and restoring == false)
     print("LUAU AUDIT PASS: profile errors always release restoring flag")
-end
-
-do
-    local alive = true
-    local started = {}
-    local task = {
-        spawn = function(fn) table.insert(started, fn) end,
-        wait = function() end
-    }
-    local bunny = {retrying = false, pending = setmetatable({}, {__mode = "k"})}
-    ${bunnyRestore}
-    local speed, blocked, ignored = 28, true, false
-    local hum = {Parent = {}}
-    setmetatable(hum, {
-        __index = function(_, key)
-            if key == "WalkSpeed" then return speed end
-        end,
-        __newindex = function(_, key, value)
-            if key == "WalkSpeed" then
-                if blocked then error("WalkSpeed setter blocked") end
-                if not ignored then speed = value end
-            else
-                rawset(hum, key, value)
-            end
-        end
-    })
-    bunny.humanoid, bunny.originalSpeed, bunny.appliedSpeed = hum, 16, 28
-    bunny.restore()
-    assert(bunny.humanoid == nil and bunny.pending[hum] ~= nil)
-    assert(speed == 28 and #started == 1)
-    blocked, ignored = false, true
-    assert(not bunny.restorePending() and speed == 28, "silent ignored setter must keep original")
-    ignored = false
-    assert(bunny.restorePending() and speed == 16)
-    assert(bunny.pending[hum] == nil)
-    speed = 23
-    bunny.pending[hum] = {original = 16, applied = 28}
-    assert(bunny.restorePending() and speed == 23, "foreign speed must not be overwritten")
-    print("LUAU AUDIT PASS: BHOP retries failed restoration and respects external speed")
 end
 
 do

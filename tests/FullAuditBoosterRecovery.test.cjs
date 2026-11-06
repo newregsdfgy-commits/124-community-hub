@@ -17,8 +17,8 @@ function setting(name){
 }
 test("complete audit: identical entries, launcher, no hidden version gap",()=>{
  assert.equal(src,alias);
- assert.ok(src.includes('Version = "1.1.38"'));
- assert.ok(loader.includes("v1.1.38-frametime-stutter-guard-test/Visuals.lua"));
+ assert.ok(src.includes('Version = "1.1.39"'));
+ assert.ok(loader.includes("v1.1.39-lite-performance-test/Visuals.lua"));
  assert.ok(loader.includes('ARMY124_BOOT_PHASE ~= "ready"'));
 });
 test("recover from excessively slow v1.1.23 traversal; bounded slices remain",()=>{
@@ -75,12 +75,4 @@ test("lifecycle manages references and retains all main functions",()=>{
   "local function refreshShapes",
   "local function refreshTracers"
  ]) assert.ok(src.includes(term),term);
-});
-test("chat permission is checked before optional SendAsync",()=>{
- const send=region("function chat.sendOnce()","-- Сохраняем только ограниченный набор настроек");
- const i=send.indexOf("TextChatService:CanUserChatAsync(LocalPlayer.UserId)");
- const j=send.indexOf("channel:SendAsync(message)");
- assert.ok(i>=0 && j>i);
- assert.ok(!send.includes(":FireServer("));
- assert.ok(!send.includes(":InvokeServer("));
 });

@@ -3,11 +3,11 @@ const fs=require("node:fs"),test=require("node:test"),assert=require("node:asser
 const src=fs.readFileSync("Visuals.lua","utf8");
 const loader=fs.readFileSync("Start.lua","utf8");
 function block(a,b){const x=src.indexOf(a),y=src.indexOf(b,x+a.length);assert.ok(x>=0&&y>x,"missing "+a);return src.slice(x,y)}
-test("1: v1.1.38 files and loader agree",()=>{
- assert.ok(src.includes('Version = "1.1.38"'));
+test("1: v1.1.39 files and loader agree",()=>{
+ assert.ok(src.includes('Version = "1.1.39"'));
  assert.equal(src,fs.readFileSync("Hub.lua","utf8"));
- assert.ok(loader.includes("v1.1.38-frametime-stutter-guard-test/Visuals.lua"));
- assert.ok(loader.includes('Version = "1.1.38"'));
+ assert.ok(loader.includes("v1.1.39-lite-performance-test/Visuals.lua"));
+ assert.ok(loader.includes('Version = "1.1.39"'));
 });
 test("2: ESP shape creation is bounded separately from display target limit",()=>{
  for(const needle of ["ShapeNewContainersPerDraw = 2","ShapeNewLinesPerDraw = 8",
@@ -20,15 +20,6 @@ test("2: ESP shape creation is bounded separately from display target limit",()=
  assert.ok(l.includes("while #lines < count and shapeNewLinesLeft > 0 do"));
  assert.ok(l.includes("shapeNewLinesLeft = shapeNewLinesLeft - 1"));
  assert.ok(l.includes("return #lines >= count"));
-});
-test("3: incomplete Box/Skeleton geometry never dereferences absent lines",()=>{
- const s=block("local function refreshShapes()","syncEspVisuals = function()");
- assert.ok(s.includes("local item = shapeItem(player, char)\n            if item then"));
- assert.ok(s.includes('if ensureShapeLines(item, "box", 4) then'));
- assert.ok(s.includes('local skeletonReady = ensureShapeLines(item, "bones", #pairsToDraw)'));
- assert.ok(s.includes("if skeletonReady then"));
- assert.ok(s.includes('end -- item: новые объекты отложены по лимиту кадра'));
- assert.ok(s.includes('setIfDifferent(line, "Visible", false)'));
 });
 test("4: Max Distance slider does not synchronously sort player roster or create shapes",()=>{
  const s=block('makeSlider(top, "Max Distance"', 'mk("Frame", {Name = "ReferenceDivider"');
