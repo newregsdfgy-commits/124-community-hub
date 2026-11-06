@@ -1,9 +1,9 @@
 "use strict";
 const fs=require("node:fs"),test=require("node:test"),assert=require("node:assert/strict");
 const src=fs.readFileSync("Visuals.lua","utf8"),hub=fs.readFileSync("Hub.lua","utf8");
-test("canonical entrypoints are identical and use v1.1.34",()=>{
+test("canonical entrypoints are identical and use v1.1.35",()=>{
  assert.equal(src,hub);
- assert.ok(src.includes('Version = "1.1.34"'));
+ assert.ok(src.includes('Version = "1.1.35"'));
 });
 test("prior cleanup, startup, render and GUI identifiers remain compatible",()=>{
  for(const needle of [
@@ -36,7 +36,10 @@ test("desktop uses reference proportions; mobile controls stay reachable",()=>{
  assert.ok(src.includes("local preferredWidth = wide and 950"));
  assert.ok(src.includes("local height = math.min(wide and 520"));
  assert.ok(src.includes("tabs.Size = UDim2.new(0, 196, 1, 0)"));
- assert.ok(src.includes("page.Position = UDim2.fromOffset(210, 81)"));
+ assert.ok(src.includes("tabs.Position = UDim2.new(1, -196, 0, 0)"));
+ assert.ok(src.includes("page.Position = UDim2.fromOffset(14, 81)"));
+ assert.ok(src.includes("search.Visible, safe.Visible"));
+ assert.ok(src.includes("close.Position = wide and UDim2.new(1, -218, 0, 22)"));
  assert.ok(src.includes("button.Size = UDim2.new(0.25, -8, 0, 40)"));
  assert.ok(src.includes("referenceESP.root.Visible = wide"));
  assert.ok(src.includes("espColumns.left.Visible = not wide"));

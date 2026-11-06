@@ -1,11 +1,11 @@
--- 124 Visuals v1.1.34 | reference-matched four-tab Roblox GUI
+-- 124 Visuals v1.1.35 | reference-accurate right navigation and switch geometry
 -- PlaceId: 18537079992
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.1.34",
+    Version = "1.1.35",
     PlaceId = 18537079992,
     EspRefreshSeconds = 0.35, -- Быстрый поиск персонажей, без обновления UI каждый кадр.
     EspEventMinSeconds = 0.18, -- Коалесцированные события не запускают 16 полных сканов/сек.
@@ -3387,7 +3387,7 @@ for idx, tab in ipairs(navigation) do
         TextXAlignment = Enum.TextXAlignment.Center,
         TextColor3 = P.dim, AutoButtonColor = false,
     }, navSlots)
-    round(button, 6)
+    round(button, 9)
     tabOutlines[key] = mk("UIStroke", {Color = P.border, Transparency = 1, Thickness = 1}, button)
     tabButtons[key] = button
     tabUnderline[key] = mk("Frame", {
@@ -3644,7 +3644,7 @@ do
             info.Position = UDim2.fromOffset(0, 746)
             content.Size = UDim2.new(1, -18, 0, 823)
         end
-        sideStatus.Visible = wide
+        sideStatus.Visible = false -- Reserved for Roblox emblem in right sidebar
     end
     dash.push = function(fps)
         local history = dash.history
@@ -3712,10 +3712,11 @@ local function applyResponsiveLayout()
     wideLayout = wide
     pageHeader.Visible, pageSubHeader.Visible = false, false
     if wide then
-        -- Desktop proportions of the reference: title, four icon tabs, Roblox logo.
-        tabs.Position = UDim2.fromOffset(0, 0)
+        -- User-selected right sidebar: same reference buttons, mirrored layout.
+        -- The reference ESP card keeps its labels at left and pill toggles at right.
+        tabs.Position = UDim2.new(1, -196, 0, 0)
         tabs.Size = UDim2.new(0, 196, 1, 0)
-        navSlots.Position = UDim2.fromOffset(0, 93)
+        navSlots.Position = UDim2.fromOffset(0, 96)
         navSlots.Size = UDim2.new(1, 0, 1, -190)
         navigationLayout.FillDirection = Enum.FillDirection.Vertical
         navigationLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
@@ -3735,8 +3736,8 @@ local function applyResponsiveLayout()
     for _, nav in ipairs(navigation) do
         local button = tabButtons[nav.key]
         if wide then
-            button.Size = UDim2.new(1, -16, 0, 54)
-            button.Text = "   " .. nav.symbol .. "    " .. nav.label
+            button.Size = UDim2.new(1, -16, 0, 58)
+            button.Text = "   " .. nav.symbol .. "     " .. nav.label
             button.TextSize = 14
             button.TextXAlignment = Enum.TextXAlignment.Left
             tabUnderline[nav.key].Position = UDim2.fromOffset(0, 4)
@@ -3753,7 +3754,7 @@ local function applyResponsiveLayout()
     end
     for _, page in pairs(pages) do
         if wide then
-            page.Position = UDim2.fromOffset(210, 81)
+            page.Position = UDim2.fromOffset(14, 81)
             page.Size = UDim2.new(1, -224, 1, -95)
         else
             page.Position = UDim2.fromOffset(12, 81)
@@ -3818,7 +3819,8 @@ local function showPage(key)
     for name, page in pairs(pages) do
         local selected = name == key
         page.Visible = selected
-        tabButtons[name].BackgroundColor3 = selected and P.tile or P.panel
+        tabButtons[name].BackgroundColor3 = selected and Color3.fromRGB(60, 61, 66)
+            or Color3.fromRGB(29, 30, 34)
         tabButtons[name].TextColor3 = selected and P.text or P.dim
         tabButtons[name].Font = selected and Enum.Font.GothamBold or Enum.Font.GothamMedium
         tabUnderline[name].Visible = selected
@@ -5372,13 +5374,16 @@ local function buildReferenceMenu()
     end
     -- Screenshot's upper-left brand, with v1.0 underneath.
     local brand = textLabel(tabs, "ReferenceBrand", "124 Visuals",
-        UDim2.fromOffset(26, 18), UDim2.fromOffset(166, 35), 24, light,
+        UDim2.fromOffset(19, 18), UDim2.fromOffset(168, 35), 23, light,
         Enum.Font.GothamBlack)
     local version = textLabel(tabs, "ReferenceVersion", "v1.0",
-        UDim2.fromOffset(96, 50), UDim2.fromOffset(78, 17), 10, muted,
+        UDim2.fromOffset(86, 50), UDim2.fromOffset(78, 17), 10, muted,
         Enum.Font.Gotham)
     -- Vector Roblox mark: tilted square with the distinctive square cutout.
     -- No remote image and no fragile undocumented Roblox asset ID.
+    mk("Frame", {Name = "SidebarEdge", Position = UDim2.fromOffset(0, 0),
+        Size = UDim2.new(0, 1, 1, 0), BackgroundColor3 = border,
+        BorderSizePixel = 0, BackgroundTransparency = 0.24}, tabs)
     local robloxMark = corners(mk("Frame", {
         Name = "RobloxMark", Position = UDim2.new(0.5, -20, 1, -95),
         Size = UDim2.fromOffset(40, 40), Rotation = 25, BorderSizePixel = 0,
@@ -5393,7 +5398,7 @@ local function buildReferenceMenu()
 
     -- Topbar: search / local status / session uptime / dashboard.
     local search = corners(mk("TextBox", {Name = "ReferenceSearch",
-        Position = UDim2.fromOffset(212, 14), Size = UDim2.new(1, -585, 0, 45),
+        Position = UDim2.fromOffset(17, 14), Size = UDim2.new(1, -593, 0, 45),
         BackgroundColor3 = Color3.fromRGB(26, 27, 30),
         BorderSizePixel = 0, ClearTextOnFocus = false, Text = "",
         PlaceholderText = "⌕   Search functions...",
@@ -5404,21 +5409,21 @@ local function buildReferenceMenu()
     mk("UIPadding", {PaddingLeft = UDim.new(0, 15),
         PaddingRight = UDim.new(0, 9)}, search)
     local safe = corners(mk("TextLabel", {Name = "ReferenceSafe",
-        AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -280, 0, 17),
+        AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -474, 0, 17),
         Size = UDim2.fromOffset(75, 40), Text = "●  Safe",
         BackgroundColor3 = Color3.fromRGB(23, 24, 27),
         TextColor3 = Color3.fromRGB(115, 225, 135), TextSize = 13,
         Font = Enum.Font.GothamMedium, BorderSizePixel = 0}, bar), 10)
     mk("UIStroke", {Color = border, Transparency = 0.5}, safe)
     local clock = corners(mk("TextLabel", {Name = "ReferenceTimer",
-        AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -155, 0, 17),
+        AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -356, 0, 17),
         Size = UDim2.fromOffset(112, 40), Text = "◷  00:00:00",
         BackgroundColor3 = Color3.fromRGB(23, 24, 27),
         TextColor3 = light, TextSize = 12, Font = Enum.Font.Code,
         BorderSizePixel = 0}, bar), 10)
     mk("UIStroke", {Color = border, Transparency = 0.5}, clock)
     local active = corners(mk("TextButton", {Name = "ReferenceActive",
-        AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -37, 0, 17),
+        AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -250, 0, 17),
         Size = UDim2.fromOffset(95, 40), Text = "Active",
         BackgroundColor3 = Color3.fromRGB(23, 24, 27),
         TextColor3 = Color3.fromRGB(124, 220, 133), TextSize = 13,
@@ -5430,10 +5435,11 @@ local function buildReferenceMenu()
     hide.Text, hide.BackgroundTransparency = "‹", 1
     hide.TextColor3, hide.TextSize = muted, 22
     close.BackgroundTransparency, close.TextColor3 = 1, muted
-    close.Position, close.Size = UDim2.new(1, -23, 0, 22), UDim2.fromOffset(17, 26)
+    close.Position, close.Size = UDim2.new(1, -218, 0, 22), UDim2.fromOffset(17, 26)
 
     local root = mk("Frame", {Name = "ScreenshotESP", BackgroundTransparency = 1,
-        Size = UDim2.fromScale(1, 1), BorderSizePixel = 0, Visible = wideLayout}, pages.ESP)
+        Size = UDim2.fromScale(1, 1), BorderSizePixel = 0, Visible = wideLayout,
+        ClipsDescendants = true}, pages.ESP)
     local left = corners(mk("Frame", {Name = "ESPSettingsCard",
         Position = UDim2.fromScale(0, 0), Size = UDim2.new(0.452, -4, 1, 0),
         BackgroundColor3 = surface, BorderSizePixel = 0}, root), 12)
@@ -5454,8 +5460,8 @@ local function buildReferenceMenu()
     mk("UIListLayout", {SortOrder = Enum.SortOrder.LayoutOrder,
         Padding = UDim.new(0, 2)}, list)
     local rows = {}
-    local toggleColorOn = Color3.fromRGB(199, 201, 205)
-    local toggleColorOff = Color3.fromRGB(75, 76, 81)
+    local toggleColorOn = Color3.fromRGB(200, 202, 205)
+    local toggleColorOff = Color3.fromRGB(74, 76, 80)
     local function paintSwitch(track, knob, enabled, available)
         track.BackgroundColor3 = enabled and toggleColorOn or toggleColorOff
         knob.Position = UDim2.fromOffset(enabled and 21 or 3, 2)
@@ -5464,15 +5470,19 @@ local function buildReferenceMenu()
     local function miniSwitch(parent, name, title, position, stateReader, action)
         local row = mk("TextButton", {Name = name, Text = "", AutoButtonColor = false,
             Position = position, Size = UDim2.new(1, 0, 0, 28),
-            BackgroundTransparency = 1}, parent)
+            BackgroundTransparency = 1, BorderSizePixel = 0}, parent)
         local caption = textLabel(row, "Title", title, UDim2.fromOffset(0, 1),
             UDim2.new(1, -51, 0, 25), 13, light, Enum.Font.Gotham)
+        -- Switch is right-aligned exactly like the reference: soft grey rail,
+        -- compact white circular knob, full-row click target for mouse/touch.
         local pill = corners(mk("Frame", {Name = "Switch",
-            Position = UDim2.new(1, -40, 0.5, -9), Size = UDim2.fromOffset(36, 18),
-            BackgroundColor3 = toggleColorOff, BorderSizePixel = 0}, row), 10)
+            AnchorPoint = Vector2.new(1, 0.5),
+            Position = UDim2.new(1, -4, 0.5, 0),
+            Size = UDim2.fromOffset(36, 18),
+            BackgroundColor3 = toggleColorOff, BorderSizePixel = 0}, row), 9)
         local knob = corners(mk("Frame", {Name = "Knob",
             Position = UDim2.fromOffset(3, 2), Size = UDim2.fromOffset(14, 14),
-            BackgroundColor3 = light, BorderSizePixel = 0}, pill), 8)
+            BackgroundColor3 = light, BorderSizePixel = 0}, pill), 7)
         local function update()
             paintSwitch(pill, knob, stateReader(), action ~= nil)
             caption.TextColor3 = action and light or muted
@@ -5684,7 +5694,7 @@ local function buildReferenceMenu()
         hide.Position = wide and UDim2.new(0, 3, 0.5, -15)
             or UDim2.new(1, -77, 0, 21)
         hide.Size = wide and UDim2.fromOffset(22, 32) or UDim2.fromOffset(28, 28)
-        close.Position = wide and UDim2.new(1, -23, 0, 22)
+        close.Position = wide and UDim2.new(1, -218, 0, 22)
             or UDim2.new(1, -42, 0, 21)
         close.Size = wide and UDim2.fromOffset(17, 26)
             or UDim2.fromOffset(27, 28)

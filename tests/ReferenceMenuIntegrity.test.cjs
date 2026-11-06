@@ -63,3 +63,27 @@ test("crosshair is an on-screen UI-only visual without game state mutation",()=>
  assert.ok(menu.includes("crosshair.Visible = crosshairEnabled"));
  assert.ok(menu.includes("ZIndex = 200"));
 });
+
+test("reference switches have right-anchored rails and white circular knobs",()=>{
+ assert.ok(menu.includes("AnchorPoint = Vector2.new(1, 0.5)"));
+ assert.ok(menu.includes("Position = UDim2.new(1, -4, 0.5, 0)"));
+ assert.ok(menu.includes("Size = UDim2.fromOffset(36, 18)"));
+ assert.ok(menu.includes("Size = UDim2.fromOffset(14, 14)"));
+ assert.ok(menu.includes("corners(mk(\"Frame\", {Name = \"Knob\""));
+ assert.ok(menu.includes("Size = UDim2.new(1, -51, 0, 25)"));
+});
+test("desktop widgets are mirrored but mobile retains the old fallback",()=>{
+ assert.ok(src.includes("tabs.Position = UDim2.new(1, -196, 0, 0)"));
+ assert.ok(src.includes("page.Position = UDim2.fromOffset(14, 81)"));
+ assert.ok(src.includes("tabs.Position = UDim2.new(0, 0, 1, -57)"));
+ assert.ok(src.includes("espColumns.left.Visible = not wide"));
+ assert.ok(src.includes("espColumns.right.Visible = false"));
+});
+test("top row stays to the left of the right sidebar",()=>{
+ for(const code of [
+ "Position = UDim2.fromOffset(17, 14), Size = UDim2.new(1, -593, 0, 45)",
+ "Position = UDim2.new(1, -474, 0, 17)",
+ "Position = UDim2.new(1, -356, 0, 17)",
+ "Position = UDim2.new(1, -250, 0, 17)"
+ ]) assert.ok(menu.includes(code),code);
+});
