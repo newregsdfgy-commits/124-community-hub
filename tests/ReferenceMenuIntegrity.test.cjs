@@ -21,8 +21,9 @@ test("all eleven screenshot ESP rows are present",()=>{
 test("working ESP toggles stay linked to old state, callbacks and persistence",()=>{
  for(const key of ["esp","espSkeleton","espBox","tracers","health","names","distance"])
   assert.ok(menu.includes('"'+key+'"'),key);
- for(const code of ["state[key] = not state[key]","pcall(syncEspVisuals)",
-  "pcall(refreshShapes)","pcall(refreshTracers)","pcall(refreshESP)",
+ for(const code of ["local previous = state[key]","state[key] = not previous",
+  "local ok, err = pcall(function()","syncEspVisuals()","refreshShapes()",
+  "refreshTracers()","refreshESP()","state[key] = previous",
   "refreshToggles[key] = function()","requestSave()"])
   assert.ok(menu.includes(code),code);
 });
@@ -40,7 +41,7 @@ test("reference sliders reuse validated real ranges and refresh old controls",()
  assert.ok(menu.includes('makeSlider(visual, "FOV Circle", "aimFovPixels", CONFIG.AimFovMinPixels'));
  assert.ok(menu.includes("refreshSliders[key] = function()"));
  assert.ok(menu.includes("if old then pcall(old) end"));
- assert.ok(menu.includes("onChanged then pcall(onChanged)"));
+ assert.ok(menu.includes("if onChanged then ok, err = pcall(onChanged) end"));
 });
 test("text-border toggle changes actual ESP label stroke",()=>{
  const update=between("local function updatePlayer(", "local function sameTeamESP(");
