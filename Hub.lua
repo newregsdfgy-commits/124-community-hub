@@ -481,7 +481,7 @@ local refreshSliders = {}
 local repaintAimMode = function() end
 local repaintColors = function() end
 local repaintPerf = function() end
-local repaintConfig = function() end
+
 local requestSave = function() end
 local lightingApplying = false
 local aimTarget = nil
@@ -3011,7 +3011,6 @@ local navigation = {
     {key = "ESP", label = "ESP", symbol = "◎"},
     {key = "AIM", label = "Aim", symbol = "⌁"},
     {key = "MISC", label = "Memory", symbol = "▦"},
-    {key = "CFG", label = "Settings", symbol = "⚙"},
 }
 local function makeColumn(parent, name)
     local scroll = mk("ScrollingFrame", {
@@ -3048,7 +3047,7 @@ for idx, tab in ipairs(navigation) do
         Name = key .. "Tab", LayoutOrder = idx,
         BackgroundColor3 = P.panel,
         BorderSizePixel = 0,
-        Size = UDim2.new(0.25, -8, 0, 40),
+        Size = UDim2.new(1 / 3, -8, 0, 40),
         Text = tab.symbol .. "  " .. tab.label,
         Visible = not tab.hidden,
         Font = Enum.Font.GothamMedium, TextSize = 11,
@@ -3416,7 +3415,7 @@ local function applyResponsiveLayout()
             tabUnderline[nav.key].Position = UDim2.fromOffset(0, 4)
             tabUnderline[nav.key].Size = UDim2.new(0, 3, 1, -8)
         else
-            button.Size = UDim2.new(0.25, -8, 0, 40)
+            button.Size = UDim2.new(1 / 3, -8, 0, 40)
             local short = nav.key == "MISC" and "PERF" or nav.key
             button.Text = short
             button.TextSize = width < 355 and 9 or 10
@@ -3485,12 +3484,11 @@ local function showPage(key)
     end
     currentPage = key
     local titles = {HOME = "Dashboard", ESP = "Visuals", AIM = "Aim",
-        MISC = "Performance", CFG = "Settings"}
+        MISC = "Performance"}
     local descriptions = {HOME = "Live game performance and optimization overview",
         ESP = "Player overlays and visibility controls",
         AIM = "Targeting, weapon filters and FOV",
-        MISC = "Client graphics, monitoring and performance",
-        CFG = "Profiles, preferences and recovery"}
+        MISC = "Client graphics, monitoring and performance"}
     pageHeader.Text = titles[key] or key
     pageSubHeader.Text = descriptions[key] or ""
     for name, page in pairs(pages) do
@@ -4596,145 +4594,7 @@ addButton(pages.MISC, "Сбросить Anti-Aim", "Выключить вращ�
     requestSave()
     tell("Anti-Aim: отключён, исходная анимация восстановлена")
 end)
--- MOVEMENT: BHOP только при движении, оба параметра меняются без RenderStepped.
-addSection(pages.MISC, "BUNNY HOP", "Прыжки на земле и настройка скорости")
-addToggle(pages.MISC, "Bunny Hop", "Автопрыжки при движении, без телепортов", "bunnyHop", function()
-    utilityFX.bunny.sync()
-end)
-addSlider(pages.MISC, "Задержка прыжков", "Меньше секунд = чаще попытки", "bhopJumpInterval",
-    CONFIG.BhopMinInterval, CONFIG.BhopMaxInterval, 0.02,
-    function(v) return string.format("%.2f сек", v) end)
-addSlider(pages.MISC, "Скорость движения", "Множитель WalkSpeed, не накопление импульса", "bhopSpeedMultiplier",
-    1, CONFIG.BhopSpeedMultiplierCap, 0.1,
-    function(v) return string.format("%.1fx", v) end, function()
-        utilityFX.bunny.applySpeed()
-    end)
-addButton(pages.MISC, "Статус Bunny Hop", "Проверить текущую скорость и переключатель", function()
-    local b = utilityFX.bunny
-    local hum = b.humanoid
-    tell("BHOP " .. (state.bunnyHop and "ON" or "OFF")
-        .. " | " .. tostring(state.bhopJumpInterval) .. " сек"
-        .. " | x" .. tostring(state.bhopSpeedMultiplier)
-        .. " | WalkSpeed " .. (hum and tostring(hum.WalkSpeed) or "н/д")
-        .. (b.suspended and " | PAUSED: ждем исходный WalkSpeed" or ""))
-end)
-
--- CHAT: only native authorized TextChannels; custom remote names are not send APIs.
-addSection(pages.MISC, "CHAT TOOLS", "Только ручная отправка при разрешении Roblox")
-local chatTextFrame = mk("Frame", {
-    Name = "ChatCustomTextFrame", Size = UDim2.new(1, 0, 0, 78),
-    BackgroundColor3 = CONFIG.Surface, BorderSizePixel = 0,
-}, columnFor(pages.MISC))
-registerWidget(pages.MISC, chatTextFrame)
-round(chatTextFrame, 7)
-mk("UIStroke", {Color = P.border, Transparency = 0.48, Thickness = 1}, chatTextFrame)
-mk("TextLabel", {
-    BackgroundTransparency = 1, Position = UDim2.fromOffset(10, 5),
-    Size = UDim2.new(1, -20, 0, 18), Text = "Текст сообщения",
-    TextColor3 = P.text, TextSize = 12, Font = Enum.Font.GothamMedium,
-    TextXAlignment = Enum.TextXAlignment.Left,
-}, chatTextFrame)
-local chatTextBox = mk("TextBox", {
-    Name = "CustomChatMessage",
-    Position = UDim2.fromOffset(10, 28),
-    Size = UDim2.new(1, -20, 0, 39),
-    BackgroundColor3 = P.background,
-    TextColor3 = P.text,
-    PlaceholderColor3 = CONFIG.Muted,
-    PlaceholderText = "Введи сообщение (до 160 символов)",
-    Text = state.chatMessage,
-    Font = Enum.Font.Gotham, TextSize = 12,
-    TextXAlignment = Enum.TextXAlignment.Left,
-    ClearTextOnFocus = false,
-    MultiLine = false,
-    TextWrapped = false,
-    BorderSizePixel = 0,
-}, chatTextFrame)
-round(chatTextBox, 5)
-mk("UIPadding", {PaddingLeft = UDim.new(0, 9),
-    PaddingRight = UDim.new(0, 9)}, chatTextBox)
-local chatEditing = false
-utilityFX.chat.repaintText = function()
-    if chatTextBox.Parent and not chatEditing and chatTextBox.Text ~= state.chatMessage then
-        chatTextBox.Text = state.chatMessage
-    end
-end
-connect(chatTextBox.Focused, function() chatEditing = true end)
--- Единая нормализация текста при потере фокуса и при ручной отправке.
-utilityFX.chat.commitText = function()
-    local value = chatTextBox.Text:gsub("[%c]", " ")
-        :gsub("^%s+", ""):gsub("%s+$", "")
-    local chars = utf8.len(value)
-    if not chars then
-        tell("Chat: некорректный UTF-8")
-        utilityFX.chat.repaintText()
-        return false
-    end
-    if chars > CONFIG.ChatMaxCodepoints then
-        local cut = utf8.offset(value, CONFIG.ChatMaxCodepoints + 1)
-        if cut then value = value:sub(1, cut - 1) end
-    end
-    if state.chatMessage ~= value then
-        state.chatMessage = value
-        requestSave()
-    end
-    if chatTextBox.Text ~= value then chatTextBox.Text = value end
-    return value ~= ""
-end
-connect(chatTextBox.FocusLost, function()
-    chatEditing = false
-    utilityFX.chat.commitText()
-    utilityFX.chat.repaintText()
-end)
-addSlider(pages.MISC, "Задержка сообщений", "Пауза между ручными отправками / напоминаниями", "chatInterval",
-    CONFIG.ChatMinInterval, CONFIG.ChatMaxInterval, 1,
-    function(v) return tostring(v) .. " сек" end,
-    function() if state.spamChat then utilityFX.chat.sync() end end)
-addToggle(pages.MISC, "Chat Timer", "Только напоминания, без автоотправки и обхода ограничений", "spamChat",
-    function() utilityFX.chat.sync() end)
-local chatStatus = mk("TextLabel", {
-    Name = "ChatTimerStatus", BackgroundColor3 = CONFIG.Surface,
-    BorderSizePixel = 0, Size = UDim2.new(1, 0, 0, 34),
-    TextWrapped = true, TextSize = 10, Font = Enum.Font.Code,
-    TextColor3 = P.dim, Text = "Chat Timer: OFF",
-}, columnFor(pages.MISC))
-registerWidget(pages.MISC, chatStatus)
-round(chatStatus, 5)
-utilityFX.chat.repaintStatus = function()
-    if not chatStatus.Parent then return end
-    local c = utilityFX.chat
-    chatStatus.Text = "Timer: " .. tostring(c.timerStatus)
-        .. " | Send: " .. tostring(c.sendStatus)
-        .. " | " .. tostring(state.chatInterval) .. " с"
-end
-addButton(pages.MISC, "Отправить сообщение",
-    "При разрешении Roblox; кастомный чат не обходит запрет",
-    function() utilityFX.chat.sendOnce() end)
-addButton(pages.MISC, "Проверить доступ к чату",
-    "Проверяет CanUserChatAsync без отправки сообщения", function()
-        local ok, allowed = pcall(function()
-            return game:GetService("TextChatService"):CanUserChatAsync(LocalPlayer.UserId)
-        end)
-        local status = ok and (allowed == true and "ALLOWED" or "BLOCKED") or "UNKNOWN"
-        utilityFX.chat.sendStatus = status
-        utilityFX.chat.repaintStatus()
-        tell(status == "ALLOWED" and "Chat: Roblox разрешает отправку при наличии TextChannel."
-            or status == "BLOCKED" and
-            "Chat: аккаунту недоступен текстовый чат по настройкам Roblox."
-            or "Chat: не удалось прочитать разрешение Roblox.")
-    end)
-addButton(pages.MISC, "Статус чата", "Попытки отправки и готовность таймера", function()
-    local c = utilityFX.chat
-    tell("Chat " .. (state.spamChat and "TIMER ON" or "TIMER OFF")
-        .. " | интервал " .. tostring(state.chatInterval) .. " с"
-        .. " | локальных Success " .. tostring(c.sent)
-        .. " | напоминаний " .. tostring(c.readyCount)
-        .. " | ошибок " .. tostring(c.errors)
-        .. " | таймер " .. tostring(c.timerStatus)
-        .. " | отправка " .. tostring(c.sendStatus))
-end)
-utilityFX.chat.repaintStatus()
-
+-- LITE: Bunny Hop and chat panels removed entirely.
 addButton(pages.MISC, "Reset Character", "Локальный сброс Humanoid", function()
     local character = LocalPlayer.Character
     local hum = character and character:FindFirstChildOfClass("Humanoid")
@@ -4750,43 +4610,7 @@ addButton(pages.MISC, "Reset Character", "Локальный сброс Humanoid
     end
 end)
 
-addSection(pages.CFG, "PROFILES", "Настройки сохраняются локально при поддержке executor")
-local profileLabels = {LEGIT = "LEGIT", RAGE = "RAGE", CUSTOM = "CUSTOM"}
-local activeProfileLabel = mk("TextLabel", {Size = UDim2.new(1, 0, 0, 27),
-    Text = "ACTIVE: CUSTOM", BackgroundColor3 = CONFIG.Surface,
-    BorderSizePixel = 0, TextColor3 = CONFIG.Accent,
-    Font = Enum.Font.Code, TextSize = 11}, columnFor(pages.CFG))
-registerWidget(pages.CFG, activeProfileLabel)
-round(activeProfileLabel, 6)
-repaintConfig = function()
-    if activeProfileLabel.Parent then activeProfileLabel.Text = "ACTIVE: " .. profileName end
-end
-for _, name in ipairs({"LEGIT", "RAGE", "CUSTOM"}) do
-    addButton(pages.CFG, "Профиль " .. name, "Применить настройки " .. name, function()
-        useProfile(name, false)
-    end)
-end
-addSection(pages.CFG, "CONFIG TOOLS", "Сохранение и восстановление")
-addButton(pages.CFG, "Сохранить CUSTOM", "Сохранить текущие параметры", function()
-    dirtyToken = dirtyToken + 1
-    profiles.CUSTOM = snapshotState()
-    profileName = "CUSTOM"
-    writeProfileFile()
-    repaintConfig()
-    tell("CUSTOM сохранён")
-end)
-addButton(pages.CFG, "Восстановить профиль", "Загрузить выбранные настройки", function()
-    useProfile(profileName, false)
-end)
-addButton(pages.CFG, "Сброс настроек", "Вернуть стандартные значения", function()
-    dirtyToken = dirtyToken + 1
-    profileName = "CUSTOM"
-    profiles.CUSTOM = table.clone(defaultSettings)
-    applySettings(defaultSettings, false)
-    flushConfig()
-    tell("Сброс выполнен")
-end)
-addSection(pages.CFG, "WINDOW", "RightShift — скрыть / открыть панель")
+-- CFG page removed; CUSTOM settings are still saved automatically.
 applyResponsiveLayout()
 
 
@@ -4842,9 +4666,7 @@ do
         if state.esp then table.insert(risks, "ESP / Visuals") end
         if state.fullbright then table.insert(risks, "FullBright") end
         if state.antiAfk then table.insert(risks, "AntiAFK") end
-        if state.bunnyHop then table.insert(risks, "Bunny Hop") end
-        if state.spamChat then table.insert(risks, "Chat Timer") end
-        if state.booster then table.insert(risks, "FPS Booster") end
+                if state.booster then table.insert(risks, "FPS Booster") end
         if state.cameraFovEnabled then table.insert(risks, "Camera FOV") end
         return risks
     end
@@ -5014,13 +4836,8 @@ do
         state.esp = false
         state.tracers = false
         state.espBox = false
-        state.espSkeleton = false
         state.fullbright = false
         state.antiAfk = false
-        state.bunnyHop = false
-        state.spamChat = false
-        utilityFX.bunny.stop()
-        utilityFX.chat.stop()
         if state.booster then
             state.booster = false
             setBooster(false)
