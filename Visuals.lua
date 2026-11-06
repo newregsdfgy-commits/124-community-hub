@@ -5750,6 +5750,15 @@ local function buildReferenceMenu()
         local drag = pointer
         if drag and (input == drag.input or (not drag.touch
             and input.UserInputType == Enum.UserInputType.MouseButton1)) then
+            if drag.touch and not drag.active then
+                local dx = input.Position.X - drag.start.X
+                local dy = input.Position.Y - drag.start.Y
+                -- A deliberate tap should set the value on release, while
+                -- touch-down alone remains harmless to vertical scrolling.
+                if math.abs(dx) < 8 and math.abs(dy) < 8 then
+                    drag.set(input.Position.X)
+                end
+            end
             cancelPointer()
         end
     end)

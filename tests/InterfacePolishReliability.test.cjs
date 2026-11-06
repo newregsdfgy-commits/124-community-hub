@@ -27,6 +27,9 @@ test("3: slider does not change on touch-down or vertical scroll",()=>{
  assert.ok(menu.includes("cancelPointer() -- Vertical scroll owns the gesture."));
  assert.ok(menu.includes("if math.abs(dx) < 10 or math.abs(dx) < math.abs(dy) * 1.15 then"));
  assert.ok(menu.includes("drag.active = true"));
+ assert.ok(menu.includes("if drag.touch and not drag.active then"));
+ assert.ok(menu.includes("if math.abs(dx) < 8 and math.abs(dy) < 8 then"));
+ assert.ok(menu.includes("drag.set(input.Position.X)"));
 });
 test("4: active slider finishes on pointer release, tab change and layout reset",()=>{
  assert.ok(menu.includes("if drag and drag.finish then drag.finish() end"));
