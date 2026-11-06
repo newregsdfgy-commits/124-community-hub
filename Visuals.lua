@@ -5616,6 +5616,11 @@ local function buildReferenceMenu()
     visual.Position = UDim2.new(0, 0, 0.69, 8)
     visual.Size = UDim2.new(1, 0, 0.31, -8)
     local pointer = nil
+    local function cancelPointer()
+        local drag = pointer
+        pointer = nil
+        if drag and drag.finish then drag.finish() end
+    end
     local function makeSlider(parent, label, key, lo, hi, step, formatter, y, onChanged)
         textLabel(parent, key .. "Title", label, UDim2.fromOffset(15, y),
             UDim2.new(1, -120, 0, 20), 13, light, Enum.Font.Gotham)
@@ -5636,35 +5641,67 @@ local function buildReferenceMenu()
             AnchorPoint = Vector2.new(0.5, 0.5),
             Size = UDim2.fromOffset(16, 16), Position = UDim2.fromScale(0, 0.5),
             BackgroundColor3 = light, BorderSizePixel = 0}, track), 9)
+        local committedValue = state[key]
+        local dirty = false
+        local lastApplyAt = -1e8
         local function update()
+            if not container.Parent then return end
             local fraction = math.clamp((state[key] - lo) / (hi - lo), 0, 1)
             fill.Size = UDim2.fromScale(fraction, 1)
             thumb.Position = UDim2.fromScale(fraction, 0.5)
             value.Text = formatter(state[key])
         end
+        local function commitValue()
+            if not dirty then return end
+            dirty = false
+            if not alive then return end
+            -- Avoid repeated ESP scans on every pixel of drag; always commit
+            -- the final snapped value on release, resize or tab switch.
+            local ok, err = true, nil
+            if onChanged then ok, err = pcall(onChanged) end
+            if not ok then
+                state[key] = committedValue
+                update()
+                tell("Ошибка слайдера " .. tostring(key) .. ": " .. tostring(err))
+                return
+            end
+            committedValue = state[key]
+            lastApplyAt = os.clock()
+            requestSave()
+        end
         local old = refreshSliders[key]
         refreshSliders[key] = function()
             if old then pcall(old) end
+            committedValue = state[key]
+            dirty = false
             update()
         end
         local function setFromX(x)
-            if not alive or not track.Parent then return end
+            if not alive or not panel.Visible or not pages.ESP.Visible
+                or not root.Visible or not track.Parent then return end
             local fraction = math.clamp((x - track.AbsolutePosition.X)
                 / math.max(track.AbsoluteSize.X, 1), 0, 1)
             local raw = lo + fraction * (hi - lo)
             local nextValue = math.clamp(lo + math.floor((raw - lo) / step + 0.5) * step, lo, hi)
             if state[key] ~= nextValue then
                 state[key] = nextValue
-                if onChanged then pcall(onChanged) end
-                requestSave()
+                dirty = true
+                -- At most about 9 expensive visual refreshes per second.
+                if os.clock() - lastApplyAt >= 0.11 then commitValue() end
             end
             update()
         end
         connect(area.InputBegan, function(input)
             local kind = input.UserInputType
+            if not alive or pointer or not panel.Visible or not root.Visible
+                or not pages.ESP.Visible then return end
             if kind == Enum.UserInputType.Touch or kind == Enum.UserInputType.MouseButton1 then
-                pointer = {input = input, set = setFromX, touch = kind == Enum.UserInputType.Touch}
-                setFromX(input.Position.X)
+                local touch = kind == Enum.UserInputType.Touch
+                pointer = {input = input, set = setFromX, finish = commitValue,
+                    touch = touch, start = input.Position, active = not touch}
+                -- A touch starting on the slider can still be a vertical scroll:
+                -- don't change the value until a horizontal gesture is clear.
+                if not touch then setFromX(input.Position.X) end
             end
         end)
         update()
@@ -5672,8 +5709,24 @@ local function buildReferenceMenu()
     connect(UserInputService.InputChanged, function(input)
         local drag = pointer
         if not drag then return end
-        if (drag.touch and input == drag.input)
-            or (not drag.touch and input.UserInputType == Enum.UserInputType.MouseMovement) then
+        if not alive or not panel.Visible or not root.Visible
+            or not pages.ESP.Visible then cancelPointer(); return end
+        if drag.touch then
+            if input ~= drag.input then return end
+            local dx = input.Position.X - drag.start.X
+            local dy = input.Position.Y - drag.start.Y
+            if not drag.active then
+                if math.abs(dy) >= 10 and math.abs(dy) > math.abs(dx) * 1.1 then
+                    cancelPointer() -- Vertical scroll owns the gesture.
+                    return
+                end
+                if math.abs(dx) < 10 or math.abs(dx) < math.abs(dy) * 1.15 then
+                    return -- Wait for horizontal intent.
+                end
+                drag.active = true
+            end
+            drag.set(input.Position.X)
+        elseif input.UserInputType == Enum.UserInputType.MouseMovement then
             drag.set(input.Position.X)
         end
     end)
@@ -5681,7 +5734,7 @@ local function buildReferenceMenu()
         local drag = pointer
         if drag and (input == drag.input or (not drag.touch
             and input.UserInputType == Enum.UserInputType.MouseButton1)) then
-            pointer = nil
+            cancelPointer()
         end
     end)
     -- Original ESP limit is 200 m; don't silently change the game logic to 350.
@@ -5764,7 +5817,8 @@ local function buildReferenceMenu()
             or UDim2.fromOffset(27, 28)
     end
     tick()
-    return {root = root, layout = layout, tick = tick}
+    return {root = root, layout = layout, tick = tick,
+        cancelInteraction = cancelPointer}
 end
 referenceESP = buildReferenceMenu()
 applyResponsiveLayout()
