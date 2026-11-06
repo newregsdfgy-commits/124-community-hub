@@ -1,11 +1,11 @@
--- 124 Visuals v1.1.37 | slider initialization hotfix with runtime regression tests
+-- 124 Visuals v1.1.38 | bounded frame allocations and coalesced ESP work
 -- PlaceId: 18537079992
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.1.37",
+    Version = "1.1.38",
     PlaceId = 18537079992,
     EspRefreshSeconds = 0.35, -- Быстрый поиск персонажей, без обновления UI каждый кадр.
     EspEventMinSeconds = 0.18, -- Коалесцированные события не запускают 16 полных сканов/сек.
@@ -46,12 +46,12 @@ local CONFIG = {
     RecoilMinPitchDegrees = 0.045, -- Не реагируем на микродрожание камеры.
     RecoilMaxPitchDegrees = 5.0, -- Не воспринимаем резкий разворот как отдачу.
     RecoilMaxCorrectionDegrees = 1.60, -- Ограничение коррекции за кадр.
-    BoosterBatch = 96, -- Средний пакет вместо слишком медленных 48 и старых 320.
-    BoosterSliceMs = 0.90, -- Мягкий CPU budget для первого обхода.
-    BoosterLowFpsSliceMs = 0.45, -- Делаем один небольшой пакет за низкий FPS.
+    BoosterBatch = 64, -- Меньше изменений графики в одном проходе.
+    BoosterSliceMs = 0.65, -- Снижаем вероятность длинного пика обработки карты.
+    BoosterLowFpsSliceMs = 0.35, -- Строже лимит во время просадок.
     BoosterInitialDelay = 0.015, BoosterLowFpsDelay = 0.035,
-    BoosterQueueBatch = 48, -- StreamingEnabled: до 48 новых объектов за проход.
-    BoosterQueueSliceMs = 0.65,
+    BoosterQueueBatch = 32, -- StreamingEnabled: меньше свойств за раз.
+    BoosterQueueSliceMs = 0.45,
     BoosterQueueDelay = 0.040, BoosterQueueLowFpsDelay = 0.075,
     BoosterRepairCooldown = 45, -- Нет повторного обхода каждые 12 секунд.
     BoosterRepairIdleSeconds = 3, -- Сначала даём стримингу завершиться.
@@ -62,6 +62,8 @@ local CONFIG = {
     EspShapeEcoLimit = 10,
     EspShapeBalancedLimit = 18,
     EspShapeQualityLimit = 32,
+    ShapeNewContainersPerDraw = 2, -- Создаём 2D ESP постепенно, без пакетного всплеска.
+    ShapeNewLinesPerDraw = 8, -- Ограничиваем Instance.new в рендер-проходе.
     PerfEcoEnterFps = 44,
     PerfEcoExitFps = 54, -- Гистерезис без прыгания ECO/BALANCED каждый замер.
     PerfTierEcoEnterDwell = 2, -- Быстрый переход в ECO при просадках FPS.
@@ -3987,6 +3989,8 @@ end
 
 -- 2D Box + Skeleton: UI-примитивы создаём один раз на игрока, переиспользуем.
 local shapeData = {}
+local shapeNewContainersLeft = 0
+local shapeNewLinesLeft = 0
 local shapePairsR15 = {
     {"Head", "UpperTorso"}, {"UpperTorso", "LowerTorso"},
     {"UpperTorso", "LeftUpperArm"}, {"LeftUpperArm", "LeftLowerArm"},
@@ -4025,6 +4029,8 @@ end
 local function shapeItem(player, character)
     local item = shapeData[player]
     if item and item.container.Parent and item.character == character then return item end
+    if shapeNewContainersLeft <= 0 then return nil end
+    shapeNewContainersLeft = shapeNewContainersLeft - 1
     -- Респавн: старые кости относятся к другой модели, их нельзя переиспользовать.
     if item then pcall(function() item.container:Destroy() end) end
     local container = mk("Frame", {Name = "S" .. player.UserId, Size = UDim2.fromScale(1, 1),
@@ -4039,8 +4045,12 @@ local function hideShape(item)
 end
 local function ensureShapeLines(item, kind, count)
     local lines = item[kind]
-    while #lines < count do lines[#lines + 1] = shapeLine(item.container) end
-    return lines
+    while #lines < count and shapeNewLinesLeft > 0 do
+        lines[#lines + 1] = shapeLine(item.container)
+        shapeNewLinesLeft = shapeNewLinesLeft - 1
+    end
+    -- Incomplete shapes stay hidden and finish incrementally on later frames.
+    return #lines >= count
 end
 local function refreshShapes()
     if not alive or not state.esp or not (state.espBox or state.espSkeleton) then
@@ -4065,6 +4075,8 @@ local function refreshShapes()
         return
     end
     local activeCount, active = 0, perfCounters.espVisual.active
+    shapeNewContainersLeft = CONFIG.ShapeNewContainersPerDraw
+    shapeNewLinesLeft = CONFIG.ShapeNewLinesPerDraw
     local tier = visualPerfTier()
     local shapeBudget = tier == "ECO" and CONFIG.EspShapeEcoLimit
         or tier == "QUALITY" and CONFIG.EspShapeQualityLimit
@@ -4089,8 +4101,9 @@ local function refreshShapes()
             and player.Character == char
             and (not state.espEnemyOnly or not sameTeamESP(player))
             and (root.Position - myRoot.Position).Magnitude * CONFIG.StudMeters <= state.espRangeMeters then
-            active[player] = true
             local item = shapeItem(player, char)
+            if item then
+            active[player] = true
             item.inactiveSince = nil
             local color = getPlayerColor(player)
             local top, on1 = camera:WorldToViewportPoint(head.Position + Vector3.new(0, head.Size.Y * 0.5 + 0.25, 0))
@@ -4098,19 +4111,25 @@ local function refreshShapes()
             if on1 and on2 and top.Z > 0 and bottom.Z > 0 then
                 activeCount = activeCount + 1
                 if state.espBox then
-                    ensureShapeLines(item, "box", 4)
+                    if ensureShapeLines(item, "box", 4) then
                     local half = math.clamp(math.abs(bottom.Y - top.Y) * 0.23, 4, 160)
                     local left, right = top.X - half, top.X + half
                     setLine(item.box[1], Vector2.new(left, top.Y), Vector2.new(right, top.Y), state.espLineThickness, color)
                     setLine(item.box[2], Vector2.new(left, bottom.Y), Vector2.new(right, bottom.Y), state.espLineThickness, color)
                     setLine(item.box[3], Vector2.new(left, top.Y), Vector2.new(left, bottom.Y), state.espLineThickness, color)
                     setLine(item.box[4], Vector2.new(right, top.Y), Vector2.new(right, bottom.Y), state.espLineThickness, color)
+                    else
+                        for _, line in ipairs(item.box) do
+                            setIfDifferent(line, "Visible", false)
+                        end
+                    end
                 else
                     for _, line in ipairs(item.box) do setIfDifferent(line, "Visible", false) end
                 end
                 if state.espSkeleton then
                     local pairsToDraw = char:FindFirstChild("UpperTorso") and shapePairsR15 or shapePairsR6
-                    ensureShapeLines(item, "bones", #pairsToDraw)
+                    local skeletonReady = ensureShapeLines(item, "bones", #pairsToDraw)
+                    if skeletonReady then
                     table.clear(projected)
                     local function projectedPart(name)
                         -- false = проверяли, но точка за камерой/вне экрана.
@@ -4144,6 +4163,11 @@ local function refreshShapes()
                     for idx = #pairsToDraw + 1, #item.bones do
                         setIfDifferent(item.bones[idx], "Visible", false)
                     end
+                    else
+                        for _, line in ipairs(item.bones) do
+                            setIfDifferent(line, "Visible", false)
+                        end
+                    end
                 else
                     for _, line in ipairs(item.bones) do setIfDifferent(line, "Visible", false) end
                 end
@@ -4151,6 +4175,7 @@ local function refreshShapes()
                 -- Не оставляем «замороженную» рамку в старой позиции.
                 hideShape(item)
             end
+            end -- item: новые объекты отложены по лимиту кадра
         end
     end
     local now, cached = os.clock(), 0
@@ -5768,7 +5793,11 @@ local function buildReferenceMenu()
     -- Original ESP limit is 200 m; don't silently change the game logic to 350.
     makeSlider(top, "Max Distance", "espRangeMeters", 10, 200, 5,
         function(value) return tostring(value) .. "m" end, 17,
-        function() refreshESP(); refreshShapes() end)
+        function()
+            -- Full roster sorting + 2D geometry must not run synchronously
+            -- for every dragged slider tick. Queue at most one pending scan.
+            queueESPRefresh()
+        end)
     mk("Frame", {Name = "ReferenceDivider", Position = UDim2.fromOffset(15, 86),
         Size = UDim2.new(1, -30, 0, 1), BackgroundColor3 = border,
         BorderSizePixel = 0}, top)
