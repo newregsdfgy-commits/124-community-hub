@@ -1002,7 +1002,8 @@ local function queueESPRefresh()
     task.delay(delaySeconds, function()
         if generation ~= espRefreshGeneration then return end
         espRefreshQueued = false
-        if alive and state.esp then
+        if alive and state.esp and os.clock() - perfCounters.espVisual.lastScanAt
+            >= CONFIG.EspEventMinSeconds then
             local ok, err = pcall(refreshESP)
             if not ok then warn("[124 Community Visuals] ESP event refresh: " .. tostring(err)) end
         end
@@ -2575,12 +2576,22 @@ flushConfig = function()
     writeProfileFile()
 end
 
+local saveWorkerPending = false
+local saveLastRequested = 0
 requestSave = function()
     if restoring or not alive then return end
     dirtyToken = dirtyToken + 1
-    local token = dirtyToken
-    task.delay(1.4, function()
-        if alive and token == dirtyToken then
+    saveLastRequested = os.clock()
+    if saveWorkerPending then return end
+    saveWorkerPending = true
+    task.spawn(function()
+        while alive do
+            local remaining = 1.4 - (os.clock() - saveLastRequested)
+            if remaining <= 0 then break end
+            task.wait(math.max(0.05, remaining))
+        end
+        saveWorkerPending = false
+        if alive then
             storeCustomSnapshot()
             writeProfileFile()
         end
@@ -5997,8 +6008,6 @@ cleanup = function(safeStop)
     end
     pcall(flushConfig) -- Safety Stop сохраняет уже выключенные переключатели.
     releaseAntiAfk()
-    utilityFX.bunny.stop() -- Сразу возвращаем исходную скорость при Unload.
-    utilityFX.chat.stop() -- Прерываем ожидающую отправку и не посылаем сообщений.
     recoil.shutdown()
     perfCounters.session.setEnabled(false)
     memoryFX.spin.reset()
@@ -6036,8 +6045,7 @@ cleanup = function(safeStop)
     boosterPro.restoreGraphicsSliced()
     if savedLighting or savedTerrainDecoration or savedTerrainColors
         or next(savedGraphics) ~= nil or next(memoryFX.camera.saved) ~= nil
-        or next(memoryFX.spin.pending) ~= nil
-        or next(utilityFX.bunny.pending) ~= nil then
+        or next(memoryFX.spin.pending) ~= nil then
         local previousRecovery = env.ARMY124_RECOVERY
         local pendingRecovery
         pendingRecovery = function()
@@ -6052,12 +6060,10 @@ cleanup = function(safeStop)
             boosterPro.restoreGraphicsSliced()
             memoryFX.camera.reset()
             memoryFX.spin.restorePending()
-            utilityFX.bunny.restorePending()
             local done = not (savedLighting or savedTerrainDecoration or savedTerrainColors)
                 and next(savedGraphics) == nil
                 and next(memoryFX.camera.saved) == nil
                 and next(memoryFX.spin.pending) == nil
-                and next(utilityFX.bunny.pending) == nil
             if done and oldDone and env.ARMY124_RECOVERY == pendingRecovery then
                 env.ARMY124_RECOVERY = nil
             end
@@ -6313,8 +6319,6 @@ task.spawn(function()
             if state.cameraFovEnabled then table.insert(features, "FOV") end
             if state.booster then table.insert(features, "BOOST") end
             if state.fullbright then table.insert(features, "LIGHT") end
-            if state.bunnyHop then table.insert(features, "BHOP") end
-            if state.spamChat then table.insert(features, "CHAT") end
             activeInfo.Text = #features > 0 and table.concat(features, " | ") or "124 / IDLE"
         end
         aimTouchButton.Visible = state.aimbot and UserInputService.TouchEnabled
