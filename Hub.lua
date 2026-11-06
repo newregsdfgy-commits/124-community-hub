@@ -6027,8 +6027,8 @@ end
 
 cleanup = function(safeStop)
     if not alive then return end
-    -- Только явный Safety Stop сохраняет безопасное состояние. Обычный Unload
-    -- и hot-reload не изменяют выбранные пользователем настройки CUSTOM.
+    -- Only explicit Safety Stop stores disabled feature values. Normal unload
+    -- leaves the selected CUSTOM profile intact for the next launch.
     if safeStop == true then
         state.aimbot = false
         state.antiAim = false
@@ -6041,35 +6041,38 @@ cleanup = function(safeStop)
         state.sessionDiagnostics = false
         state.booster = false
         state.cameraFovEnabled = false
-        -- Если запись файла запрещена, защита на следующем запуске
-        -- в рамках той же сессии executor всё равно сработает.
         env.ARMY124_SAFE_BOOT = true
     end
-    pcall(flushConfig) -- Safety Stop сохраняет уже выключенные переключатели.
-    releaseAntiAfk()
-    recoil.shutdown()
-    perfCounters.session.setEnabled(false)
-    memoryFX.spin.reset()
-    state.cameraFovEnabled = false
-    memoryFX.camera.reset()
+    pcall(flushConfig)
+    -- Stop new work *before* any yield, Terrain writes or graphics rollback.
     alive = false
     state.esp = false
     state.aimbot = false
     state.controlRecoil = false
     state.antiAim = false
-    aimHeldKey = false
-    captureAimKey = false
     state.antiAfk = false
     state.booster = false
     state.fullbright = false
+    state.cameraFovEnabled = false
+    aimHeldKey = false
+    captureAimKey = false
     boosterRevision = boosterRevision + 1
-    restoreTerrainGrass()
-    restoreTerrainColors()
+    table.clear(boosterPro.protectedRestoreQueue)
+    table.clear(boosterPro.protectedRestoreSeen)
+
+    -- A failure in one controller must not prevent unrelated disconnections.
+    pcall(releaseAntiAfk)
+    pcall(recoil.shutdown)
+    pcall(perfCounters.session.setEnabled, false)
+    pcall(memoryFX.spin.reset)
+    pcall(memoryFX.camera.reset)
     if aimBound then
         pcall(function() RunService:UnbindFromRenderStep(aimBindingName) end)
+        aimBound = false
     end
     if recoil.bound then
         pcall(function() RunService:UnbindFromRenderStep(recoil.bindingName) end)
+        recoil.bound = false
     end
     if memoryFX.camera.bound then
         pcall(function() RunService:UnbindFromRenderStep(memoryFX.camera.bindingName) end)
@@ -6079,9 +6082,36 @@ cleanup = function(safeStop)
         pcall(function() RunService:UnbindFromRenderStep(perfCounters.espVisual.bindingName) end)
         perfCounters.espVisual.bound = false
     end
+    pcall(boosterPro.stopWatchingPlayers)
+    pcall(stopESPWatchers)
+    if boosterPro.layoutCameraConnection then
+        pcall(function() boosterPro.layoutCameraConnection:Disconnect() end)
+        boosterPro.layoutCameraConnection = nil
+    end
+    for _, conn in ipairs(connections) do
+        pcall(function() conn:Disconnect() end)
+    end
+    table.clear(connections)
+
+    -- UI and player overlays are released before slow graphics restoration.
+    for player in pairs(renderData) do pcall(deleteRender, player) end
+    pcall(clearShapes)
+    pcall(hidePanelAnimation)
+    pcall(function() gui:Destroy() end)
+    pcall(function() if tracerGui then tracerGui:Destroy() end end)
+    pcall(function() if shapeGui then shapeGui:Destroy() end end)
+    pcall(function() if fovGui then fovGui:Destroy() end end)
+
+    -- Retain snapshots whenever an engine property cannot be restored.
+    -- The next launch will execute ARMY124_RECOVERY before loading UI.
+    pcall(restoreTerrainGrass)
+    pcall(restoreTerrainColors)
     pcall(applyLighting)
-    -- Нагрузку распределяем по кадрам, сохраняя snapshots при частичном откате.
-    boosterPro.restoreGraphicsSliced()
+    local graphicsOk, graphicsError = pcall(boosterPro.restoreGraphicsSliced)
+    if not graphicsOk then
+        warn("[124 Community Visuals] Cleanup graphics restore: "
+            .. tostring(graphicsError))
+    end
     if savedLighting or savedTerrainDecoration or savedTerrainColors
         or next(savedGraphics) ~= nil or next(memoryFX.camera.saved) ~= nil
         or next(memoryFX.spin.pending) ~= nil then
@@ -6093,13 +6123,15 @@ cleanup = function(safeStop)
                 local ok, result = pcall(previousRecovery)
                 oldDone = ok and result == true
             end
-            pcall(applyLighting)
-            if savedTerrainDecoration then restoreTerrainGrass() end
-            if savedTerrainColors then restoreTerrainColors() end
-            boosterPro.restoreGraphicsSliced()
-            memoryFX.camera.reset()
-            memoryFX.spin.restorePending()
-            local done = not (savedLighting or savedTerrainDecoration or savedTerrainColors)
+            local lightingOK = pcall(applyLighting)
+            local grassOK = not savedTerrainDecoration or pcall(restoreTerrainGrass)
+            local colorsOK = not savedTerrainColors or pcall(restoreTerrainColors)
+            local graphicsOK = pcall(boosterPro.restoreGraphicsSliced)
+            local cameraOK = pcall(memoryFX.camera.reset)
+            local spinOK = pcall(memoryFX.spin.restorePending)
+            local done = lightingOK and grassOK and colorsOK and graphicsOK
+                and cameraOK and spinOK
+                and not (savedLighting or savedTerrainDecoration or savedTerrainColors)
                 and next(savedGraphics) == nil
                 and next(memoryFX.camera.saved) == nil
                 and next(memoryFX.spin.pending) == nil
@@ -6109,23 +6141,9 @@ cleanup = function(safeStop)
             return done and oldDone
         end
         env.ARMY124_RECOVERY = pendingRecovery
-        warn("[124 Community Visuals] Откат графики/камеры/позы не завершён; данные сохранены для повтора")
+        warn("[124 Community Visuals] Graphics/camera/pose rollback incomplete; "
+            .. "snapshots retained for another safe attempt")
     end
-    for player in pairs(renderData) do deleteRender(player) end
-    clearShapes()
-    boosterPro.stopWatchingPlayers()
-    stopESPWatchers()
-    if boosterPro.layoutCameraConnection then
-        pcall(function() boosterPro.layoutCameraConnection:Disconnect() end)
-        boosterPro.layoutCameraConnection = nil
-    end
-    for _, conn in ipairs(connections) do pcall(function() conn:Disconnect() end) end
-    table.clear(connections)
-    hidePanelAnimation()
-    pcall(function() gui:Destroy() end)
-    pcall(function() if tracerGui then tracerGui:Destroy() end end)
-    pcall(function() if shapeGui then shapeGui:Destroy() end end)
-    pcall(function() if fovGui then fovGui:Destroy() end end)
     if env.ARMY124_CLEANUP == cleanup then env.ARMY124_CLEANUP = nil end
     return true
 end
