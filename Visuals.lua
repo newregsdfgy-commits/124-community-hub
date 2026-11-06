@@ -3674,36 +3674,29 @@ local function refreshShapes()
         perfCounters.lazy.ensureShapes()
     end
     if not camera or not shapeGui or not shapeGui.Parent then
-        -- Не оставляем рамки и кости в последней позиции при отсутствии камеры.
         for _, item in pairs(shapeData) do hideShape(item) end
         perfCounters.shapeCount = 0
         return
     end
-    local myCharacter = LocalPlayer.Character
-    local _, myRoot = espParts(myCharacter)
+    local _, myRoot = espParts(LocalPlayer.Character)
     if not myRoot then
         for _, item in pairs(shapeData) do hideShape(item) end
         perfCounters.shapeCount = 0
         return
     end
     local activeCount, active = 0, perfCounters.espVisual.active
-    shapeNewContainersLeft = CONFIG.ShapeNewContainersPerDraw
-    shapeNewLinesLeft = CONFIG.ShapeNewLinesPerDraw
     local tier = visualPerfTier()
-    local shapeBudget = tier == "ECO" and CONFIG.EspShapeEcoLimit
+    local budget = tier == "ECO" and CONFIG.EspShapeEcoLimit
         or tier == "QUALITY" and CONFIG.EspShapeQualityLimit
         or CONFIG.EspShapeBalancedLimit
     if state.performanceGuard and perfCounters.guard.level == 2 then
-        shapeBudget = math.min(shapeBudget, CONFIG.GuardShapeMaxL2)
+        budget = math.min(budget, CONFIG.GuardShapeMaxL2)
     elseif state.performanceGuard and perfCounters.guard.level == 1 then
-        shapeBudget = math.min(shapeBudget, CONFIG.GuardShapeMaxL1)
+        budget = math.min(budget, CONFIG.GuardShapeMaxL1)
     end
     table.clear(active)
-    -- Отрисовываем в том же порядке, что и ближайших игроков в ESP.
-    -- Никогда не проверяем части персонажей после заполнения лимита.
-    local projected = perfCounters.espVisual.projected
     for _, player in ipairs(perfCounters.espVisual.ordered) do
-        if activeCount >= shapeBudget then break end
+        if activeCount >= budget then break end
         local info = renderData[player]
         local char = info and info.character
         local head, root, hum = info and info.head, info and info.root, info and info.humanoid
@@ -3713,80 +3706,34 @@ local function refreshShapes()
             and player.Character == char
             and (not state.espEnemyOnly or not sameTeamESP(player))
             and (root.Position - myRoot.Position).Magnitude * CONFIG.StudMeters <= state.espRangeMeters then
-            local item = shapeItem(player, char)
-            if item then
-            active[player] = true
-            item.inactiveSince = nil
-            local color = getPlayerColor(player)
-            local top, on1 = camera:WorldToViewportPoint(head.Position + Vector3.new(0, head.Size.Y * 0.5 + 0.25, 0))
-            local bottom, on2 = camera:WorldToViewportPoint(root.Position - Vector3.new(0, 3, 0))
-            if on1 and on2 and top.Z > 0 and bottom.Z > 0 then
+            -- Check visibility BEFORE allocating any Box GUI.
+            local top, onTop = camera:WorldToViewportPoint(
+                head.Position + Vector3.new(0, head.Size.Y * 0.5 + 0.25, 0))
+            local bottom, onBottom = camera:WorldToViewportPoint(
+                root.Position - Vector3.new(0, 3, 0))
+            if onTop and onBottom and top.Z > 0 and bottom.Z > 0 then
                 activeCount = activeCount + 1
-                if state.espBox then
+                local item = shapeItem(player, char)
+                if item then
+                    active[player] = true
+                    item.inactiveSince = nil
                     if ensureShapeLines(item, "box", 4) then
-                    local half = math.clamp(math.abs(bottom.Y - top.Y) * 0.23, 4, 160)
-                    local left, right = top.X - half, top.X + half
-                    setLine(item.box[1], Vector2.new(left, top.Y), Vector2.new(right, top.Y), state.espLineThickness, color)
-                    setLine(item.box[2], Vector2.new(left, bottom.Y), Vector2.new(right, bottom.Y), state.espLineThickness, color)
-                    setLine(item.box[3], Vector2.new(left, top.Y), Vector2.new(left, bottom.Y), state.espLineThickness, color)
-                    setLine(item.box[4], Vector2.new(right, top.Y), Vector2.new(right, bottom.Y), state.espLineThickness, color)
+                        local color = getPlayerColor(player)
+                        local half = math.clamp(math.abs(bottom.Y - top.Y) * 0.23, 4, 160)
+                        local left, right = top.X - half, top.X + half
+                        setLine(item.box[1], Vector2.new(left, top.Y),
+                            Vector2.new(right, top.Y), state.espLineThickness, color)
+                        setLine(item.box[2], Vector2.new(left, bottom.Y),
+                            Vector2.new(right, bottom.Y), state.espLineThickness, color)
+                        setLine(item.box[3], Vector2.new(left, top.Y),
+                            Vector2.new(left, bottom.Y), state.espLineThickness, color)
+                        setLine(item.box[4], Vector2.new(right, top.Y),
+                            Vector2.new(right, bottom.Y), state.espLineThickness, color)
                     else
-                        for _, line in ipairs(item.box) do
-                            setIfDifferent(line, "Visible", false)
-                        end
+                        hideShape(item) -- Incomplete boxes never display partially.
                     end
-                else
-                    for _, line in ipairs(item.box) do setIfDifferent(line, "Visible", false) end
                 end
-                if state.espSkeleton then
-                    local pairsToDraw = char:FindFirstChild("UpperTorso") and shapePairsR15 or shapePairsR6
-                    local skeletonReady = ensureShapeLines(item, "bones", #pairsToDraw)
-                    if skeletonReady then
-                    table.clear(projected)
-                    local function projectedPart(name)
-                        -- false = проверяли, но точка за камерой/вне экрана.
-                        local hit = projected[name]
-                        if hit ~= nil then return hit ~= false and hit or nil end
-                        local body = item.parts[name]
-                        if not body or body.Parent ~= char then
-                            body = char:FindFirstChild(name)
-                            item.parts[name] = body
-                        end
-                        if body and body:IsA("BasePart") then
-                            local vec, visible = camera:WorldToViewportPoint(body.Position)
-                            if visible and vec.Z > 0 then
-                                local result = Vector2.new(vec.X, vec.Y)
-                                projected[name] = result
-                                return result
-                            end
-                        end
-                        projected[name] = false
-                        return nil
-                    end
-                    for idx, names in ipairs(pairsToDraw) do
-                        local a, b = projectedPart(names[1]), projectedPart(names[2])
-                        if a and b then
-                            setLine(item.bones[idx], a, b, state.espLineThickness, color)
-                        else
-                            setIfDifferent(item.bones[idx], "Visible", false)
-                        end
-                    end
-                    -- R15 -> R6 / неполная модель: старые линии скрываем.
-                    for idx = #pairsToDraw + 1, #item.bones do
-                        setIfDifferent(item.bones[idx], "Visible", false)
-                    end
-                    else
-                        for _, line in ipairs(item.bones) do
-                            setIfDifferent(line, "Visible", false)
-                        end
-                    end
-                else
-                                end
-            else
-                -- Не оставляем «замороженную» рамку в старой позиции.
-                hideShape(item)
             end
-            end -- item: новые объекты отложены по лимиту кадра
         end
     end
     local now, cached = os.clock(), 0
@@ -3796,7 +3743,7 @@ local function refreshShapes()
             local invalid = player.Parent ~= Players or item.character ~= player.Character
                 or not renderData[player] or not item.container.Parent
             local expired = item.inactiveSince
-                and (now - item.inactiveSince >= CONFIG.EspCacheIdleSeconds)
+                and now - item.inactiveSince >= CONFIG.EspCacheIdleSeconds
             if invalid or expired or cached >= CONFIG.EspCacheMaxExtra then
                 pcall(function() item.container:Destroy() end)
                 shapeData[player] = nil
@@ -3810,17 +3757,10 @@ local function refreshShapes()
 end
 
 syncEspVisuals = function()
-    refreshESP()
-    if state.esp and state.tracers then
-        refreshTracers()
-    else
-        clearTracers()
-    end
-    if state.esp and (state.espBox or state.espSkeleton) then
-        refreshShapes()
-    else
-        clearShapes()
-    end
+    -- State toggles must not force roster sorting/geometry in input callbacks.
+    if state.esp then queueESPRefresh() else refreshESP() end
+    if not state.esp or not state.tracers then clearTracers() end
+    if not state.esp or not state.espBox then clearShapes() end
 end
 
 -- Единая сетка компонентов. Стилизация не меняет обработчики состояний.
@@ -6231,7 +6171,7 @@ end)
 local espVisualElapsed = 0
 perfCounters.espVisual.frame = function(dt)
     if not alive or not state.esp then espVisualElapsed = 0; return end
-    if not state.tracers and not state.espBox and not state.espSkeleton then
+    if not state.tracers and not state.espBox then
         espVisualElapsed = 0
         return
     end
@@ -6270,7 +6210,10 @@ perfCounters.espVisual.frame = function(dt)
             end
         end
     end
-    if state.espBox or state.espSkeleton then
+    if state.espBox then
+        -- Allocation quotas reset only in this rate-limited draw callback.
+        shapeNewContainersLeft = CONFIG.ShapeNewContainersPerDraw
+        shapeNewLinesLeft = CONFIG.ShapeNewLinesPerDraw
         local ok, err = pcall(refreshShapes)
         if not ok then
             local now = os.clock()
