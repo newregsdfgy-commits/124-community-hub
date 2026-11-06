@@ -10,10 +10,10 @@ function scope(before,after){
  assert.ok(i>=0 && j>i, "Missing scope "+before);
  return source.slice(i,j);
 }
-test("audit 1: sources and loader target the same exact v1.1.37 release",()=>{
+test("audit 1: sources and loader target the same exact v1.1.38 release",()=>{
  assert.equal(source,alias);
- assert.ok(source.includes('Version = "1.1.37"'));
- assert.ok(start.includes("v1.1.37-ui-startup-hotfix-test/Visuals.lua"));
+ assert.ok(source.includes('Version = "1.1.38"'));
+ assert.ok(start.includes("v1.1.38-frametime-stutter-guard-test/Visuals.lua"));
 });
 test("audit 2: partial ESP render is registered before potentially failing billboard creation",()=>{
  const render=scope("local function createRender(", "local function setIfDifferent(");

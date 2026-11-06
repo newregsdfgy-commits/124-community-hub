@@ -34,8 +34,8 @@ function modelGuard(sequence, initialLevel = 0) {
   return trace;
 }
 
-test("release is isolated to v1.1.37 test branch", () => {
-  assert.match(src, /Version\s*=\s*"1\.1\.37"/);
+test("release is isolated to v1.1.38 test branch", () => {
+  assert.match(src, /Version\s*=\s*"1\.1\.38"/);
   assert.match(src, /PlaceId\s*=\s*18537079992/);
   assert.match(src, /xpcall\(initializeHubUI/);
   assert.match(src, /env\.ARMY124_CLEANUP = abortPartialHub/);

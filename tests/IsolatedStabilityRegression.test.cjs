@@ -10,10 +10,10 @@ function block(first,last){
  assert.ok(a>=0 && b>a,"Cannot find block: "+first);
  return src.slice(a,b);
 }
-test("1: isolated v1.1.37 artifacts and launcher are paired",()=>{
+test("1: isolated v1.1.38 artifacts and launcher are paired",()=>{
  assert.equal(src,alias);
- assert.ok(src.includes('Version = "1.1.37"'));
- assert.ok(launcher.includes("v1.1.37-ui-startup-hotfix-test/Visuals.lua"));
+ assert.ok(src.includes('Version = "1.1.38"'));
+ assert.ok(launcher.includes("v1.1.38-frametime-stutter-guard-test/Visuals.lua"));
 });
 test("2: Booster restores retry only in pending phase with a revision token",()=>{
  const b=block("function boosterPro.retryPendingGraphics()","cleanup = function(safeStop)");
