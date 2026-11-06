@@ -96,7 +96,7 @@ test("player event signals are always removed on Unload and failed initializatio
  const abort=scope("local function abortPartialHub()","env.ARMY124_CLEANUP = abortPartialHub");
  const cleanup=scope("cleanup = function(safeStop)","env.ARMY124_CLEANUP = cleanup");
  assert.ok(abort.includes("pcall(stopESPWatchers)"));
- assert.ok(cleanup.includes("stopESPWatchers()"));
+ assert.ok(cleanup.includes("pcall(stopESPWatchers)"));
 });
 test("one broken player won't prevent the rest of nearby ESP from loading",()=>{
  const scan=scope("local function refreshESP()","-- Event-assisted ESP refresh");

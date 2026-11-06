@@ -9,7 +9,7 @@ test("camera change and resize events do not create repeated layout work",()=>{
 });
 test("panel animation unload cancellation",()=>{
  assert.ok(src.includes("if panelTween then panelTween:Cancel(); panelTween = nil end"));
- assert.ok(src.includes("hidePanelAnimation()\n    pcall(function() gui:Destroy() end)"));
+ assert.ok(src.includes("pcall(hidePanelAnimation)\n    pcall(function() gui:Destroy() end)"));
 });
 test("mobile drag safety",()=>{
  assert.ok(src.includes("bar.AbsoluteSize.X - 100"));

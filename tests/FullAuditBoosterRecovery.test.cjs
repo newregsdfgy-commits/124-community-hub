@@ -66,7 +66,7 @@ test("lifecycle manages references and retains all main functions",()=>{
  for (const term of [
   "env.ARMY124_CLEANUP = abortPartialHub",
   "env.ARMY124_CLEANUP = cleanup",
-  "boosterPro.restoreGraphicsSliced()",
+  "pcall(boosterPro.restoreGraphicsSliced)",
   "table.clear(connections)",
   "RunService:UnbindFromRenderStep",
   'Name = "Army124CommunityVisualsGUI"',

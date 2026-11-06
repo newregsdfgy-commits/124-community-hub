@@ -37,7 +37,7 @@ test("bulk unwatch is safe on unload and partial GUI initialization failure",()=
  const partial=region("local function abortPartialHub()", "env.ARMY124_CLEANUP = abortPartialHub");
  assert.ok(partial.includes("pcall(boosterPro.stopWatchingPlayers)"));
  const unload=region("cleanup = function(safeStop)", "env.ARMY124_CLEANUP = cleanup");
- assert.ok(unload.includes("boosterPro.stopWatchingPlayers()"));
+ assert.ok(unload.includes("pcall(boosterPro.stopWatchingPlayers)"));
 });
 test("camera change uses one actively owned viewport listener without global accumulation",()=>{
  const camera=region("local currentLayoutCamera = nil", "-- Линии сверху экрана");

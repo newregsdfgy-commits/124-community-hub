@@ -38,7 +38,7 @@ test("repair waits for streaming quiet and enforces cooldown",()=>{
 });
 test("graphics restore and original behavior preserved",()=>{
  for (const marker of ["boosterPro.restoreObject(obj, snapshot)", "savedGraphics[obj] = snap",
-  "boosterPro.restoreGraphicsSliced()", "setBooster(false)", "optimizeHierarchy(Workspace, revision)"])
+  "pcall(boosterPro.restoreGraphicsSliced)", "setBooster(false)", "optimizeHierarchy(Workspace, revision)"])
    assert.ok(src.includes(marker),marker);
  assert.ok(src.includes("CPU max init/queue:"));
 });
