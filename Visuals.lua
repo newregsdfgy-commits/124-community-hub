@@ -1,11 +1,11 @@
--- 124 Visuals v1.1.35 | reference-accurate right navigation and switch geometry
+-- 124 Visuals v1.1.36 | refined graphite UI, guarded touch interactions and layout
 -- PlaceId: 18537079992
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.1.35",
+    Version = "1.1.36",
     PlaceId = 18537079992,
     EspRefreshSeconds = 0.35, -- Быстрый поиск персонажей, без обновления UI каждый кадр.
     EspEventMinSeconds = 0.18, -- Коалесцированные события не запускают 16 полных сканов/сек.
@@ -3203,9 +3203,14 @@ mk("Frame", {
     Position = UDim2.fromOffset(14, 0), Size = UDim2.fromOffset(83, 2),
 }, panel)
 local bar = mk("Frame", {
-    Name = "DragBar", BackgroundTransparency = 1,
+    Name = "DragBar", BackgroundColor3 = Color3.fromRGB(24, 25, 28),
+    BackgroundTransparency = 0,
     Size = UDim2.new(1, 0, 0, 76), Active = true,
 }, panel)
+-- Static gradient only; no perpetual UI animation or extra frame hooks.
+mk("UIGradient", {Rotation = 0,
+    Color = ColorSequence.new(Color3.fromRGB(27, 28, 32),
+        Color3.fromRGB(18, 19, 22))}, bar)
 local emblem = mk("Frame", {
     Name = "BrandMark", Visible = false, BackgroundColor3 = P.tile,
     BorderSizePixel = 0, Position = UDim2.fromOffset(16, 17),
@@ -3302,10 +3307,22 @@ local currentPage = "ESP"
 local scrollFrames = {}
 local touchGestures = setmetatable({}, {__mode = "k"})
 local suppressTapUntil = 0
+-- Do not treat a scroller from a *hidden ancestor page* as touch-active.
+-- The previous check looked only at the direct parent and could suppress
+-- clicks on unrelated pages after switching to compact/portrait layout.
+local function uiVisibleThroughParents(obj)
+    local current = obj
+    while current do
+        if current:IsA("GuiObject") and not current.Visible then return false end
+        if current:IsA("ScreenGui") then return current.Enabled end
+        current = current.Parent
+    end
+    return false
+end
 local function pointerOverScroll(position)
     if not position then return false end
     for _, scroll in ipairs(scrollFrames) do
-        if scroll.Parent and scroll.Parent.Visible and scroll.Visible then
+        if scroll.Parent and uiVisibleThroughParents(scroll) then
             local at, sz = scroll.AbsolutePosition, scroll.AbsoluteSize
             if at and sz and position.X >= at.X and position.X <= at.X + sz.X
                 and position.Y >= at.Y and position.Y <= at.Y + sz.Y then
@@ -3338,6 +3355,7 @@ connect(UserInputService.InputEnded, function(input)
     if touch and touch.dragged then
         suppressTapUntil = math.max(suppressTapUntil, os.clock() + 0.22)
     end
+    touchGestures[input] = nil -- Release finished touch identity immediately.
 end)
 local function allowTap(input)
     if not alive then return false end
@@ -3805,6 +3823,7 @@ local function applyResponsiveLayout()
         end
     end
     if referenceESP then
+        if referenceESP.cancelInteraction then referenceESP.cancelInteraction() end
         referenceESP.root.Visible = wide
         local espColumns = pageColumns[pages.ESP]
         if espColumns then
@@ -3827,6 +3846,9 @@ end
 
 local function showPage(key)
     if not pages[key] then return end
+    if referenceESP and referenceESP.cancelInteraction then
+        referenceESP.cancelInteraction()
+    end
     if key ~= "AIM" and captureAimKey then
         captureAimKey = false
         repaintAimKeybind()
@@ -5381,8 +5403,8 @@ end
 -- existing state, refresh, and save handlers; no changes to ESP targeting.
 local function buildReferenceMenu()
     local bg = P.background
-    local surface = Color3.fromRGB(29, 30, 33)
-    local raised = Color3.fromRGB(36, 37, 41)
+    local surface = Color3.fromRGB(29, 30, 34)
+    local raised = Color3.fromRGB(39, 40, 46)
     local border = Color3.fromRGB(46, 47, 52)
     local light = Color3.fromRGB(240, 241, 244)
     local muted = Color3.fromRGB(164, 165, 171)
@@ -5401,7 +5423,7 @@ local function buildReferenceMenu()
     local brand = textLabel(tabs, "ReferenceBrand", "124 Visuals",
         UDim2.fromOffset(19, 18), UDim2.fromOffset(168, 35), 23, light,
         Enum.Font.GothamBlack)
-    local version = textLabel(tabs, "ReferenceVersion", "v1.0",
+    local version = textLabel(tabs, "ReferenceVersion", "v" .. CONFIG.Version,
         UDim2.fromOffset(86, 50), UDim2.fromOffset(78, 17), 10, muted,
         Enum.Font.Gotham)
     -- Vector Roblox mark: tilted square with the distinctive square cutout.
@@ -5435,7 +5457,7 @@ local function buildReferenceMenu()
         PaddingRight = UDim.new(0, 9)}, search)
     local safe = corners(mk("TextLabel", {Name = "ReferenceSafe",
         AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -474, 0, 17),
-        Size = UDim2.fromOffset(75, 40), Text = "●  Safe",
+        Size = UDim2.fromOffset(75, 40), Text = "●  Ready",
         BackgroundColor3 = Color3.fromRGB(23, 24, 27),
         TextColor3 = Color3.fromRGB(115, 225, 135), TextSize = 13,
         Font = Enum.Font.GothamMedium, BorderSizePixel = 0}, bar), 10)
@@ -5471,7 +5493,10 @@ local function buildReferenceMenu()
     local right = mk("Frame", {Name = "ReferenceRightColumn",
         Position = UDim2.new(0.452, 4, 0, 0),
         Size = UDim2.new(0.548, -4, 1, 0), BackgroundTransparency = 1}, root)
-    mk("UIStroke", {Color = border, Transparency = 0.2}, left)
+    mk("UIStroke", {Color = border, Transparency = 0.16, Thickness = 1}, left)
+    mk("UIGradient", {Rotation = 90,
+        Color = ColorSequence.new(Color3.fromRGB(34, 35, 40),
+            Color3.fromRGB(27, 28, 32))}, left)
     textLabel(left, "ESPHeader", "◎   ESP SETTINGS", UDim2.fromOffset(18, 11),
         UDim2.new(1, -28, 0, 22), 15, light, Enum.Font.GothamBold)
     local list = mk("ScrollingFrame", {Name = "ESPSettingsList",
@@ -5485,8 +5510,8 @@ local function buildReferenceMenu()
     mk("UIListLayout", {SortOrder = Enum.SortOrder.LayoutOrder,
         Padding = UDim.new(0, 2)}, list)
     local rows = {}
-    local toggleColorOn = Color3.fromRGB(200, 202, 205)
-    local toggleColorOff = Color3.fromRGB(74, 76, 80)
+    local toggleColorOn = Color3.fromRGB(202, 204, 210)
+    local toggleColorOff = Color3.fromRGB(71, 73, 80)
     local function paintSwitch(track, knob, enabled, available)
         track.BackgroundColor3 = enabled and toggleColorOn or toggleColorOff
         knob.Position = UDim2.fromOffset(enabled and 21 or 3, 2)
@@ -5495,7 +5520,9 @@ local function buildReferenceMenu()
     local function miniSwitch(parent, name, title, position, stateReader, action)
         local row = mk("TextButton", {Name = name, Text = "", AutoButtonColor = false,
             Position = position, Size = UDim2.new(1, 0, 0, 28),
+            BackgroundColor3 = Color3.fromRGB(69, 71, 79),
             BackgroundTransparency = 1, BorderSizePixel = 0}, parent)
+        corners(row, 6)
         local caption = textLabel(row, "Title", title, UDim2.fromOffset(0, 1),
             UDim2.new(1, -51, 0, 25), 13, light, Enum.Font.Gotham)
         -- Switch is right-aligned exactly like the reference: soft grey rail,
@@ -5505,13 +5532,22 @@ local function buildReferenceMenu()
             Position = UDim2.new(1, -4, 0.5, 0),
             Size = UDim2.fromOffset(36, 18),
             BackgroundColor3 = toggleColorOff, BorderSizePixel = 0}, row), 9)
+        mk("UIStroke", {Color = Color3.fromRGB(126, 129, 136),
+            Transparency = 0.64, Thickness = 1}, pill)
         local knob = corners(mk("Frame", {Name = "Knob",
             Position = UDim2.fromOffset(3, 2), Size = UDim2.fromOffset(14, 14),
             BackgroundColor3 = light, BorderSizePixel = 0}, pill), 7)
         local function update()
+            if not row.Parent then return end
             paintSwitch(pill, knob, stateReader(), action ~= nil)
             caption.TextColor3 = action and light or muted
         end
+        connect(row.MouseEnter, function()
+            if alive and action and row.Parent then row.BackgroundTransparency = 0.82 end
+        end)
+        connect(row.MouseLeave, function()
+            if row.Parent then row.BackgroundTransparency = 1 end
+        end)
         safeActivate(row, function()
             if not action then
                 tell(title .. ": модуль отсутствует в этой версии")
@@ -5567,7 +5603,10 @@ local function buildReferenceMenu()
             Position = UDim2.new(0, 0, y, 0),
             Size = UDim2.new(1, 0, h, -6),
             BackgroundColor3 = surface, BorderSizePixel = 0}, right), 12)
-        mk("UIStroke", {Color = border, Transparency = 0.2}, frame)
+        mk("UIStroke", {Color = border, Transparency = 0.16, Thickness = 1}, frame)
+        mk("UIGradient", {Rotation = 90,
+            Color = ColorSequence.new(Color3.fromRGB(34, 35, 40),
+                Color3.fromRGB(27, 28, 32))}, frame)
         return frame
     end
     local top = card("DistanceAndBorder", 0, 0.38)
