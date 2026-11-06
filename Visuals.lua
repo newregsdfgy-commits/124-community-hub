@@ -2213,7 +2213,7 @@ function perfCounters.lazy.ensureTracer()
     return true
 end
 function perfCounters.lazy.ensureShapes()
-    if not alive or not state.esp or not (state.espBox or state.espSkeleton) then
+    if not alive or not state.esp or not state.espBox then
         return false
     end
     if not shapeGui or not shapeGui.Parent then
@@ -3613,23 +3613,10 @@ local function refreshTracers()
     end
 end
 
--- 2D Box + Skeleton: UI-примитивы создаём один раз на игрока, переиспользуем.
+-- LITE 2D Box: only four reusable lines per visible player.
 local shapeData = {}
 local shapeNewContainersLeft = 0
 local shapeNewLinesLeft = 0
-local shapePairsR15 = {
-    {"Head", "UpperTorso"}, {"UpperTorso", "LowerTorso"},
-    {"UpperTorso", "LeftUpperArm"}, {"LeftUpperArm", "LeftLowerArm"},
-    {"LeftLowerArm", "LeftHand"}, {"UpperTorso", "RightUpperArm"},
-    {"RightUpperArm", "RightLowerArm"}, {"RightLowerArm", "RightHand"},
-    {"LowerTorso", "LeftUpperLeg"}, {"LeftUpperLeg", "LeftLowerLeg"},
-    {"LeftLowerLeg", "LeftFoot"}, {"LowerTorso", "RightUpperLeg"},
-    {"RightUpperLeg", "RightLowerLeg"}, {"RightLowerLeg", "RightFoot"},
-}
-local shapePairsR6 = {
-    {"Head", "Torso"}, {"Torso", "Left Arm"}, {"Torso", "Right Arm"},
-    {"Torso", "Left Leg"}, {"Torso", "Right Leg"},
-}
 local function shapeLine(parent)
     return mk("Frame", {BackgroundColor3 = CONFIG.Accent,
         BackgroundTransparency = 0.22, BorderSizePixel = 0,
@@ -3661,13 +3648,12 @@ local function shapeItem(player, character)
     if item then pcall(function() item.container:Destroy() end) end
     local container = mk("Frame", {Name = "S" .. player.UserId, Size = UDim2.fromScale(1, 1),
         BackgroundTransparency = 1, Active = false}, shapeGui)
-    item = {container = container, character = character, parts = {}, box = {}, bones = {}}
+    item = {container = container, character = character, box = {}}
     shapeData[player] = item
     return item
 end
 local function hideShape(item)
     for _, line in ipairs(item.box) do setIfDifferent(line, "Visible", false) end
-    for _, line in ipairs(item.bones) do setIfDifferent(line, "Visible", false) end
 end
 local function ensureShapeLines(item, kind, count)
     local lines = item[kind]
@@ -3679,7 +3665,7 @@ local function ensureShapeLines(item, kind, count)
     return #lines >= count
 end
 local function refreshShapes()
-    if not alive or not state.esp or not (state.espBox or state.espSkeleton) then
+    if not alive or not state.esp or not state.espBox then
         if next(shapeData) ~= nil then clearShapes() end
         return
     end
@@ -3795,8 +3781,7 @@ local function refreshShapes()
                         end
                     end
                 else
-                    for _, line in ipairs(item.bones) do setIfDifferent(line, "Visible", false) end
-                end
+                                end
             else
                 -- Не оставляем «замороженную» рамку в старой позиции.
                 hideShape(item)
