@@ -55,7 +55,7 @@ test("6: ESP switch restores old state on callback exception",()=>{
  assert.ok(b.indexOf("state[key] = previous")<b.lastIndexOf("requestSave()"));
 });
 test("7: search reports an empty result and skin module is explicit preview",()=>{
- assert.ok(menu.includes('Name = "EmptySearch"'));
+ assert.ok(menu.includes('"EmptySearch", "No matching functions"'));
  assert.ok(menu.includes("emptySearch.Visible = matches == 0"));
  assert.ok(menu.includes("if found then matches = matches + 1 end"));
  assert.ok(menu.includes('"UnavailableTag", "PREVIEW"'));
