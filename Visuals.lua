@@ -1,11 +1,11 @@
--- 124 Visuals v1.1.38 | bounded frame allocations and coalesced ESP work
+-- 124 Visuals v1.1.39 LITE | simplify modules and optimize frame load
 -- PlaceId: 18537079992
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.1.38",
+    Version = "1.1.39",
     PlaceId = 18537079992,
     EspRefreshSeconds = 0.35, -- Быстрый поиск персонажей, без обновления UI каждый кадр.
     EspEventMinSeconds = 0.18, -- Коалесцированные события не запускают 16 полных сканов/сек.
@@ -80,13 +80,7 @@ local CONFIG = {
     FrameTimeSpikeMs = 50,
     EspCacheIdleSeconds = 2.0, -- Переиспользование без долгих невидимых устаревших объектов.
     EspCacheMaxExtra = 4, -- Всего не более 4 скрытых Highlight сверх лимита.
-    BhopMinInterval = 0.08, -- Частота проверок прыжка; физика ограничивает реальный BHOP.
-    BhopMaxInterval = 0.60,
-    BhopSpeedMultiplierCap = 2.0,
-    BhopWalkSpeedCap = 32, -- Не разгоняем локальный WalkSpeed без ограничений.
-    ChatMinInterval = 5, -- Уважаем штатные ограничения Roblox.
-    ChatMaxInterval = 120,
-    ChatMaxCodepoints = 160,
+    -- LITE: chat/BHOP constants removed.
     FullBrightBrightness = 2.1,
     FullBrightAmbient = Color3.fromRGB(170, 170, 170),
     FullBrightOutdoorAmbient = Color3.fromRGB(175, 175, 175),
@@ -201,7 +195,6 @@ local state = {
     teamColors = true,
     tracers = false,
     espBox = false,
-    espSkeleton = false,
     espEnemyOnly = false,
     espRangeMeters = 200,
     espMaxTargets = CONFIG.EspMaxPlayers, -- Настраиваемая вместимость ESP, отдельно от метров.
@@ -234,15 +227,6 @@ local state = {
     aimOnlyRegisteredWeapons = true, -- Без подтверждения оружия AIM не наводится.
     aimWeaponNames = "", -- Храним список точных имён через "|", без угадывания.
     antiAfk = false,
-    bunnyHop = false, -- По умолчанию выключено, работает при движении по земле.
-    bhopJumpInterval = 0.22, -- Пауза между попытками прыжка (сек).
-    bhopSpeedMultiplier = 1.2, -- Множитель локального WalkSpeed.
-    spamChat = false, -- Не запускается автоматически после загрузки.
-    chatInterval = 8, -- Минимум CONFIG.ChatMinInterval.
-    chatMessage = "", -- Пользовательский текст, без готовых фраз.
-    airAlerts = false, -- Опционально: без фоновых Raycast/сканов игроков по умолчанию.
-    booster = false,
-    boosterMode = "BALANCED", -- BALANCED / WHITE / ULTRA
     cameraFovEnabled = false, -- Отдельный FOV камеры; не совпадает с пиксельным AIM FOV.
     cameraFovDegrees = 85, -- Вертикальный угол обзора камеры, 55..110 градусов.
     antiAim = false, -- Визуальная локальная крутилка; стартует только по нажатию.
@@ -2489,309 +2473,17 @@ function memoryFX.spin.frame(dt)
     end
 end
 
--- MOVEMENT / CHAT: отдельный контроллер, без RenderStepped и автоматической рассылки.
--- Chat Timer даёт уведомление о готовности; отправка ТОЛЬКО по нажатию пользователем.
-local utilityFX = {bunny = {token = 0, retrying = false,
-    pending = setmetatable({}, {__mode = "k"})}, chat = {
-    token = 0, sent = 0, errors = 0, readyCount = 0,
-    inFlight = false, lastSentAt = -1e8,
-    timerStatus = "OFF", sendStatus = "NOT SENT",
-    repaintText = function() end, repaintStatus = function() end,
-    commitText = function() return false end
-}}
-do
-    local bunny = utilityFX.bunny
-    local chat = utilityFX.chat
-    local TextChatService = game:GetService("TextChatService")
-
-    -- Восстанавливаем только собственный WalkSpeed, не перетираем изменения игры.
-    -- Храним неудавшиеся откаты отдельно от активного Humanoid.
-    -- При смене персонажа исходные значения старого рига не теряются.
-    function bunny.restorePending()
-        for hum, record in pairs(bunny.pending) do
-            local ok, done = pcall(function()
-                if not hum.Parent then return true end
-                local current = hum.WalkSpeed
-                -- Игра могла сама изменить скорость: чужое значение не перетираем.
-                if math.abs(current - record.applied) >= 0.05 then return true end
-                hum.WalkSpeed = record.original
-                return math.abs(hum.WalkSpeed - record.original) < 0.05
-            end)
-            if ok and done then bunny.pending[hum] = nil end
-        end
-        return next(bunny.pending) == nil
-    end
-
-    function bunny.queueRestoreRetry()
-        if bunny.retrying or not alive or next(bunny.pending) == nil then return end
-        bunny.retrying = true
-        task.spawn(function()
-            local failures = 0
-            while alive and next(bunny.pending) ~= nil do
-                task.wait(math.min(20, 2 ^ math.min(failures, 4)))
-                if not alive then break end
-                if bunny.restorePending() then break end
-                failures = failures + 1
-            end
-            bunny.retrying = false
-        end)
-    end
-
-    function bunny.restore()
-        local hum = bunny.humanoid
-        if hum and hum.Parent and bunny.originalSpeed ~= nil
-            and bunny.appliedSpeed ~= nil then
-            local ok, current = pcall(function() return hum.WalkSpeed end)
-            if not ok or math.abs(current - bunny.appliedSpeed) < 0.05 then
-                bunny.pending[hum] = {
-                    original = bunny.originalSpeed, applied = bunny.appliedSpeed
-                }
-                bunny.restorePending()
-            end
-        end
-        bunny.humanoid, bunny.originalSpeed, bunny.appliedSpeed = nil, nil, nil
-        bunny.suspended = false
-        bunny.queueRestoreRetry()
-    end
-
-    function bunny.applySpeed()
-        local hum = bunny.humanoid
-        if not alive or not state.bunnyHop or not hum or not hum.Parent then return end
-        if not bunny.originalSpeed or bunny.originalSpeed <= 0 then return end
-        -- Внешнее управление скоростью (спринт, стан, форма) приоритетнее Hub.
-        -- При конфликте не пытаемся каждую итерацию перезаписывать WalkSpeed.
-        if bunny.suspended then
-            -- Возобновляем ТОЛЬКО когда игра вернула исходный WalkSpeed
-            -- после спринта/стана, без вмешательства в новую игровую скорость.
-            if math.abs(hum.WalkSpeed - bunny.originalSpeed) < 0.05 then
-                bunny.suspended = false
-                bunny.appliedSpeed = nil
-            else
-                return
-            end
-        end
-        if bunny.appliedSpeed and math.abs(hum.WalkSpeed - bunny.appliedSpeed) >= 0.05 then
-            bunny.suspended = true
-            return
-        end
-        -- Если у игры исходная скорость выше лимита, не замедляем её.
-        local speed = math.max(bunny.originalSpeed,
-            math.min(bunny.originalSpeed * state.bhopSpeedMultiplier,
-                CONFIG.BhopWalkSpeedCap))
-        if math.abs(hum.WalkSpeed - speed) < 0.05 then
-            bunny.appliedSpeed = speed
-            return
-        end
-        local ok, actual = pcall(function()
-            hum.WalkSpeed = speed
-            return hum.WalkSpeed
-        end)
-        if ok and type(actual) == "number" and math.abs(actual - speed) < 0.05 then
-            bunny.appliedSpeed = speed
-        end
-    end
-
-    function bunny.stop()
-        bunny.token = bunny.token + 1
-        bunny.restore()
-    end
-
-    function bunny.sync()
-        bunny.stop()
-        if not alive or not state.bunnyHop then return end
-        local token = bunny.token
-        task.spawn(function()
-            while alive and state.bunnyHop and token == bunny.token do
-                local char = LocalPlayer.Character
-                local hum = char and char:FindFirstChildOfClass("Humanoid")
-                if hum and hum.Parent and hum.Health > 0 then
-                    if bunny.pending[hum] then bunny.restorePending() end
-                    -- Нельзя брать новую базовую скорость, пока старый откат
-                    -- на том же Humanoid ещё не завершён.
-                    if not bunny.pending[hum] then
-                    if bunny.humanoid ~= hum then
-                        bunny.restore()
-                        bunny.humanoid = hum
-                        bunny.originalSpeed = hum.WalkSpeed
-                        bunny.appliedSpeed = nil
-                        bunny.suspended = false
-                        bunny.applySpeed()
-                    end
-                    bunny.applySpeed()
-                    if hum.MoveDirection.Magnitude > 0.08
-                        and hum.FloorMaterial ~= Enum.Material.Air
-                        and not hum.Sit and not hum.PlatformStand then
-                        hum.Jump = true
-                    end
-                    end -- ожидаемый откат WalkSpeed препятствует новой записи
-                elseif bunny.humanoid then
-                    bunny.restore()
-                end
-                task.wait(math.clamp(state.bhopJumpInterval,
-                    CONFIG.BhopMinInterval, CONFIG.BhopMaxInterval))
-            end
-        end)
-    end
-
-    function chat.stop()
-        chat.token = chat.token + 1
-        chat.timerStatus = "OFF"
-        chat.repaintStatus()
-    end
-
-    -- Пользовательский таймер напоминания (НЕ отправка по таймеру).
-    function chat.sync()
-        chat.stop()
-        if not alive or not state.spamChat then return end
-        chat.timerStatus = "WAITING"
-        chat.repaintStatus()
-        local token = chat.token
-        task.spawn(function()
-            local deadline = os.clock() + state.chatInterval
-            while alive and state.spamChat and token == chat.token do
-                local remaining = deadline - os.clock()
-                if remaining <= 0 then
-                    chat.readyCount = chat.readyCount + 1
-                    chat.timerStatus = "READY: нажмите отправить"
-                    chat.repaintStatus()
-                    -- Каждая следующая готовность не вызывает SendAsync.
-                    deadline = os.clock() + state.chatInterval
-                else
-                    task.wait(math.min(0.5, remaining))
-                end
-            end
-        end)
-    end
-
-    -- Без угадывания публичности custom TextChannel: выбираем только RBXGeneral.
-    -- Наличие TextSource означает членство; CanSend — право отправки.
-    -- PlatformIntegratedChat не читается из LocalScript (RobloxScriptSecurity).
-    local function currentChatChannel()
-        local channels = TextChatService:FindFirstChild("TextChannels")
-        if not channels then return nil, "TextChannels не загружены" end
-        local channel = channels:FindFirstChild("RBXGeneral")
-        if not channel or not channel:IsA("TextChannel") then
-            return nil, "RBXGeneral недоступен; выбери стандартный чат Roblox"
-        end
-        local permitted = false
-        for _, source in ipairs(channel:GetChildren()) do
-            if source:IsA("TextSource") and source.UserId == LocalPlayer.UserId then
-                permitted = source.CanSend == true
-                break
-            end
-        end
-        if not permitted then
-            return nil, "нет права Send в RBXGeneral (проверь доступ к чату)"
-        end
-        return channel
-    end
-
-    -- Вызывать исключительно из кнопки, после ввода сообщения пользователем.
-    function chat.sendOnce()
-        if not alive then return end
-        if chat.inFlight then
-            tell("Chat: предыдущая отправка ещё выполняется")
-            return
-        end
-        local okText = chat.commitText()
-        if not okText then
-            tell("Chat: введи сообщение (до 160 символов)")
-            return
-        end
-        -- TextSource.CanSend is channel-local, NOT the account-wide permission.
-        -- Never use a custom GUI remote as a workaround for denied chat access.
-        chat.inFlight = true
-        chat.sendStatus = "CHECKING ACCESS"
-        chat.repaintStatus()
-        local permissionToken = chat.token
-        local okAccess, permitted = pcall(function()
-            return TextChatService:CanUserChatAsync(LocalPlayer.UserId)
-        end)
-        if not alive or permissionToken ~= chat.token then
-            chat.inFlight = false
-            return
-        end
-        if not okAccess or permitted ~= true then
-            chat.inFlight = false
-            chat.sendStatus = okAccess and "BLOCKED BY ROBLOX" or "PERMISSION UNKNOWN"
-            chat.repaintStatus()
-            tell(okAccess and
-                "Chat: Roblox запрещает отправку сообщений этому аккаунту. "
-                .. "Кастомный чат игры не отменяет настройки общения."
-                or "Chat: не удалось проверить разрешение Roblox. Отправка отменена.")
-            return
-        end
-
-        local now = os.clock()
-        local waitTime = state.chatInterval - (now - chat.lastSentAt)
-        if waitTime > 0 then
-            chat.inFlight = false
-            tell("Chat: повторная отправка доступна через "
-                .. tostring(math.ceil(waitTime)) .. " с")
-            return
-        end
-        local channel, channelError = currentChatChannel()
-        if not channel then
-            chat.inFlight = false
-            chat.sendStatus = channelError
-            chat.errors = chat.errors + 1
-            chat.repaintStatus()
-            tell("Chat: " .. channelError)
-            return
-        end
-        local message = state.chatMessage
-        chat.lastSentAt = now
-        chat.sendStatus = "SENDING"
-        chat.repaintStatus()
-        -- SendAsync yields: нельзя отменить уже начатую отправку, но токен
-        -- не позволяет обновлять состояние после Unload/нового включения.
-        local token = chat.token
-        local ok, reply = pcall(function() return channel:SendAsync(message) end)
-        chat.inFlight = false
-        if not alive or token ~= chat.token then return end
-        if not ok then
-            chat.sendStatus, chat.errors = "API ERROR", chat.errors + 1
-            tell("Chat: ошибка отправки: " .. tostring(reply))
-        else
-            -- В режиме Platform-Integrated Chat Roblox может вернуть "".
-            -- Проверять PlatformIntegratedChat из LocalScript нельзя: защищённое свойство.
-            if type(reply) ~= "userdata" and typeof(reply) ~= "Instance" then
-                chat.sendStatus = "UNSUPPORTED / EMPTY RESULT"
-                chat.errors = chat.errors + 1
-                tell("Chat: SendAsync не поддерживается в режиме этой игры; "
-                    .. "отправляй сообщения через встроенный чат Roblox")
-            else
-                local okStatus, status = pcall(function() return reply.Status end)
-                chat.sendStatus = okStatus and status and status.Name or "UNKNOWN"
-                if okStatus and status == Enum.TextChatMessageStatus.Success then
-                    chat.sent = chat.sent + 1
-                    chat.errors = 0
-                else
-                    chat.errors = chat.errors + 1
-                end
-                tell("Chat: локальный статус " .. chat.sendStatus ..
-                    " (доставку получателям проверяй на втором клиенте)")
-            end
-        end
-        chat.repaintStatus()
-    end
-end
-
-
+-- LITE: no Bunny Hop or chat workers.
 emergencyUIRollback = function()
-    local bunnyOK = pcall(utilityFX.bunny.stop)
-    local bunnyPendingOK, bunnyRestored = pcall(utilityFX.bunny.restorePending)
-    local chatOK = pcall(utilityFX.chat.stop)
     local cameraOK, cameraRestored = pcall(memoryFX.camera.reset)
     local spinOK, spinRestored = pcall(memoryFX.spin.reset)
-    return bunnyOK and bunnyPendingOK and bunnyRestored == true and chatOK
-        and cameraOK and cameraRestored == true and spinOK and spinRestored == true
+    return cameraOK and cameraRestored == true and spinOK and spinRestored == true
 end
 
 -- Сохраняем только ограниченный набор настроек; код из JSON никогда не выполняется.
 local HttpService = game:GetService("HttpService")
 local storedKeys = {
-    "esp", "tracers", "names", "health", "distance", "teamColors", "espBox", "espSkeleton",
+    "esp", "tracers", "names", "health", "distance", "teamColors", "espBox",
     "espEnemyOnly", "espRangeMeters", "espMaxTargets", "espColorPreset", "espLineThickness", "performanceMode",
     "performanceGuard", "moduleCpuMonitor", "lazyLoading",
     "sessionDiagnostics",
@@ -2800,7 +2492,6 @@ local storedKeys = {
     "aimOnlyRegisteredWeapons", "aimWeaponNames",
     "fovVisible", "fovThickness", "visibleCheck", "teamCheck", "fullbright", "booster",
     "antiAfk", "airAlerts", "hud", "activeHud", "aimKeyName", "controlRecoil", "recoilStrength", "boosterMode",
-    "bunnyHop", "bhopJumpInterval", "bhopSpeedMultiplier", "spamChat", "chatInterval", "chatMessage",
     "cameraFovEnabled", "cameraFovDegrees", "antiAim", "antiAimSpeed", "antiAimTilt",
 }
 local numericRules = {
@@ -2810,9 +2501,6 @@ local numericRules = {
     aimSmoothX = {1, 10}, aimSmoothY = {1, 10},
     predictionSeconds = {0, 0.25}, aimFovPixels = {40, 400},
     fovThickness = {1, 4}, recoilStrength = {0, 100},
-    bhopJumpInterval = {CONFIG.BhopMinInterval, CONFIG.BhopMaxInterval},
-    bhopSpeedMultiplier = {1, CONFIG.BhopSpeedMultiplierCap},
-    chatInterval = {CONFIG.ChatMinInterval, CONFIG.ChatMaxInterval},
     cameraFovDegrees = {55, 110}, antiAimSpeed = {180, 1440}, antiAimTilt = {0, 25},
 }
 local textRules = {
@@ -2824,19 +2512,7 @@ local textRules = {
 defaultSettings = {}
 for _, key in ipairs(storedKeys) do defaultSettings[key] = state[key] end
 local profiles = {CUSTOM = {}} -- Только CUSTOM записывается на диск.
--- Текст и интервал чата — глобальные настройки, независимо от LEGIT/RAGE/CUSTOM.
-local chatPreferences = {}
 local weaponPreferences = {}
-local presetData = {
-    LEGIT = {aimFovPixels = 95, aimSmoothness = 8, visibleCheck = true,
-        targetLock = true, prediction = false, aimRangeMeters = 85},
-    RAGE = {aimFovPixels = 350, aimSmoothness = 0, visibleCheck = false,
-        targetLock = true, prediction = true, predictionSeconds = 0.10,
-        aimRangeMeters = 180},
-}
-local dirtyToken = 0
-local restoring = false
-
 local function snapshotState()
     local snapshot = {}
     for _, key in ipairs(storedKeys) do snapshot[key] = state[key] end
@@ -2858,16 +2534,6 @@ local function validatedSettings(values)
             elseif type(baseline) == "string" and type(incoming) == "string" then
                 if key == "aimWeaponNames" then
                     result[key] = incoming:sub(1, 400)
-                elseif key == "chatMessage" then
-                    local value = incoming:gsub("[%c]", " "):gsub("^%s+", ""):gsub("%s+$", "")
-                    local count = utf8.len(value)
-                    if count then
-                        if count > CONFIG.ChatMaxCodepoints then
-                            local stopAt = utf8.offset(value, CONFIG.ChatMaxCodepoints + 1)
-                            if stopAt then value = value:sub(1, stopAt - 1) end
-                        end
-                        result[key] = value
-                    end
                 elseif key == "aimKeyName" then
                     if validAimKeyName(incoming) then result[key] = incoming end
                 elseif textRules[key] and textRules[key][incoming] then
@@ -2880,13 +2546,10 @@ local function validatedSettings(values)
 end
 
 local function writeProfileFile()
-    chatPreferences.chatMessage = state.chatMessage
-    chatPreferences.chatInterval = state.chatInterval
     weaponPreferences.aimOnlyRegisteredWeapons = state.aimOnlyRegisteredWeapons
     weaponPreferences.aimWeaponNames = state.aimWeaponNames
     local data = {version = 1, current = profileName,
         profiles = {CUSTOM = profiles.CUSTOM or {}},
-        chatPreferences = chatPreferences,
         weaponPreferences = weaponPreferences}
     env.ARMY124_CONFIG_V09 = data
     if type(writefile) == "function" then
@@ -2942,14 +2605,6 @@ local function readProfileFile()
             weaponPreferences.aimOnlyRegisteredWeapons = prefs.aimOnlyRegisteredWeapons
             weaponPreferences.aimWeaponNames = prefs.aimWeaponNames
         end
-        if type(loaded.chatPreferences) == "table" then
-            local prefs = validatedSettings({
-                chatMessage = loaded.chatPreferences.chatMessage,
-                chatInterval = loaded.chatPreferences.chatInterval,
-            })
-            chatPreferences.chatMessage = prefs.chatMessage
-            chatPreferences.chatInterval = prefs.chatInterval
-        end
         if type(loaded.profiles) == "table" then
             if loaded.profiles.CUSTOM then
                 profiles.CUSTOM = validatedSettings(loaded.profiles.CUSTOM)
@@ -2961,8 +2616,7 @@ local function readProfileFile()
             -- Старые изменённые LEGIT/RAGE специально игнорируем:
             -- именованные пресеты остаются неизменяемыми.
         end
-        if type(loaded.current) == "string" and (loaded.current == "CUSTOM"
-            or presetData[loaded.current]) then profileName = loaded.current end
+        profileName = "CUSTOM"
     end
 end
 readProfileFile()
@@ -3067,44 +2721,18 @@ local function applySettings(incoming, autoLoad)
     return true
 end
 
-local function useProfile(name, autoLoad)
-    if name ~= "CUSTOM" and not presetData[name] then return end
-    if not autoLoad then
-        -- Сохраняем предыдущий CUSTOM до изменения активного имени.
-        flushConfig()
-    end
-    local previousProfileName = profileName
-    profileName = name
+local function loadCustomSettings()
+    -- Existing CUSTOM settings persist automatically; no CFG/preset UI.
     local values = table.clone(defaultSettings)
-    if name == "CUSTOM" then
-        for k, v in pairs(profiles.CUSTOM or {}) do values[k] = v end
-    else
-        for k, v in pairs(presetData[name]) do values[k] = v end
-    end
+    for key, value in pairs(profiles.CUSTOM or {}) do values[key] = value end
     if type(weaponPreferences.aimOnlyRegisteredWeapons) == "boolean" then
         values.aimOnlyRegisteredWeapons = weaponPreferences.aimOnlyRegisteredWeapons
     end
     if type(weaponPreferences.aimWeaponNames) == "string" then
         values.aimWeaponNames = weaponPreferences.aimWeaponNames
     end
-    if type(chatPreferences.chatMessage) == "string" then
-        values.chatMessage = chatPreferences.chatMessage
-    end
-    if type(chatPreferences.chatInterval) == "number" then
-        values.chatInterval = chatPreferences.chatInterval
-    end
-    if not applySettings(values, autoLoad) then
-        profileName = previousProfileName
-        return false
-    end
-    if not autoLoad then
-        -- Записываем имя активного профиля. LEGIT/RAGE при этом не изменяются.
-        flushConfig()
-        tell("Профиль " .. name .. " загружен")
-    end
-    return true
+    return applySettings(values, true)
 end
-
 
 local viewport = Workspace.CurrentCamera and Workspace.CurrentCamera.ViewportSize or Vector2.new(390, 720)
 local TweenService = game:GetService("TweenService")
@@ -6987,7 +6615,7 @@ task.spawn(function()
 end)
 
 -- Применяем профиль после создания всей GUI и привязок.
-if not useProfile(profileName, true) then
+if not loadCustomSettings() then
     error("Профиль не был загружен полностью")
 end
 refreshFovRing()
