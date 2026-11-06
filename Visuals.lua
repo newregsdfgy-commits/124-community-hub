@@ -3353,7 +3353,7 @@ local sectionSides = {
     ["FOV EDITOR"] = "right", ["CONTROL"] = "right", ["RECOIL CONTROL"] = "right",
     ["UTILITY"] = "left", ["PERFORMANCE"] = "right",
     ["CAMERA FOV"] = "left", ["ANTI-AIM"] = "right",
-    ["BUNNY HOP"] = "left", ["CHAT TOOLS"] = "right",
+    
     ["PROFILES"] = "left", ["CONFIG TOOLS"] = "right", ["WINDOW"] = "right",
 }
 local function columnFor(page)

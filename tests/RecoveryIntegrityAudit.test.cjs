@@ -58,7 +58,7 @@ test("audit 05: delayed C0 and AutoRotate snapshots require readback success",()
 });
 test("audit 06: immediate pose restoration verifies values and retains failed snapshot",()=>{
  const reset=section("function memoryFX.spin.reset()",
-  "-- MOVEMENT / CHAT:");
+  "emergencyUIRollback = function()");
  for(const required of [
   'if spin.joint.C0 ~= spin.originalC0 then error("Joint C0 restore mismatch") end',
   'error("AutoRotate restore mismatch")',
