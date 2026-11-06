@@ -1592,20 +1592,56 @@ function boosterPro.restoreGraphicsEmergency()
     return next(savedGraphics) == nil
 end
 
+-- Late characters are NOT scanned when there are no graphics snapshots.
+-- A single owner drains all character restorations in small, nonblocking slices.
+-- This matters on accessory-heavy respawns/StreamingEnabled bursts.
+boosterPro.protectedRestoreQueue = {}
+boosterPro.protectedRestoreSeen = setmetatable({}, {__mode = "k"})
+boosterPro.protectedRestoreRunning = false
 function boosterPro.restoreProtectedTree(character)
-    if not character then return end
-    -- Раньше перебирались ВСЕ сохранённые детали карты на каждое появление
-    -- персонажа. Теперь проверяем только его собственное дерево.
-    local stack = {character}
-    while #stack > 0 do
-        local obj = stack[#stack]
-        stack[#stack] = nil
-        local snap = savedGraphics[obj]
-        if snap then boosterPro.restoreObject(obj, snap) end
-        for _, child in ipairs(obj:GetChildren()) do
-            stack[#stack + 1] = child
+    if not alive or not character or next(savedGraphics) == nil then return end
+    if boosterPro.protectedRestoreSeen[character] then return end
+    boosterPro.protectedRestoreSeen[character] = true
+    local queue = boosterPro.protectedRestoreQueue
+    queue[#queue + 1] = character
+    if boosterPro.protectedRestoreRunning then return end
+    boosterPro.protectedRestoreRunning = true
+    task.spawn(function()
+        local ok, err = pcall(function()
+            while alive and #queue > 0 do
+                local current = table.remove(queue, 1)
+                if current then
+                    local stack = {current}
+                    local count, sliceStart = 0, os.clock()
+                    while alive and #stack > 0 and next(savedGraphics) ~= nil do
+                        local obj = stack[#stack]
+                        stack[#stack] = nil
+                        local snapshot = savedGraphics[obj]
+                        if snapshot then boosterPro.restoreObject(obj, snapshot) end
+                        local children = obj:GetChildren()
+                        for i = 1, #children do
+                            stack[#stack + 1] = children[i]
+                        end
+                        count = count + 1
+                        if count >= 16 or (count % 4 == 0 and
+                            (os.clock() - sliceStart) * 1000 >= CONFIG.BoosterLowFpsSliceMs) then
+                            task.wait()
+                            count, sliceStart = 0, os.clock()
+                        end
+                    end
+                    boosterPro.protectedRestoreSeen[current] = nil
+                end
+            end
+        end)
+        -- Unexpected failures cannot leave the queue permanently latched.
+        -- Unrestored snapshots remain in savedGraphics for normal retry.
+        table.clear(queue)
+        table.clear(boosterPro.protectedRestoreSeen)
+        boosterPro.protectedRestoreRunning = false
+        if not ok and alive then
+            warn("[124 Community Visuals] Protected restore: " .. tostring(err))
         end
-    end
+    end)
 end
 
 local function setBooster(enabled, keepBaseline)
