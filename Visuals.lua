@@ -3120,19 +3120,33 @@ local P = {
 }
 -- На телефоне даже альбомный экран остаётся одноколоночным: элементы
 -- управления не должны уменьшаться до нечитабельного размера.
-local wideLayout = (not UserInputService.TouchEnabled) and viewport.X >= 770
+local function isReferenceLandscape(view)
+    return UserInputService.TouchEnabled and view.X >= 480
+        and view.Y >= 260 and view.X >= view.Y * 1.35
+end
+-- Mobile landscape uses the same full reference layout, with a single
+-- uniform scale. Portrait and undersized desktop keep readable legacy lists.
+local wideLayout = isReferenceLandscape(viewport)
+    or ((not UserInputService.TouchEnabled) and viewport.X >= 770 and viewport.Y >= 560)
 local function windowMetrics(view)
     local mobile = UserInputService.TouchEnabled
-    local wide = (not mobile) and view.X >= 770
+    local screenshotMobile = isReferenceLandscape(view)
+    local wide = screenshotMobile or ((not mobile) and view.X >= 770 and view.Y >= 560)
+    if screenshotMobile then
+        local scale = math.clamp(math.min((view.X - 12) / 950,
+            (view.Y - 12) / 520), 0.36, 1)
+        return 950, 520, true, scale
+    end
     local landscape = view.X > view.Y
     local availableWidth = math.max(160, view.X - (mobile and 22 or 32))
     local preferredWidth = wide and 950 or (mobile and landscape and 520 or 410)
     local width = math.min(availableWidth, preferredWidth)
     local availableHeight = math.max(120, view.Y - (mobile and 22 or 38))
     local height = math.min(wide and 520 or 610, availableHeight)
-    return width, height, wide
+    return width, height, wide, 1
 end
-local winWidth, winHeight = windowMetrics(viewport)
+local winWidth, winHeight, _, initialScale = windowMetrics(viewport)
+local uiBaseScale = initialScale
 local panel = mk("Frame", {
     Name = "CommunityVisualsPanel",
     AnchorPoint = Vector2.new(0.5, 0.5),
@@ -3144,7 +3158,7 @@ local panel = mk("Frame", {
 }, gui)
 round(panel, 14)
 mk("UIStroke", {Color = P.border, Transparency = 0.04, Thickness = 1}, panel)
-local panelScale = mk("UIScale", {Scale = 1}, panel)
+local panelScale = mk("UIScale", {Scale = uiBaseScale}, panel)
 -- AnchorPoint-aware экранный clamp: возвращает панель / плавающую кнопку в кадр.
 -- GUI работает с IgnoreGuiInset=true, поэтому размеры берём из ViewportSize.
 function boosterPro.clampWindowPosition(position, size, anchor)
@@ -3153,6 +3167,12 @@ function boosterPro.clampWindowPosition(position, size, anchor)
     anchor = anchor or Vector2.new(0, 0)
     local width = view.X * size.X.Scale + size.X.Offset
     local height = view.Y * size.Y.Scale + size.Y.Offset
+    -- Panel visual bounds differ from its nominal 950x520 frame when scaled
+    -- for landscape mobile. Mini button is unaffected.
+    if size == panel.Size then
+        width = width * uiBaseScale
+        height = height * uiBaseScale
+    end
     local margin = 5
     local x = view.X * position.X.Scale + position.X.Offset
     local y = view.Y * position.Y.Scale + position.Y.Offset
@@ -3167,14 +3187,14 @@ local function tweenPanel(toScale)
     if panelTween then panelTween:Cancel(); panelTween = nil end
     local ok, tween = pcall(function()
         return TweenService:Create(panelScale, TweenInfo.new(0.12, Enum.EasingStyle.Quad,
-            Enum.EasingDirection.Out), {Scale = toScale})
+            Enum.EasingDirection.Out), {Scale = uiBaseScale * toScale})
     end)
     if ok and tween then panelTween = tween; tween:Play()
-    else panelScale.Scale = toScale end
+    else panelScale.Scale = uiBaseScale * toScale end
 end
 local function hidePanelAnimation()
     if panelTween then panelTween:Cancel(); panelTween = nil end
-    panelScale.Scale = 1
+    panelScale.Scale = uiBaseScale
 end
 -- The accent mark is inexpensive; no animated gradients, glow or overlays.
 mk("Frame", {
@@ -3702,7 +3722,12 @@ local function registerWidget(page, widget)
 end
 local function applyResponsiveLayout()
     local view = Workspace.CurrentCamera and Workspace.CurrentCamera.ViewportSize or viewport
-    local width, height, wide = windowMetrics(view)
+    local width, height, wide, baseScale = windowMetrics(view)
+    -- Responsive transitions must cancel the previous animation before
+    -- replacing its base scale; otherwise menu can leave the viewport.
+    if panelTween then panelTween:Cancel(); panelTween = nil end
+    uiBaseScale = baseScale
+    panelScale.Scale = uiBaseScale
     panel.Size = UDim2.fromOffset(width, height)
     panel.Position = boosterPro.clampWindowPosition(panel.Position, panel.Size, panel.AnchorPoint)
     if boosterPro.floatingButton then
@@ -6012,7 +6037,7 @@ end)
 connect(mini.Activated, function()
     if miniMoving then return end
     hidePanelAnimation()
-    panelScale.Scale = 0.98
+    panelScale.Scale = uiBaseScale * 0.98
     panel.Visible = true
     mini.Visible = false
     tweenPanel(1)
@@ -6165,7 +6190,7 @@ connect(UserInputService.InputBegan, function(input, processed)
                 boosterPro.riskWarning.show()
             else
                 hidePanelAnimation()
-                panelScale.Scale = 0.98
+                panelScale.Scale = uiBaseScale * 0.98
                 panel.Visible = true
                 mini.Visible = false
                 tweenPanel(1)
