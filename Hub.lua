@@ -2428,7 +2428,11 @@ local function abortPartialHub()
     boosterRevision = boosterRevision + 1
     state.esp, state.aimbot, state.booster = false, false, false
     state.controlRecoil, state.antiAim, state.fullbright = false, false, false
+    state.noRecoil, state.noSpread = false, false
     state.speedEnabled, state.noclip, state.fly = false, false, false
+    if boosterPro.privateMusic and boosterPro.privateMusic.shutdown then
+        pcall(boosterPro.privateMusic.shutdown)
+    end
     if boosterPro.movement and boosterPro.movement.shutdown then
         pcall(boosterPro.movement.shutdown)
     end
@@ -3038,6 +3042,11 @@ local function applySettings(incoming, autoLoad)
     memoryFX.spin.reset()
     memoryFX.camera.apply()
     if boosterPro.movement then boosterPro.movement.sync() end
+    if state.noSpread then pcall(recoil.applySpread)
+    else pcall(recoil.restoreSpread) end
+    if boosterPro.privateMusic and boosterPro.privateMusic.refresh then
+        pcall(boosterPro.privateMusic.refresh)
+    end
     aimTarget = nil
     aimNextScan = 0
     end)
@@ -5540,6 +5549,8 @@ do
         if state.noclip then table.insert(risks, "Noclip") end
         if state.fly then table.insert(risks, "Fly") end
         if state.controlRecoil then table.insert(risks, "Control Recoil") end
+        if state.noRecoil then table.insert(risks, "No Recoil") end
+        if state.noSpread then table.insert(risks, "No Spread (local)") end
         if state.esp then table.insert(risks, "ESP / Visuals") end
         if state.fullbright then table.insert(risks, "FullBright") end
         if state.antiAfk then table.insert(risks, "AntiAFK") end
@@ -5709,6 +5720,8 @@ do
         -- Полное отключение именно активных боевых/визуальных модулей.
         setAimEnabled(false, false)
         state.controlRecoil = false
+        state.noRecoil, state.noSpread = false, false
+        recoil.restoreSpread()
         state.antiAim = false
         movement.disableAll()
         state.esp = false
@@ -6495,6 +6508,8 @@ do
         state.antiAim = false
         movement.disableAll()
         state.controlRecoil = false
+        state.noRecoil, state.noSpread = false, false
+        recoil.restoreSpread()
         recoil.reset()
         memoryFX.spin.reset()
         for _, repaint in pairs(refreshToggles) do pcall(repaint) end
@@ -6970,6 +6985,8 @@ cleanup = function(safeStop)
         state.aimbot = false
         state.antiAim = false
         state.controlRecoil = false
+        state.noRecoil = false
+        state.noSpread = false
         state.esp = false
         state.tracers = false
         state.espBox = false
@@ -6991,6 +7008,7 @@ cleanup = function(safeStop)
     state.esp = false
     state.aimbot = false
     state.controlRecoil = false
+    state.noRecoil, state.noSpread = false, false
     state.antiAim = false
     state.antiAfk = false
     state.booster = false
@@ -7003,7 +7021,8 @@ cleanup = function(safeStop)
     table.clear(boosterPro.protectedRestoreQueue)
     table.clear(boosterPro.protectedRestoreSeen)
 
-    -- Сначала возвращаем WalkSpeed / CanCollide / физические constraints.
+    -- Освобождаем личную музыку, затем физику и локальные параметры оружия.
+    if boosterPro.privateMusic then pcall(boosterPro.privateMusic.shutdown) end
     if boosterPro.movement then pcall(boosterPro.movement.shutdown) end
     -- A failure in one controller must not prevent unrelated disconnections.
     pcall(releaseAntiAfk)
@@ -7338,6 +7357,8 @@ task.spawn(function()
             if state.esp then table.insert(features, "ESP") end
             if state.aimbot then table.insert(features, "AIM") end
             if state.controlRecoil then table.insert(features, "RECOIL") end
+            if state.noRecoil then table.insert(features, "NO-RECOIL") end
+            if state.noSpread then table.insert(features, "NO-SPREAD") end
             if state.antiAim then table.insert(features, "SPIN") end
             if state.speedEnabled then table.insert(features, "SPEED") end
             if state.noclip then table.insert(features, "NOCLIP") end
