@@ -2199,7 +2199,7 @@ local spreadParameterNames = {
 }
 controller.spread = {
     originals = setmetatable({}, {__mode = "k"}), modified = 0,
-    nextCheckAt = 0, currentTool = nil, candidates = {},
+    nextCheckAt = 0, currentTool = nil, candidates = {}, lastErrorAt = 0,
     candidateSet = setmetatable({}, {__mode = "k"}),
 }
 local function isSpreadParameter(name)
@@ -2276,7 +2276,12 @@ function controller.applySpread()
         table.clear(spread.candidates)
         table.clear(spread.candidateSet)
         registerSpreadCandidate(tool)
-        for _, descendant in ipairs(tool:GetDescendants()) do
+        local ok, descendants = pcall(function() return tool:GetDescendants() end)
+        if not ok then
+            spread.currentTool = nil -- Следующее событие сможет повторить индексацию.
+            return 0
+        end
+        for _, descendant in ipairs(descendants) do
             registerSpreadCandidate(descendant)
         end
     end
@@ -2310,10 +2315,11 @@ function controller.applySpread()
             end
         end
     end
-    local ok, err = pcall(function()
-        local candidates = spread.candidates
-        for i = #candidates, 1, -1 do
-            local instance = candidates[i]
+    local errors, firstError = 0, nil
+    local candidates = spread.candidates
+    for i = #candidates, 1, -1 do
+        local instance = candidates[i]
+        local ok, err = pcall(function()
             if not instance.Parent
                 or (instance ~= tool and not instance:IsDescendantOf(tool)) then
                 spread.candidateSet[instance] = nil
@@ -2321,9 +2327,17 @@ function controller.applySpread()
             else
                 patch(instance)
             end
+        end)
+        if not ok then
+            errors = errors + 1
+            if not firstError then firstError = err end
         end
-    end)
-    if not ok then warn("[124 Visuals] No Spread local: " .. tostring(err)) end
+    end
+    if errors > 0 and os.clock() - spread.lastErrorAt >= 4 then
+        spread.lastErrorAt = os.clock()
+        warn("[124 Visuals] No Spread local: " .. tostring(firstError)
+            .. " | failures=" .. tostring(errors))
+    end
     controller.spread.modified = controller.spread.modified + changed
     return changed
 end
