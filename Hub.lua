@@ -7402,6 +7402,11 @@ end)
 task.spawn(function()
     while alive do
         local hudStart = state.moduleCpuMonitor and os.clock() or nil
+        -- Повторяем неудачный откат No Spread только при наличии снимков.
+        -- Это уже существующий редкий HUD-цикл, нового worker не создаём.
+        if not state.noSpread and recoil.spread.pending() then
+            pcall(recoil.restoreSpread)
+        end
         -- Отложенный откат после временного отказа записи API: до полной успешности
         -- не забываем исходные свойства. Не восстанавливаем Terrain при WHITE/ULTRA.
         if not state.fullbright and not state.booster
