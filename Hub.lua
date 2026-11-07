@@ -143,17 +143,15 @@ if type(getgenv) == "function" then
     local ok, result = pcall(getgenv)
     if ok and type(result) == "table" then env = result end
 end
--- Записи для разных PlaceId не должны перетирать друг другу AIM/CONFIG.
-local sharedPlaceCache = env.ARMY124_PLACE_CACHE
-if type(sharedPlaceCache) ~= "table" then
-    sharedPlaceCache = {}
-    env.ARMY124_PLACE_CACHE = sharedPlaceCache
+-- Не расходуем дополнительные top-level locals: большие Luau-скрипты
+-- чувствительны к ограничению числа локальных регистров.
+if type(env.ARMY124_PLACE_CACHE) ~= "table" then
+    env.ARMY124_PLACE_CACHE = {}
 end
-local placeKey = tostring(game.PlaceId)
-local placeCache = sharedPlaceCache[placeKey]
-if type(placeCache) ~= "table" then
-    placeCache = {}
-    sharedPlaceCache[placeKey] = placeCache
+CONFIG.PlaceCache = env.ARMY124_PLACE_CACHE[tostring(game.PlaceId)]
+if type(CONFIG.PlaceCache) ~= "table" then
+    CONFIG.PlaceCache = {}
+    env.ARMY124_PLACE_CACHE[tostring(game.PlaceId)] = CONFIG.PlaceCache
 end
 -- Startup reporting is independent of the main GUI, which might not initialize.
 local function bootFailure(stage, err)
@@ -571,7 +569,7 @@ end
 
 local function saveAimKey(name)
     if not validAimKeyName(name) then return end
-    placeCache.aimKey = name
+    CONFIG.PlaceCache.aimKey = name
     -- Совместимость со старым конфигом сохраняем только в исходной игре.
     if game.PlaceId == CONFIG.OriginalPlaceId then env.ARMY124_AIM_KEY = name end
     if type(writefile) == "function" then
@@ -580,7 +578,7 @@ local function saveAimKey(name)
 end
 
 local function restoreAimKey()
-    local stored = placeCache.aimKey
+    local stored = CONFIG.PlaceCache.aimKey
     if stored == nil and game.PlaceId == CONFIG.OriginalPlaceId then
         stored = env.ARMY124_AIM_KEY
     end
@@ -941,7 +939,7 @@ local function sameTeamESP(player)
 end
 
 -- Одна разность Vector3 и без квадратного корня для 2D геометрии.
-local function espWithinRange(root, origin, radiusSquared)
+function perfCounters.espWithinRange(root, origin, radiusSquared)
     local delta = root.Position - origin.Position
     return delta:Dot(delta) <= radiusSquared
 end
@@ -2721,7 +2719,7 @@ local function writeProfileFile()
     local data = {version = 1, current = profileName,
         profiles = {CUSTOM = profiles.CUSTOM or {}},
         weaponPreferences = weaponPreferences}
-    placeCache.config = data
+    CONFIG.PlaceCache.config = data
     -- Исходный PlaceId совместим со старой настройкой памяти.
     if game.PlaceId == CONFIG.OriginalPlaceId then env.ARMY124_CONFIG_V09 = data end
     if type(writefile) == "function" then
@@ -2770,7 +2768,7 @@ requestSave = function()
 end
 
 local function readProfileFile()
-    local loaded = placeCache.config
+    local loaded = CONFIG.PlaceCache.config
     if loaded == nil and game.PlaceId == CONFIG.OriginalPlaceId then
         loaded = env.ARMY124_CONFIG_V09
     end
@@ -2841,7 +2839,7 @@ local function applySettings(incoming, autoLoad)
         state.booster = false
         -- Аварийная загрузка после Safety Stop: старая файловая копия
         -- (при ошибке writefile) не должна снова включать опасные функции.
-        if placeCache.safeBoot == true or env.ARMY124_SAFE_BOOT == true then
+        if CONFIG.PlaceCache.safeBoot == true or env.ARMY124_SAFE_BOOT == true then
             state.esp = false
             state.tracers = false
             state.espBox = false
@@ -2856,7 +2854,7 @@ local function applySettings(incoming, autoLoad)
             -- Переходим к обычному сохранению. Если файловые API недоступны,
             -- синхронный env cache всё равно содержит безопасный снимок.
             if writeProfileFile() then
-                placeCache.safeBoot = nil
+                CONFIG.PlaceCache.safeBoot = nil
                 -- Предыдущие версии имели общий флаг, поглощаем его единожды.
                 env.ARMY124_SAFE_BOOT = nil
             end -- При отказе записи сохраняем флаг для следующего запуска.
@@ -3763,7 +3761,7 @@ local function refreshTracers()
             and (not hum or (hum.Parent == ch and hum.Health > 0))
             and head and head.Parent == ch and root and root.Parent == ch
             and (not state.espEnemyOnly or not sameTeamESP(player))
-            and espWithinRange(root, myRoot, radiusSquared) then
+            and perfCounters.espWithinRange(root, myRoot, radiusSquared) then
             local point, onScreen = camera:WorldToViewportPoint(head.Position + Vector3.new(0, 1.8, 0))
             visible = onScreen and point.Z > 0
             screenPosition = point
@@ -3887,7 +3885,7 @@ local function refreshShapes()
             and (not hum or (hum.Parent == char and hum.Health > 0))
             and player.Character == char
             and (not state.espEnemyOnly or not sameTeamESP(player))
-            and espWithinRange(root, myRoot, radiusSquared) then
+            and perfCounters.espWithinRange(root, myRoot, radiusSquared) then
             -- Check visibility BEFORE allocating any Box GUI.
             local top, onTop = camera:WorldToViewportPoint(
                 head.Position + Vector3.new(0, head.Size.Y * 0.5 + 0.25, 0))
@@ -6195,7 +6193,7 @@ cleanup = function(safeStop)
         state.sessionDiagnostics = false
         state.booster = false
         state.cameraFovEnabled = false
-        placeCache.safeBoot = true
+        CONFIG.PlaceCache.safeBoot = true
         -- Legacy flag consumed once by migration; older versions remain safe.
         if game.PlaceId == CONFIG.OriginalPlaceId then env.ARMY124_SAFE_BOOT = true end
     end
