@@ -4634,6 +4634,11 @@ function movement.ensureFly(humanoid, root)
         end)
         state.fly = false
         if refreshToggles.fly then pcall(refreshToggles.fly) end
+        -- Не оставляем пустой physics callback после отказа запуска.
+        if not state.speedEnabled and not state.noclip and movement.stepConnection then
+            movement.stepConnection:Disconnect()
+            movement.stepConnection = nil
+        end
         tell("Fly: не удалось включить: " .. tostring(err))
     end
     return ok
@@ -4745,9 +4750,13 @@ function movement.sync()
         local signal = RunService.PreSimulation or RunService.Stepped
         movement.stepConnection = signal:Connect(function()
             local ok, err = pcall(movement.step)
-            if not ok and os.clock() - movement.lastErrorAt >= 3 then
-                movement.lastErrorAt = os.clock()
-                warn("[124 Visuals / Misc] " .. tostring(err))
+            if not ok then
+                if os.clock() - movement.lastErrorAt >= 3 then
+                    movement.lastErrorAt = os.clock()
+                    warn("[124 Visuals / Misc] " .. tostring(err))
+                end
+                -- Сбой физики не должен превращаться в ошибку на каждом кадре.
+                pcall(movement.disableAll)
             end
         end)
     end
