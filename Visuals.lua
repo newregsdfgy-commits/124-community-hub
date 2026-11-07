@@ -1,11 +1,11 @@
--- 124 Visuals v1.1.43 LITE | ESP 1000m and adaptive distant LOD
+-- 124 Visuals v1.1.44 LITE | ESP rendering fixes, state isolation and LOD reliability
 -- Первый плейс: 18537079992. Запуск поддерживает все игровые PlaceId.
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.1.43",
+    Version = "1.1.44",
     OriginalPlaceId = 18537079992,
     EspRefreshSeconds = 0.35, -- Быстрый поиск персонажей, без обновления UI каждый кадр.
     EspEventMinSeconds = 0.18, -- Коалесцированные события не запускают 16 полных сканов/сек.
@@ -142,6 +142,18 @@ local env = _G
 if type(getgenv) == "function" then
     local ok, result = pcall(getgenv)
     if ok and type(result) == "table" then env = result end
+end
+-- Записи для разных PlaceId не должны перетирать друг другу AIM/CONFIG.
+local sharedPlaceCache = env.ARMY124_PLACE_CACHE
+if type(sharedPlaceCache) ~= "table" then
+    sharedPlaceCache = {}
+    env.ARMY124_PLACE_CACHE = sharedPlaceCache
+end
+local placeKey = tostring(game.PlaceId)
+local placeCache = sharedPlaceCache[placeKey]
+if type(placeCache) ~= "table" then
+    placeCache = {}
+    sharedPlaceCache[placeKey] = placeCache
 end
 -- Startup reporting is independent of the main GUI, which might not initialize.
 local function bootFailure(stage, err)
@@ -559,14 +571,19 @@ end
 
 local function saveAimKey(name)
     if not validAimKeyName(name) then return end
-    env.ARMY124_AIM_KEY = name
+    placeCache.aimKey = name
+    -- Совместимость со старым конфигом сохраняем только в исходной игре.
+    if game.PlaceId == CONFIG.OriginalPlaceId then env.ARMY124_AIM_KEY = name end
     if type(writefile) == "function" then
         pcall(writefile, CONFIG.AimKeyFile, name)
     end
 end
 
 local function restoreAimKey()
-    local stored = env.ARMY124_AIM_KEY
+    local stored = placeCache.aimKey
+    if stored == nil and game.PlaceId == CONFIG.OriginalPlaceId then
+        stored = env.ARMY124_AIM_KEY
+    end
     if type(readfile) == "function" then
         local ok, fileValue = pcall(readfile, CONFIG.AimKeyFile)
         if ok and validAimKeyName(fileValue) then stored = fileValue end
@@ -843,16 +860,27 @@ local function updatePlayer(player, myRoot)
     setIfDifferent(item.healthLabel, "TextStrokeTransparency", strokeAlpha)
     setIfDifferent(item.distanceLabel, "TextStrokeTransparency", strokeAlpha)
     setIfDifferent(item.billboard, "Adornee", head) -- Upgrade torso → Head after streaming.
-    -- Повторно активируем готовые Highlights вместо Destroy/Instance.new.
+    -- Переключение кэша, смена команды/ника/опций должны перерисовать текст
+    -- сразу; throttling применяется только к неизменившимся дальним меткам.
+    local wasInactive = item.inactiveSince ~= nil
     item.inactiveSince = nil
     setIfDifferent(item.highlight, "Enabled", true)
-    -- Дальний LOD: Billboard прикреплён к персонажу движком, поэтому не нужно
-    -- пересчитывать HP/дистанцию и текст на каждом опросе 96 игроков.
+    setIfDifferent(item.billboard, "Enabled", state.names or state.health or state.distance)
     local offset = myRoot and (root.Position - myRoot.Position)
     local distanceSquared = offset and offset:Dot(offset) or 0
     local farThresholdStuds = CONFIG.EspLongRangeMeters / CONFIG.StudMeters
     local now = os.clock()
-    if distanceSquared >= farThresholdStuds * farThresholdStuds
+    local changedSettings = wasInactive
+        or item.lastNames ~= state.names
+        or item.lastHealth ~= state.health
+        or item.lastDistance ~= state.distance
+        or item.lastTeamColors ~= state.teamColors
+        or item.lastColorPreset ~= state.espColorPreset
+        or item.lastTeam ~= player.Team
+        or item.lastTeamColor ~= player.TeamColor
+        or item.lastDisplayName ~= player.DisplayName
+    if not changedSettings
+        and distanceSquared >= farThresholdStuds * farThresholdStuds
         and item.nextTextRefreshAt and now < item.nextTextRefreshAt then
         return
     end
@@ -896,6 +924,15 @@ local function updatePlayer(player, myRoot)
     local height = state.names and (hasMeta and CONFIG.EspLabelHeight or 14) or 14
     setIfDifferent(item.billboard, "Size", UDim2.fromOffset(CONFIG.EspLabelWidth, height))
     setIfDifferent(item.billboard, "Enabled", state.names or hasMeta)
+    -- Дешёвый кэш флагов: не создаём строки/таблицы при каждом кадре.
+    item.lastNames = state.names
+    item.lastHealth = state.health
+    item.lastDistance = state.distance
+    item.lastTeamColors = state.teamColors
+    item.lastColorPreset = state.espColorPreset
+    item.lastTeam = player.Team
+    item.lastTeamColor = player.TeamColor
+    item.lastDisplayName = player.DisplayName
 end
 
 local function sameTeamESP(player)
@@ -2684,7 +2721,9 @@ local function writeProfileFile()
     local data = {version = 1, current = profileName,
         profiles = {CUSTOM = profiles.CUSTOM or {}},
         weaponPreferences = weaponPreferences}
-    env.ARMY124_CONFIG_V09 = data
+    placeCache.config = data
+    -- Исходный PlaceId совместим со старой настройкой памяти.
+    if game.PlaceId == CONFIG.OriginalPlaceId then env.ARMY124_CONFIG_V09 = data end
     if type(writefile) == "function" then
         local ok, err = pcall(function()
             writefile(CONFIG.ConfigFile, HttpService:JSONEncode(data))
@@ -2731,7 +2770,10 @@ requestSave = function()
 end
 
 local function readProfileFile()
-    local loaded = env.ARMY124_CONFIG_V09
+    local loaded = placeCache.config
+    if loaded == nil and game.PlaceId == CONFIG.OriginalPlaceId then
+        loaded = env.ARMY124_CONFIG_V09
+    end
     if type(readfile) == "function" then
         local ok, contents = pcall(readfile, CONFIG.ConfigFile)
         if ok and type(contents) == "string" then
@@ -2799,7 +2841,7 @@ local function applySettings(incoming, autoLoad)
         state.booster = false
         -- Аварийная загрузка после Safety Stop: старая файловая копия
         -- (при ошибке writefile) не должна снова включать опасные функции.
-        if env.ARMY124_SAFE_BOOT == true then
+        if placeCache.safeBoot == true or env.ARMY124_SAFE_BOOT == true then
             state.esp = false
             state.tracers = false
             state.espBox = false
@@ -2814,8 +2856,10 @@ local function applySettings(incoming, autoLoad)
             -- Переходим к обычному сохранению. Если файловые API недоступны,
             -- синхронный env cache всё равно содержит безопасный снимок.
             if writeProfileFile() then
+                placeCache.safeBoot = nil
+                -- Предыдущие версии имели общий флаг, поглощаем его единожды.
                 env.ARMY124_SAFE_BOOT = nil
-            end -- При отказе записи флаг остаётся, чтобы старый файл не включил функции.
+            end -- При отказе записи сохраняем флаг для следующего запуска.
         end
     end
     if state.aimKeyName then saveAimKey(state.aimKeyName) end
@@ -4283,7 +4327,7 @@ end
 
 addSection(pages.ESP, "VISUALS", "Компактные подписи и тонкие ESP-линии")
 
-addToggle(pages.ESP, "ESP подсветка", "Игроки за объектами до 200 м", "esp", function()
+addToggle(pages.ESP, "ESP подсветка", "Подсветка в выбранном радиусе до 1000 м", "esp", function()
     syncEspVisuals()
 end)
 addToggle(pages.ESP, "Линия над игроками", "От верха экрана к игрокам в радиусе ESP", "tracers", function(enabled)
@@ -6145,7 +6189,9 @@ cleanup = function(safeStop)
         state.sessionDiagnostics = false
         state.booster = false
         state.cameraFovEnabled = false
-        env.ARMY124_SAFE_BOOT = true
+        placeCache.safeBoot = true
+        -- Legacy flag consumed once by migration; older versions remain safe.
+        if game.PlaceId == CONFIG.OriginalPlaceId then env.ARMY124_SAFE_BOOT = true end
     end
     pcall(flushConfig)
     -- Stop new work *before* any yield, Terrain writes or graphics rollback.
