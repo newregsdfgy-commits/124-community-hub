@@ -903,6 +903,12 @@ local function sameTeamESP(player)
         and player.Team == LocalPlayer.Team
 end
 
+-- Одна разность Vector3 и без квадратного корня для 2D геометрии.
+local function espWithinRange(root, origin, radiusSquared)
+    local delta = root.Position - origin.Position
+    return delta:Dot(delta) <= radiusSquared
+end
+
 local espCandidateScratch = {}
 local espKeepScratch = {}
 local function refreshESP()
@@ -3713,7 +3719,7 @@ local function refreshTracers()
             and (not hum or (hum.Parent == ch and hum.Health > 0))
             and head and head.Parent == ch and root and root.Parent == ch
             and (not state.espEnemyOnly or not sameTeamESP(player))
-            and (root.Position - myRoot.Position):Dot(root.Position - myRoot.Position) <= radiusSquared then
+            and espWithinRange(root, myRoot, radiusSquared) then
             local point, onScreen = camera:WorldToViewportPoint(head.Position + Vector3.new(0, 1.8, 0))
             visible = onScreen and point.Z > 0
             screenPosition = point
@@ -3837,7 +3843,7 @@ local function refreshShapes()
             and (not hum or (hum.Parent == char and hum.Health > 0))
             and player.Character == char
             and (not state.espEnemyOnly or not sameTeamESP(player))
-            and (root.Position - myRoot.Position):Dot(root.Position - myRoot.Position) <= radiusSquared then
+            and espWithinRange(root, myRoot, radiusSquared) then
             -- Check visibility BEFORE allocating any Box GUI.
             local top, onTop = camera:WorldToViewportPoint(
                 head.Position + Vector3.new(0, head.Size.Y * 0.5 + 0.25, 0))
