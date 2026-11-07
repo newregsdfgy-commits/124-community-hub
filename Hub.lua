@@ -2079,6 +2079,7 @@ local recoilToolConnections = {}
 local recoilCharacterConnections = {}
 local recoilLastCamera = nil
 local recoilLastPitch = nil
+local recoilLastCorrection = 0
 local recoilFireUntil = 0
 local recoilHolding = false
 local recoilHoldStarted = 0
@@ -2092,6 +2093,7 @@ local function resetRecoilTracking()
     stopRecoilFire()
     recoilLastCamera = nil
     recoilLastPitch = nil
+    recoilLastCorrection = 0
 end
 
 local function disconnectRecoilConnections(collection)
@@ -2105,7 +2107,9 @@ local function markRecoilShot()
     if not alive or not state.controlRecoil or not recoilTool then return end
     controller.shots = controller.shots + 1
     local now = os.clock()
-    if not recoilHolding then recoilHoldStarted = now end
+    -- Every Tool.Activated pulse renews the firing watchdog, even when
+    -- an automatic weapon omits Deactivated between successive shots.
+    recoilHoldStarted = now
     recoilHolding = true
     recoilFireUntil = now + CONFIG.RecoilFireWindowSeconds
 end
@@ -2162,6 +2166,7 @@ local function recoilFrame(dt)
     if not alive or not state.controlRecoil or state.recoilStrength <= 0
         or recoilTool == nil or recoilTool.Parent ~= LocalPlayer.Character then
         recoilLastCamera, recoilLastPitch = nil, nil
+        recoilLastCorrection = 0
         return
     end
     local camera = Workspace.CurrentCamera
@@ -2174,10 +2179,12 @@ local function recoilFrame(dt)
     local sameCamera = recoilLastCamera == camera
     recoilLastCamera = camera
     recoilLastPitch = currentPitch
+    recoilLastCorrection = 0
     if not sameCamera or previousPitch == nil then return end
     if isRobloxMenuOpen() or UserInputService:GetFocusedTextBox() ~= nil then return end
-    -- AIM уже стабилизирует активную цель. Второе управление CFrame вызвало бы конфликт.
-    if state.aimbot and (aimHeldMouse or aimHeldTouch or aimHeldKey) and aimTarget then return end
+    -- AIM owns the camera during active aiming, even when the target was
+    -- just lost. Avoid alternating camera writers on intermittent LOS loss.
+    if state.aimbot and (aimHeldMouse or aimHeldTouch or aimHeldKey) then return end
     local now = os.clock()
     local firing = now <= recoilFireUntil
         or (recoilHolding and now - recoilHoldStarted <= CONFIG.RecoilMaxHoldSeconds)
@@ -2185,15 +2192,17 @@ local function recoilFrame(dt)
     local pitchUp = signedAngle(previousPitch, currentPitch)
     if pitchUp < math.rad(CONFIG.RecoilMinPitchDegrees)
         or pitchUp > math.rad(CONFIG.RecoilMaxPitchDegrees) then return end
-    local correction = math.min(
-        pitchUp * (state.recoilStrength / 100),
-        math.rad(CONFIG.RecoilMaxCorrectionDegrees)
+    local frameCap = math.min(
+        math.rad(CONFIG.RecoilMaxCorrectionDegrees),
+        math.rad(CONFIG.RecoilMaxCorrectionPerSecond) * math.clamp(dt, 0, 0.05)
     )
+    local correction = math.min(pitchUp * (state.recoilStrength / 100), frameCap)
     if correction <= 0 then return end
-    -- В Roblox положительный локальный X поднимает LookVector; отрицательный
-    -- разворот компенсирует измеренный за кадр подброс, не меняя yaw и позицию.
+    -- Limit time-based angular correction so high refresh rates don't
+    -- amplify single-frame noise; preserve camera yaw and position.
     camera.CFrame = camera.CFrame * CFrame.Angles(-correction, 0, 0)
     recoilLastPitch = camera.CFrame:ToOrientation()
+    recoilLastCorrection = math.deg(correction)
 end
 
 -- END RECOIL CONTROL v1.0.2
@@ -2201,7 +2210,8 @@ controller.reset = resetRecoilTracking
 controller.shutdown = shutdownRecoilControl
 controller.frame = recoilFrame
 controller.inspect = function()
-    return recoilTool and recoilTool.Name or "нет Tool", controller.shots
+    return recoilTool and recoilTool.Name or "нет Tool",
+        controller.shots, recoilLastCorrection
 end
 return controller
 end)()
@@ -4379,8 +4389,10 @@ end)
 addSlider(pages.AIM, "Сила Control Recoil", "0–100%; увеличивай постепенно", "recoilStrength",
     0, 100, 5, function(value) return tostring(value) .. "%" end)
 addButton(pages.AIM, "Проверить Control Recoil", "Показать обнаруженное оружие и количество активаций", function()
-    local weapon, shots = recoil.inspect()
-    tell("Recoil | Tool: " .. tostring(weapon) .. " | Shots: " .. tostring(shots))
+    local weapon, shots, lastCorrection = recoil.inspect()
+    tell("Recoil | Tool: " .. tostring(weapon) .. " | Activations: "
+        .. tostring(shots) .. " | Last correction: "
+        .. string.format("%.2f deg", lastCorrection))
 end)
 addSection(pages.AIM, "CONTROL", "Дистанция и плавность")
 addSlider(pages.AIM, "Дистанция AIM", "5–180 метров, граница захвата", "aimRangeMeters",
