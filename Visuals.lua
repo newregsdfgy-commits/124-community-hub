@@ -1,15 +1,25 @@
--- 124 Visuals v1.1.42 LITE | Multi-place support, original aim/recoil stability preserved
+-- 124 Visuals v1.1.43 LITE | ESP 1000m and adaptive distant LOD
 -- Первый плейс: 18537079992. Запуск поддерживает все игровые PlaceId.
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.1.42",
+    Version = "1.1.43",
     OriginalPlaceId = 18537079992,
     EspRefreshSeconds = 0.35, -- Быстрый поиск персонажей, без обновления UI каждый кадр.
     EspEventMinSeconds = 0.18, -- Коалесцированные события не запускают 16 полных сканов/сек.
     EspMaxPlayers = 64, -- Видимый, настраиваемый лимит вместо скрытого TOP 6/12.
+    EspRangeMinMeters = 10,
+    EspRangeMaxMeters = 1000,
+    EspRangeStepMeters = 5,
+    EspLongRangeMeters = 350,
+    EspExtremeRangeMeters = 700,
+    EspLongScanSeconds = 0.55,
+    EspExtremeScanSeconds = 0.80,
+    EspLongVisualHz = 18,
+    EspExtremeVisualHz = 10,
+    EspFarTextRefreshSeconds = 0.85, -- Дальние текстовые метки не обновляются при каждом скане.
     StudMeters = 0.28, -- Стандартный масштаб Roblox: 1 stud ≈ 0.28 м.
     ConfigFile = game.PlaceId == 18537079992
         and "124_community_settings_v09.json"
@@ -836,16 +846,25 @@ local function updatePlayer(player, myRoot)
     -- Повторно активируем готовые Highlights вместо Destroy/Instance.new.
     item.inactiveSince = nil
     setIfDifferent(item.highlight, "Enabled", true)
+    -- Дальний LOD: Billboard прикреплён к персонажу движком, поэтому не нужно
+    -- пересчитывать HP/дистанцию и текст на каждом опросе 96 игроков.
+    local offset = myRoot and (root.Position - myRoot.Position)
+    local distanceSquared = offset and offset:Dot(offset) or 0
+    local farThresholdStuds = CONFIG.EspLongRangeMeters / CONFIG.StudMeters
+    local now = os.clock()
+    if distanceSquared >= farThresholdStuds * farThresholdStuds
+        and item.nextTextRefreshAt and now < item.nextTextRefreshAt then
+        return
+    end
+    item.nextTextRefreshAt = distanceSquared >= farThresholdStuds * farThresholdStuds
+        and (now + CONFIG.EspFarTextRefreshSeconds) or nil
     local color = getPlayerColor(player)
-    local meters = myRoot and math.floor(
-        (root.Position - myRoot.Position).Magnitude * CONFIG.StudMeters + 0.5
-    ) or 0
+    local meters = math.floor(math.sqrt(distanceSquared) * CONFIG.StudMeters + 0.5)
     local near = meters < CONFIG.EspMidDistanceMeters
     local far = meters >= CONFIG.EspFarDistanceMeters
     local nameSize = far and CONFIG.EspNameSizeFar
         or not near and CONFIG.EspNameSizeMid or CONFIG.EspNameSizeNear
     local metaSize = near and CONFIG.EspMetaSizeNear or CONFIG.EspMetaSizeFar
-    setIfDifferent(item.billboard, "MaxDistance", 0) -- Real radius applied in refreshESP.
     setIfDifferent(item.highlight, "FillColor", color)
     setIfDifferent(item.highlight, "OutlineColor", color)
     setIfDifferent(item.nameLabel, "Text", state.names and player.DisplayName or "")
@@ -2603,7 +2622,7 @@ local storedKeys = {
     "cameraFovEnabled", "cameraFovDegrees", "antiAim", "antiAimSpeed", "antiAimTilt",
 }
 local numericRules = {
-    espRangeMeters = {10, 200}, espMaxTargets = {8, 96},
+    espRangeMeters = {CONFIG.EspRangeMinMeters, CONFIG.EspRangeMaxMeters}, espMaxTargets = {8, 96},
     espLineThickness = {1, 2},
     aimRangeMeters = {5, 180}, aimSmoothness = {0, 10},
     aimSmoothX = {1, 10}, aimSmoothY = {1, 10},
@@ -3683,6 +3702,8 @@ local function refreshTracers()
     local myCharacter = LocalPlayer.Character
     local _, myRoot = espParts(myCharacter)
     if not myRoot then clearTracers(); return end
+    local radiusStuds = state.espRangeMeters / CONFIG.StudMeters
+    local radiusSquared = radiusStuds * radiusStuds
     for player, data in pairs(renderData) do
         local ch = data.character
         local head, root, hum = data.head, data.root, data.humanoid
@@ -3692,7 +3713,7 @@ local function refreshTracers()
             and (not hum or (hum.Parent == ch and hum.Health > 0))
             and head and head.Parent == ch and root and root.Parent == ch
             and (not state.espEnemyOnly or not sameTeamESP(player))
-            and (root.Position - myRoot.Position).Magnitude * CONFIG.StudMeters <= state.espRangeMeters then
+            and (root.Position - myRoot.Position):Dot(root.Position - myRoot.Position) <= radiusSquared then
             local point, onScreen = camera:WorldToViewportPoint(head.Position + Vector3.new(0, 1.8, 0))
             visible = onScreen and point.Z > 0
             screenPosition = point
@@ -3794,6 +3815,8 @@ local function refreshShapes()
         return
     end
     local activeCount, active = 0, perfCounters.espVisual.active
+    local radiusStuds = state.espRangeMeters / CONFIG.StudMeters
+    local radiusSquared = radiusStuds * radiusStuds
     local tier = visualPerfTier()
     local budget = tier == "ECO" and CONFIG.EspShapeEcoLimit
         or tier == "QUALITY" and CONFIG.EspShapeQualityLimit
@@ -3814,7 +3837,7 @@ local function refreshShapes()
             and (not hum or (hum.Parent == char and hum.Health > 0))
             and player.Character == char
             and (not state.espEnemyOnly or not sameTeamESP(player))
-            and (root.Position - myRoot.Position).Magnitude * CONFIG.StudMeters <= state.espRangeMeters then
+            and (root.Position - myRoot.Position):Dot(root.Position - myRoot.Position) <= radiusSquared then
             -- Check visibility BEFORE allocating any Box GUI.
             local top, onTop = camera:WorldToViewportPoint(
                 head.Position + Vector3.new(0, head.Size.Y * 0.5 + 0.25, 0))
@@ -4257,7 +4280,7 @@ addSection(pages.ESP, "VISUALS", "Компактные подписи и тон�
 addToggle(pages.ESP, "ESP подсветка", "Игроки за объектами до 200 м", "esp", function()
     syncEspVisuals()
 end)
-addToggle(pages.ESP, "Линия над игроками", "От верха экрана к игрокам до 200 м", "tracers", function(enabled)
+addToggle(pages.ESP, "Линия над игроками", "От верха экрана к игрокам в радиусе ESP", "tracers", function(enabled)
     if not enabled then clearTracers() end
     if enabled and not state.esp then tell("Включи ESP, чтобы отображать линии") end
 end)
@@ -4269,7 +4292,8 @@ addToggle(pages.ESP, "Только противники", "Не отобража
     queueESPRefresh()
 end)
 addSection(pages.ESP, "ESP OPTIONS", "Дальность, стиль и подписи")
-addSlider(pages.ESP, "Дальность ESP", "Радиус от персонажа: до 200 метров", "espRangeMeters", 10, 200, 5,
+addSlider(pages.ESP, "Дальность ESP", "Выбор радиуса до 1000 м; дальние метки обновляются реже", "espRangeMeters",
+    CONFIG.EspRangeMinMeters, CONFIG.EspRangeMaxMeters, CONFIG.EspRangeStepMeters,
     function(v) return tostring(v) .. " м" end,
     function() queueESPRefresh() end)
 addSlider(pages.ESP, "Максимум игроков ESP",
@@ -5267,8 +5291,9 @@ local function buildReferenceMenu()
             cancelPointer()
         end
     end)
-    -- Original ESP limit is 200 m; don't silently change the game logic to 350.
-    makeSlider(top, "Max Distance", "espRangeMeters", 10, 200, 5,
+    -- Оба ползунка читают единые границы: пользователь выбирает любой радиус до 1000 м.
+    makeSlider(top, "Max Distance", "espRangeMeters",
+        CONFIG.EspRangeMinMeters, CONFIG.EspRangeMaxMeters, CONFIG.EspRangeStepMeters,
         function(value) return tostring(value) .. "m" end, 17,
         function()
             -- Full roster sorting + 2D geometry must not run synchronously
@@ -6273,6 +6298,13 @@ task.spawn(function()
         local tier = visualPerfTier()
         local interval = tier == "ECO" and 0.55 or tier == "QUALITY" and 0.25
             or CONFIG.EspRefreshSeconds
+        if state.performanceMode ~= "QUALITY" then
+            if state.espRangeMeters >= CONFIG.EspExtremeRangeMeters then
+                interval = math.max(interval, CONFIG.EspExtremeScanSeconds)
+            elseif state.espRangeMeters >= CONFIG.EspLongRangeMeters then
+                interval = math.max(interval, CONFIG.EspLongScanSeconds)
+            end
+        end
         local needsCleanup = not state.esp and next(renderData) ~= nil
         local due = os.clock() - perfCounters.espVisual.lastScanAt >= interval
         if needsCleanup or (state.esp and due) then
@@ -6311,6 +6343,16 @@ perfCounters.espVisual.frame = function(dt)
             hz = math.min(hz, CONFIG.GuardVisualHzL2)
         elseif state.performanceGuard and perfCounters.guard.level == 1 then
             hz = math.min(hz, CONFIG.GuardVisualHzL1)
+        end
+        -- При большом радиусе снижаем частоту только 2D Box/Tracer.
+        -- Ручной QUALITY сохраняет прежний максимум, пока Guard не включён.
+        if state.performanceMode ~= "QUALITY"
+            or (state.performanceGuard and perfCounters.guard.level > 0) then
+            if state.espRangeMeters >= CONFIG.EspExtremeRangeMeters then
+                hz = math.min(hz, CONFIG.EspExtremeVisualHz)
+            elseif state.espRangeMeters >= CONFIG.EspLongRangeMeters then
+                hz = math.min(hz, CONFIG.EspLongVisualHz)
+            end
         end
         espVisualElapsed = espVisualElapsed + math.min(dt, 0.12)
         local period = 1 / hz
