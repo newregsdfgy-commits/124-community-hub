@@ -4612,7 +4612,8 @@ function movement.restoreFly()
         pcall(function()
             if movement.flyHumanoid.Parent then
                 movement.flyHumanoid.AutoRotate = movement.originalAutoRotate
-                if movement.flyHumanoid.Health > 0 then
+                if movement.flyHumanoid.Health > 0 and not movement.flyHumanoid.Sit
+                    and movement.flyHumanoid.SeatPart == nil then
                     movement.flyHumanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
                 end
             end
@@ -4666,7 +4667,8 @@ function movement.ensureFly(humanoid, root)
         pcall(function()
             if humanoid.Parent then
                 humanoid.AutoRotate = originalRotate
-                if humanoid.Health > 0 then
+                if humanoid.Health > 0 and not humanoid.Sit
+                    and humanoid.SeatPart == nil then
                     humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
                 end
             end
