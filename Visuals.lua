@@ -1,11 +1,11 @@
--- 124 Visuals v1.1.51 | full audit: safe parameter restore, recoil profile, audio diagnostics
+-- 124 Visuals v1.1.52 | full audit: safe parameter restore, recoil profile, audio diagnostics
 -- Первый плейс: 18537079992. Запуск поддерживает все игровые PlaceId.
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.1.51",
+    Version = "1.1.52",
     OriginalPlaceId = 18537079992,
     EspRefreshSeconds = 0.35, -- Быстрый поиск персонажей, без обновления UI каждый кадр.
     EspEventMinSeconds = 0.18, -- Коалесцированные события не запускают 16 полных сканов/сек.
@@ -3931,8 +3931,10 @@ local function applyResponsiveLayout()
     end
 end
 
+local sliderDrag = nil
 local function showPage(key)
     if not pages[key] then return end
+    sliderDrag = nil -- Смена вкладки отменяет незавершённое перетаскивание.
     if referenceESP and referenceESP.cancelInteraction then
         referenceESP.cancelInteraction()
     end
@@ -4357,7 +4359,6 @@ local function addButton(page, text, description, handler)
 end
 
 -- Общий drag-handler работает и с мышью, и с touch; нет RenderStepped у слайдеров.
-local sliderDrag = nil
 local function addSlider(page, title, description, key, minValue, maxValue, step, formatter, onChanged)
     local container = mk("Frame", {
         Name = key .. "Slider", Size = UDim2.new(1, 0, 0, 74),
@@ -4422,8 +4423,19 @@ local function addSlider(page, title, description, key, minValue, maxValue, step
         local raw = minValue + fraction * (maxValue - minValue)
         local snapped = math.clamp(minValue + math.floor((raw - minValue) / step + 0.5) * step, minValue, maxValue)
         if state[key] ~= snapped then
+            local previous = state[key]
             state[key] = snapped
-            if onChanged then onChanged(snapped) end
+            if onChanged then
+                local ok, err = pcall(onChanged, snapped)
+                if not ok then
+                    -- Ошибка обработчика не оставляет скрытую новую настройку.
+                    state[key] = previous
+                    pcall(onChanged, previous)
+                    repaint()
+                    tell("Ошибка настройки " .. tostring(key) .. ": " .. tostring(err))
+                    return
+                end
+            end
             -- Синхронизируем второй слайдер того же ключа без повторного скана.
             local synchronize = refreshSliders[key]
             if synchronize then pcall(synchronize) end
@@ -4607,8 +4619,20 @@ local function addChoice(page, label, choices, key, callback)
         round(button, 3)
         buttons[option.value] = button
         safeActivate(button, function()
+            if not alive then return end
+            local previous = state[key]
             state[key] = option.value
-            if callback then callback(option.value) end
+            if callback then
+                local ok, err = pcall(callback, option.value)
+                if not ok then
+                    -- Возвращаем предыдущий выбор при сбое обработчика.
+                    state[key] = previous
+                    pcall(callback, previous)
+                    repaint()
+                    tell("Ошибка выбора " .. tostring(key) .. ": " .. tostring(err))
+                    return
+                end
+            end
             repaint()
             requestSave()
         end)
@@ -4824,7 +4848,11 @@ function movement.restoreCollision()
     end
     for part, original in pairs(movement.collisionOriginals) do
         pcall(function()
-            if part.Parent then part.CanCollide = original end
+            -- Noclip записывал только false. Не затираем true,
+            -- установленное другой системой после активации.
+            if part.Parent and original == true and part.CanCollide == false then
+                part.CanCollide = true
+            end
         end)
         movement.collisionOriginals[part] = nil
     end
@@ -4969,6 +4997,12 @@ function movement.step()
         end
         if os.clock() - movement.lastSpeedApply >= 0.25 then
             if humanoid.WalkSpeed ~= state.speedValue then
+                -- Фиксируем новое значение самой игры перед повторной записью,
+                -- чтобы откат не возвращал устаревшую скорость.
+                if movement.lastAppliedSpeed ~= nil
+                    and humanoid.WalkSpeed ~= movement.lastAppliedSpeed then
+                    movement.originalSpeed = humanoid.WalkSpeed
+                end
                 humanoid.WalkSpeed = state.speedValue
                 movement.lastAppliedSpeed = state.speedValue
             end
@@ -6685,6 +6719,7 @@ end
 
 local miniMoving = false
 connect(hide.Activated, function()
+    sliderDrag = nil
     captureAimKey = false
     repaintAimKeybind()
     hidePanelAnimation()
@@ -6842,6 +6877,7 @@ connect(UserInputService.InputBegan, function(input, processed)
         if UserInputService:GetFocusedTextBox() == nil and not menuOpen
             and input.KeyCode == CONFIG.MenuKey then
             if panel.Visible then
+                sliderDrag = nil
                 hidePanelAnimation()
                 panel.Visible = false
                 mini.Visible = true
