@@ -2295,6 +2295,10 @@ local function abortPartialHub()
     boosterRevision = boosterRevision + 1
     state.esp, state.aimbot, state.booster = false, false, false
     state.controlRecoil, state.antiAim, state.fullbright = false, false, false
+    state.speedEnabled, state.noclip, state.fly = false, false, false
+    if boosterPro.movement and boosterPro.movement.shutdown then
+        pcall(boosterPro.movement.shutdown)
+    end
     pcall(function() recoil.shutdown() end)
     pcall(boosterPro.stopWatchingPlayers)
     pcall(stopESPWatchers)
@@ -2886,6 +2890,7 @@ local function applySettings(incoming, autoLoad)
     if not state.moduleCpuMonitor then perfCounters.cpu.reset() end
     memoryFX.spin.reset()
     memoryFX.camera.apply()
+    if boosterPro.movement then boosterPro.movement.sync() end
     aimTarget = nil
     aimNextScan = 0
     end)
@@ -5149,6 +5154,9 @@ do
             end
         end
         if state.antiAim then table.insert(risks, "Anti-Aim Spin") end
+        if state.speedEnabled then table.insert(risks, "Speed") end
+        if state.noclip then table.insert(risks, "Noclip") end
+        if state.fly then table.insert(risks, "Fly") end
         if state.controlRecoil then table.insert(risks, "Control Recoil") end
         if state.esp then table.insert(risks, "ESP / Visuals") end
         if state.fullbright then table.insert(risks, "FullBright") end
@@ -5320,6 +5328,7 @@ do
         setAimEnabled(false, false)
         state.controlRecoil = false
         state.antiAim = false
+        movement.disableAll()
         state.esp = false
         state.tracers = false
         state.espBox = false
@@ -6091,6 +6100,7 @@ do
         if not alive or not mon.visible then return end
         setAimEnabled(false, false)
         state.antiAim = false
+        movement.disableAll()
         state.controlRecoil = false
         recoil.reset()
         memoryFX.spin.reset()
@@ -6575,6 +6585,9 @@ cleanup = function(safeStop)
         state.sessionDiagnostics = false
         state.booster = false
         state.cameraFovEnabled = false
+        state.speedEnabled = false
+        state.noclip = false
+        state.fly = false
         CONFIG.PlaceCache.safeBoot = true
         -- Legacy flag consumed once by migration; older versions remain safe.
         if game.PlaceId == CONFIG.OriginalPlaceId then env.ARMY124_SAFE_BOOT = true end
@@ -6590,12 +6603,15 @@ cleanup = function(safeStop)
     state.booster = false
     state.fullbright = false
     state.cameraFovEnabled = false
+    state.speedEnabled, state.noclip, state.fly = false, false, false
     aimHeldKey = false
     captureAimKey = false
     boosterRevision = boosterRevision + 1
     table.clear(boosterPro.protectedRestoreQueue)
     table.clear(boosterPro.protectedRestoreSeen)
 
+    -- Сначала возвращаем WalkSpeed / CanCollide / физические constraints.
+    if boosterPro.movement then pcall(boosterPro.movement.shutdown) end
     -- A failure in one controller must not prevent unrelated disconnections.
     pcall(releaseAntiAfk)
     pcall(recoil.shutdown)
@@ -6929,6 +6945,9 @@ task.spawn(function()
             if state.aimbot then table.insert(features, "AIM") end
             if state.controlRecoil then table.insert(features, "RECOIL") end
             if state.antiAim then table.insert(features, "SPIN") end
+            if state.speedEnabled then table.insert(features, "SPEED") end
+            if state.noclip then table.insert(features, "NOCLIP") end
+            if state.fly then table.insert(features, "FLY") end
             if state.cameraFovEnabled then table.insert(features, "FOV") end
             if state.booster then table.insert(features, "BOOST") end
             if state.fullbright then table.insert(features, "LIGHT") end
@@ -6960,7 +6979,7 @@ if not loadCustomSettings() then
     error("Профиль не был загружен полностью")
 end
 refreshFovRing()
-print("[124 Community Visuals] " .. CONFIG.Version .. " загружен | MEMORY / SESSION DIAGNOSTICS")
+print("[124 Community Visuals] " .. CONFIG.Version .. " загружен | MISC / MEMORY")
 end -- initializeHubUI; isolates UI locals from root Luau limit.
 
 env.ARMY124_BOOT_PHASE = "initializing-ui"
