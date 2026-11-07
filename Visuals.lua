@@ -4633,7 +4633,11 @@ addSlider(pages.AIM, "Толщина FOV", "Тонкая или выраженн
     1, 4, 1, function(value) return tostring(value) .. " px" end,
     refreshFovRing)
 addSection(pages.AIM, "RECOIL CONTROL", "Компенсация вертикальной отдачи при стрельбе")
-addToggle(pages.AIM, "Control Recoil", "Работает при выстрелах из экипированного Tool", "controlRecoil", function()
+addToggle(pages.AIM, "Control Recoil", "Работает при выстрелах из экипированного Tool", "controlRecoil", function(enabled)
+    if enabled and state.noRecoil then
+        state.noRecoil = false
+        if refreshToggles.noRecoil then pcall(refreshToggles.noRecoil) end
+    end
     recoil.reset()
 end)
 addSlider(pages.AIM, "Сила Control Recoil", "0–100%; увеличивай постепенно", "recoilStrength",
@@ -5190,6 +5194,178 @@ addButton(pages.MISC, "Вернуть FOV камеры", "Отключить н�
 end)
 addToggle(pages.MISC, "FullBright", "Локально осветлить карту; исходное освещение вернётся при OFF", "fullbright", function()
     applyLighting()
+end)
+
+-- Один клиентский Sound без RemoteEvent и без репликации другим игрокам.
+-- При отсутствии прав на Roblox Audio ID трек не воспроизведётся.
+local privateMusic = {sound = nil, currentId = nil, listeners = {}, status = nil}
+boosterPro.privateMusic = privateMusic
+function privateMusic.statusText(message)
+    if privateMusic.status and privateMusic.status.Parent then
+        privateMusic.status.Text = message
+    end
+end
+function privateMusic.stop()
+    for _, connection in ipairs(privateMusic.listeners) do
+        pcall(function() connection:Disconnect() end)
+    end
+    table.clear(privateMusic.listeners)
+    if privateMusic.sound then
+        pcall(function() privateMusic.sound:Stop() end)
+        pcall(function() privateMusic.sound:Destroy() end)
+    end
+    privateMusic.sound, privateMusic.currentId = nil, nil
+end
+function privateMusic.play(id)
+    if type(id) ~= "string" or #id < 1 or #id > 19 or not id:match("^%d+$")
+        or tonumber(id) == 0 then return false, "Укажи числовой Roblox Audio ID" end
+    local ok, err = pcall(function()
+        if privateMusic.sound and privateMusic.currentId ~= id then privateMusic.stop() end
+        local sound = privateMusic.sound
+        if not sound then
+            sound = Instance.new("Sound")
+            privateMusic.sound, privateMusic.currentId = sound, id
+            sound.Name = "Army124Visuals_LocalMusic"
+            sound.SoundId = "rbxassetid://" .. id
+            sound.Volume = math.clamp(state.musicVolume / 100, 0, 1)
+            sound.Looped = state.musicLoop == true
+            sound.Parent = game:GetService("SoundService")
+            privateMusic.listeners[#privateMusic.listeners + 1] = sound.Loaded:Connect(function()
+                if alive and privateMusic.sound == sound then
+                    privateMusic.statusText("Аудио загружено · ID " .. id)
+                end
+            end)
+            privateMusic.listeners[#privateMusic.listeners + 1] = sound.Ended:Connect(function()
+                if alive and privateMusic.sound == sound and not state.musicLoop then
+                    privateMusic.statusText("Трек завершён · ID " .. id)
+                end
+            end)
+        end
+        sound.Looped = state.musicLoop == true
+        sound.Volume = math.clamp(state.musicVolume / 100, 0, 1)
+        sound:Play()
+    end)
+    if not ok then
+        privateMusic.stop()
+        return false, tostring(err)
+    end
+    return true
+end
+function privateMusic.shutdown()
+    privateMusic.stop()
+end
+
+addSection(pages.MISC, "WEAPON CONTROL", "Локальные свойства текущего Tool — не серверное оружие")
+addToggle(pages.MISC, "No Recoil", "Полная компенсация обнаруженного подброса камеры при Tool.Activated",
+    "noRecoil", function(enabled)
+        if enabled and state.controlRecoil then
+            state.controlRecoil = false
+            if refreshToggles.controlRecoil then pcall(refreshToggles.controlRecoil) end
+        end
+        recoil.reset()
+end)
+addToggle(pages.MISC, "No Spread", "Только доступные числовые параметры Tool; серверный разброс не меняет",
+    "noSpread", function(enabled)
+        if enabled then
+            local touched = recoil.applySpread()
+            tell(touched > 0 and ("No Spread: изменено клиентских параметров: " .. tostring(touched))
+                or "No Spread: подходящих параметров у текущего Tool нет; ждём оружие")
+        else
+            recoil.restoreSpread()
+            tell("No Spread: локальные параметры восстановлены")
+        end
+end)
+addButton(pages.MISC, "Диагностика оружия", "Показать Tool и число изменённых клиентских параметров", function()
+    local tool, shots, lastCorrection = recoil.inspect()
+    tell("Tool: " .. tostring(tool)
+        .. " | No Spread changed: " .. tostring(recoil.spread.modified)
+        .. " | Shot pulses: " .. tostring(shots)
+        .. " | Recoil correction: " .. string.format("%.2f°", lastCorrection))
+end)
+
+addSection(pages.MISC, "LOCAL MUSIC", "Личный проигрыватель Roblox Audio ID, без передачи другим игрокам")
+local musicInputRow = mk("Frame", {
+    Name = "LocalMusicInputRow", Size = UDim2.new(1, 0, 0, 94),
+    BackgroundColor3 = P.tile, BorderSizePixel = 0,
+}, columnFor(pages.MISC))
+registerWidget(pages.MISC, musicInputRow)
+round(musicInputRow, 5)
+mk("UIStroke", {Color = P.border, Transparency = 0.48, Thickness = 1}, musicInputRow)
+mk("TextLabel", {
+    BackgroundTransparency = 1, Text = "Roblox Audio ID",
+    Font = Enum.Font.GothamMedium, TextSize = 12, TextColor3 = P.text,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    Position = UDim2.fromOffset(10, 5), Size = UDim2.new(1, -20, 0, 20),
+}, musicInputRow)
+local musicIdInput = mk("TextBox", {
+    Name = "LocalMusicId", Text = state.musicId,
+    PlaceholderText = "Вставь числовой ID музыки",
+    ClearTextOnFocus = false, Font = Enum.Font.Gotham, TextSize = 12,
+    TextColor3 = P.text, PlaceholderColor3 = P.dim,
+    BackgroundColor3 = CONFIG.Surface, BorderSizePixel = 0,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    Position = UDim2.fromOffset(10, 31),
+    Size = UDim2.new(1, -20, 0, 31),
+}, musicInputRow)
+round(musicIdInput, 4)
+mk("UIPadding", {PaddingLeft = UDim.new(0, 8),
+    PaddingRight = UDim.new(0, 8)}, musicIdInput)
+privateMusic.status = mk("TextLabel", {
+    Name = "LocalMusicStatus", Text = "Локально · выбери аудио по ID",
+    BackgroundTransparency = 1, Font = Enum.Font.Gotham, TextSize = 10,
+    TextColor3 = P.dim, TextTruncate = Enum.TextTruncate.AtEnd,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    Position = UDim2.fromOffset(10, 66), Size = UDim2.new(1, -20, 0, 18),
+}, musicInputRow)
+privateMusic.refresh = function()
+    if musicIdInput.Parent and not musicIdInput:IsFocused() then
+        musicIdInput.Text = state.musicId
+    end
+    if privateMusic.sound then
+        pcall(function()
+            privateMusic.sound.Volume = math.clamp(state.musicVolume / 100, 0, 1)
+            privateMusic.sound.Looped = state.musicLoop == true
+        end)
+    end
+end
+
+addButton(pages.MISC, "▶ Play Music", "Начать воспроизведение указанного Roblox Audio ID", function()
+    local id = musicIdInput.Text:match("^%s*(.-)%s*$")
+    id = id:gsub("^rbxassetid://", "")
+    if not id:match("^%d+$") or #id > 19 or tonumber(id) == 0 then
+        privateMusic.statusText("Неверный ID · вставь только цифры")
+        tell("Музыка: нужен числовой Roblox Audio ID")
+        return
+    end
+    local ok, err = privateMusic.play(id)
+    if not ok then
+        privateMusic.statusText("Не удалось запустить: " .. tostring(err):sub(1, 80))
+        tell("Музыка: " .. tostring(err))
+        return
+    end
+    state.musicId = id
+    requestSave()
+    privateMusic.statusText("Запрошено воспроизведение · ID " .. id)
+end)
+addButton(pages.MISC, "Ⅱ Pause Music", "Приостановить личную музыку", function()
+    if not privateMusic.sound then
+        tell("Музыка: сейчас ничего не играет")
+        return
+    end
+    local ok, err = pcall(function() privateMusic.sound:Pause() end)
+    if ok then privateMusic.statusText("На паузе")
+    else tell("Музыка: " .. tostring(err)) end
+end)
+addButton(pages.MISC, "■ Stop Music", "Остановить и удалить локальный Sound", function()
+    privateMusic.stop()
+    privateMusic.statusText("Остановлено · звук удалён")
+end)
+addSlider(pages.MISC, "Music Volume", "Только громкость музыки Visuals · 0–100%",
+    "musicVolume", 0, 100, 5,
+    function(v) return tostring(v) .. "%" end,
+    function() privateMusic.refresh() end)
+addToggle(pages.MISC, "Repeat Music", "Повторять трек после окончания", "musicLoop", function()
+    privateMusic.refresh()
 end)
 
 addSection(pages.MISC, "TELEPORT", "Переход к игроку по Roblox username или DisplayName")
