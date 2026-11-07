@@ -5339,6 +5339,15 @@ function privateMusic.play(id)
                     privateMusic.statusText("Трек завершён · ID " .. id)
                 end
             end)
+            -- Play() успешен даже тогда, когда Asset не загружается из-за прав.
+            -- Один отложенный осмотр нового ID, без бесконечного polling.
+            task.delay(12, function()
+                if not alive or privateMusic.sound ~= sound or not sound.Parent then return end
+                local readyOk, loaded = pcall(function() return sound.IsLoaded end)
+                if readyOk and not loaded then
+                    privateMusic.statusText("Аудио не загрузилось за 12 с · проверь ID и доступ")
+                end
+            end)
         end
         sound.Looped = state.musicLoop == true
         sound.Volume = math.clamp(state.musicVolume / 100, 0, 1)
@@ -5447,7 +5456,11 @@ addButton(pages.MISC, "▶ Play Music", "Начать воспроизведен
     end
     state.musicId = id
     requestSave()
-    privateMusic.statusText("Запрошено воспроизведение · ID " .. id)
+    local loadedOK, loaded = pcall(function()
+        return privateMusic.sound ~= nil and privateMusic.sound.IsLoaded
+    end)
+    privateMusic.statusText(loadedOK and loaded and ("Воспроизводится · ID " .. id)
+        or ("Загрузка Audio ID " .. id .. " ..."))
 end)
 addButton(pages.MISC, "Ⅱ Pause Music", "Приостановить личную музыку", function()
     if not privateMusic.sound then
