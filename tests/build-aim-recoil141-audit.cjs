@@ -63,6 +63,7 @@ do
     local visible=false
     local losChecks=0
     local function canSee(cam,at,char) losChecks+=1; return visible end
+    local function sameTeam(player) return false end
     local function examineTarget(cam,player,part,root,center,fov,withLOS)
         return {player=player,part=part,character=player.Character,
             humanoid={},pixelsSquared=player.rank}
