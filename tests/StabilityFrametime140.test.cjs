@@ -3,11 +3,11 @@ const fs=require("node:fs"),test=require("node:test"),assert=require("node:asser
 const src=fs.readFileSync("Visuals.lua","utf8");
 const hub=fs.readFileSync("Hub.lua","utf8"),start=fs.readFileSync("Start.lua","utf8");
 function section(a,b){const i=src.indexOf(a),j=src.indexOf(b,i+a.length);assert.ok(i>=0&&j>i,"missing section "+a);return src.slice(i,j)}
-test("v1.1.40 build uses canonical source and isolated test branch",()=>{
+test("v1.1.41 build uses canonical source and isolated test branch",()=>{
  assert.equal(src,hub);
- assert.ok(src.includes('Version = "1.1.40"'));
- assert.ok(start.includes("v1.1.40-stability-frametime-test/Visuals.lua"));
- assert.ok(start.includes('Version = "1.1.40"'));
+ assert.ok(src.includes('Version = "1.1.41"'));
+ assert.ok(start.includes("v1.1.41-aim-recoil-stability-test/Visuals.lua"));
+ assert.ok(start.includes('Version = "1.1.41"'));
 });
 test("nonessential chat, BHOP, Skeleton and CFG remain fully absent",()=>{
  for(const removed of ["spamChat","bunnyHop","espSkeleton","pages.CFG",'key = "CFG"',"utilityFX","chatPreferences","SendAsync","shapePairsR15"])assert.ok(!src.includes(removed),removed);

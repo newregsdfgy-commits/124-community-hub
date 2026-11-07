@@ -8,11 +8,11 @@ const fragment=(first,last)=>{
  assert.ok(a>=0&&b>a,"missing "+first);
  return src.slice(a,b);
 };
-test("lite: canonical 1.1.40 source and launcher",()=>{
+test("lite: canonical 1.1.41 source and launcher",()=>{
  assert.equal(src,hub);
- assert.ok(src.includes('Version = "1.1.40"'));
- assert.ok(start.includes("v1.1.40-stability-frametime-test/Visuals.lua"));
- assert.ok(start.includes('Version = "1.1.40"'));
+ assert.ok(src.includes('Version = "1.1.41"'));
+ assert.ok(start.includes("v1.1.41-aim-recoil-stability-test/Visuals.lua"));
+ assert.ok(start.includes('Version = "1.1.41"'));
 });
 test("lite: chat, Bunny Hop, Skeleton ESP and CFG backend/UI are absent",()=>{
  for(const removed of [

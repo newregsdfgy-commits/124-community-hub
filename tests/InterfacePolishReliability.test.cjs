@@ -7,9 +7,9 @@ function block(first,last){
  assert.ok(a>=0&&b>a,"Cannot locate: "+first);return source.slice(a,b);
 }
 const menu=block("local function buildReferenceMenu()","referenceESP = buildReferenceMenu()");
-test("1: isolated visual polish is bound to exact 1.1.40 launcher",()=>{
- assert.ok(source.includes('Version = "1.1.40"'));
- assert.ok(launcher.includes("v1.1.40-stability-frametime-test/Visuals.lua"));
+test("1: isolated visual polish is bound to exact 1.1.41 launcher",()=>{
+ assert.ok(source.includes('Version = "1.1.41"'));
+ assert.ok(launcher.includes("v1.1.41-aim-recoil-stability-test/Visuals.lua"));
  assert.equal(source,fs.readFileSync("Hub.lua","utf8"));
 });
 test("2: hidden scroll lists require all parent GuiObjects to be visible",()=>{

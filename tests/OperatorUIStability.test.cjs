@@ -1,7 +1,7 @@
 "use strict";
 const fs=require("node:fs"),test=require("node:test"),assert=require("node:assert/strict");
 const src=fs.readFileSync("Visuals.lua","utf8"),hub=fs.readFileSync("Hub.lua","utf8");
-test("identical 1.1.21 entrypoints",()=>{assert.equal(src,hub);assert.ok(src.includes('Version = "1.1.40"'));});
+test("identical 1.1.21 entrypoints",()=>{assert.equal(src,hub);assert.ok(src.includes('Version = "1.1.41"'));});
 test("camera change and resize events do not create repeated layout work",()=>{
  const b=src.slice(src.indexOf("local currentLayoutCamera = nil"),src.indexOf("-- Линии сверху экрана"));
  assert.ok(b.includes("layoutPending then return"));assert.ok(b.includes("task.defer(function()"));
