@@ -1860,10 +1860,14 @@ local function setBooster(enabled, keepBaseline)
             end
         end)
     else
-        restoreTerrainGrass()
-        restoreTerrainColors()
-        applyLighting()
+        -- Отключение тоже не должно выполнять Terrain/Lighting-перезаписи
+        -- внутри обработчика кнопки: всё выполняет контролируемый worker.
         task.spawn(function()
+            if revision ~= boosterRevision or state.booster then return end
+            restoreTerrainGrass()
+            restoreTerrainColors()
+            applyLighting()
+            if revision ~= boosterRevision or state.booster then return end
             local count, sliceStarted = 0, os.clock()
             for obj, snapshot in pairs(savedGraphics) do
                 if revision ~= boosterRevision or state.booster then return end
