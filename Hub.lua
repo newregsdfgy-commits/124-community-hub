@@ -1,11 +1,11 @@
--- 124 Visuals v1.1.45 | Misc movement: speed, noclip, fly, player teleport; Memory retained
+-- 124 Visuals v1.1.46 | full audit fixes: ESP event load, text border, movement performance
 -- Первый плейс: 18537079992. Запуск поддерживает все игровые PlaceId.
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.1.45",
+    Version = "1.1.46",
     OriginalPlaceId = 18537079992,
     EspRefreshSeconds = 0.35, -- Быстрый поиск персонажей, без обновления UI каждый кадр.
     EspEventMinSeconds = 0.18, -- Коалесцированные события не запускают 16 полных сканов/сек.
@@ -17,6 +17,8 @@ local CONFIG = {
     EspExtremeRangeMeters = 700,
     EspLongScanSeconds = 0.55,
     EspExtremeScanSeconds = 0.80,
+    MiscSpeedRefreshHz = 4, -- Speed only: раз в 250 мс.
+    MiscNoclipRefreshHz = 30, -- Speed + Noclip: максимум 30 проверок в секунду.
     EspLongVisualHz = 18,
     EspExtremeVisualHz = 10,
     EspFarTextRefreshSeconds = 0.85, -- Дальние текстовые метки не обновляются при каждом скане.
@@ -1071,19 +1073,41 @@ end
 local espWatchers = {}
 local espRefreshQueued = false
 local espRefreshGeneration = 0
+-- Частота событийных обновлений согласована с дальностью сканирования.
+function perfCounters.espVisual.eventCooldown()
+    if state.performanceMode ~= "QUALITY" then
+        if state.espRangeMeters >= CONFIG.EspExtremeRangeMeters then
+            return math.max(CONFIG.EspEventMinSeconds, CONFIG.EspExtremeScanSeconds)
+        end
+        if state.espRangeMeters >= CONFIG.EspLongRangeMeters then
+            return math.max(CONFIG.EspEventMinSeconds, CONFIG.EspLongScanSeconds)
+        end
+    end
+    return CONFIG.EspEventMinSeconds
+end
 local function queueESPRefresh()
     if not alive or not state.esp or espRefreshQueued then return end
     espRefreshQueued = true
     local generation = espRefreshGeneration
     local elapsed = os.clock() - perfCounters.espVisual.lastScanAt
-    local delaySeconds = math.max(0.06, CONFIG.EspEventMinSeconds - elapsed)
+    local delaySeconds = math.max(0.06, perfCounters.espVisual.eventCooldown() - elapsed)
     task.delay(delaySeconds, function()
         if generation ~= espRefreshGeneration then return end
         espRefreshQueued = false
-        if alive and state.esp and os.clock() - perfCounters.espVisual.lastScanAt
-            >= CONFIG.EspEventMinSeconds then
-            local ok, err = pcall(refreshESP)
-            if not ok then warn("[124 Community Visuals] ESP event refresh: " .. tostring(err)) end
+        if not alive or not state.esp then return end
+        local cooldown = perfCounters.espVisual.eventCooldown()
+        if os.clock() - perfCounters.espVisual.lastScanAt < cooldown then
+            -- Радиус сменился после постановки таймера: откладываем скан.
+            queueESPRefresh()
+            return
+        end
+        local ok, err = pcall(refreshESP)
+        if not ok then
+            local now = os.clock()
+            if now - perfCounters.espVisual.scanErrorAt >= 3 then
+                warn("[124 Community Visuals] ESP event refresh: " .. tostring(err))
+                perfCounters.espVisual.scanErrorAt = now
+            end
         end
     end)
 end
@@ -4523,6 +4547,7 @@ local movement = {
     noclipCharacter = nil, noclipAdded = nil,
     collisionOriginals = setmetatable({}, {__mode = "k"}),
     stepConnection = nil, lastSpeedApply = 0, lastErrorAt = 0,
+    nextPassiveAt = 0,
 }
 boosterPro.movement = movement
 
@@ -4737,6 +4762,7 @@ end
 
 function movement.sync()
     if not alive then return end
+    movement.nextPassiveAt = 0 -- Переключатели применяются без задержки.
     local needed = state.speedEnabled or state.noclip or state.fly
     if not needed then
         if movement.stepConnection then
@@ -4749,6 +4775,14 @@ function movement.sync()
     if not movement.stepConnection then
         local signal = RunService.PreSimulation or RunService.Stepped
         movement.stepConnection = signal:Connect(function()
+            -- Fly остаётся покадровым. Для Speed/Noclip скан деталей ограничен.
+            if not state.fly then
+                local now = os.clock()
+                if now < movement.nextPassiveAt then return end
+                local rate = state.noclip and CONFIG.MiscNoclipRefreshHz
+                    or CONFIG.MiscSpeedRefreshHz
+                movement.nextPassiveAt = now + 1 / rate
+            end
             local ok, err = pcall(movement.step)
             if not ok then
                 if os.clock() - movement.lastErrorAt >= 3 then
@@ -5764,8 +5798,19 @@ local function buildReferenceMenu()
         UDim2.new(0, 15, 0, 102), function() return referenceStrokeEnabled end,
         function()
             referenceStrokeEnabled = not referenceStrokeEnabled
-            -- Не выполнять синхронный обход игроков из обработчика клика.
-            queueESPRefresh()
+            -- Текстовая обводка без полного обхода / сортировки ESP.
+            local alpha = referenceStrokeEnabled and 0.55 or 1
+            for _, item in pairs(renderData) do
+                if isLive(item.nameLabel) then
+                    setIfDifferent(item.nameLabel, "TextStrokeTransparency", alpha)
+                end
+                if isLive(item.healthLabel) then
+                    setIfDifferent(item.healthLabel, "TextStrokeTransparency", alpha)
+                end
+                if isLive(item.distanceLabel) then
+                    setIfDifferent(item.distanceLabel, "TextStrokeTransparency", alpha)
+                end
+            end
         end)
     borderSwitch.row.Size = UDim2.new(1, -30, 0, 28)
     textLabel(skins, "SkinsHeader", "◇   MOD SKINN", UDim2.fromOffset(16, 10),
