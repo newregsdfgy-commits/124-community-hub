@@ -5207,7 +5207,7 @@ end)
 
 -- Один клиентский Sound без RemoteEvent и без репликации другим игрокам.
 -- При отсутствии прав на Roblox Audio ID трек не воспроизведётся.
-local privateMusic = {sound = nil, currentId = nil, listeners = {}, status = nil}
+local privateMusic = {sound = nil, currentId = nil, listeners = {}, status = nil, paused = false}
 boosterPro.privateMusic = privateMusic
 function privateMusic.statusText(message)
     if privateMusic.status and privateMusic.status.Parent then
@@ -5223,7 +5223,7 @@ function privateMusic.stop()
         pcall(function() privateMusic.sound:Stop() end)
         pcall(function() privateMusic.sound:Destroy() end)
     end
-    privateMusic.sound, privateMusic.currentId = nil, nil
+    privateMusic.sound, privateMusic.currentId, privateMusic.paused = nil, nil, false
 end
 function privateMusic.play(id)
     if type(id) ~= "string" or #id < 1 or #id > 19 or not id:match("^%d+$")
@@ -5252,7 +5252,9 @@ function privateMusic.play(id)
         end
         sound.Looped = state.musicLoop == true
         sound.Volume = math.clamp(state.musicVolume / 100, 0, 1)
-        sound:Play()
+        if privateMusic.paused then sound:Resume()
+        else sound:Play() end
+        privateMusic.paused = false
     end)
     if not ok then
         privateMusic.stop()
@@ -5362,7 +5364,9 @@ addButton(pages.MISC, "Ⅱ Pause Music", "Приостановить личну�
         return
     end
     local ok, err = pcall(function() privateMusic.sound:Pause() end)
-    if ok then privateMusic.statusText("На паузе")
+    if ok then
+        privateMusic.paused = true
+        privateMusic.statusText("На паузе · Play продолжит с этого места")
     else tell("Музыка: " .. tostring(err)) end
 end)
 addButton(pages.MISC, "■ Stop Music", "Остановить и удалить локальный Sound", function()
