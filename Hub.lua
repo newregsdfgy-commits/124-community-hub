@@ -2827,7 +2827,9 @@ end
 emergencyUIRollback = function()
     local cameraOK, cameraRestored = pcall(memoryFX.camera.reset)
     local spinOK, spinRestored = pcall(memoryFX.spin.reset)
+    local spreadOK, spreadRestored = pcall(recoil.restoreSpread)
     return cameraOK and cameraRestored == true and spinOK and spinRestored == true
+        and spreadOK and spreadRestored == true
 end
 
 -- Сохраняем только ограниченный набор настроек; код из JSON никогда не выполняется.
@@ -4233,10 +4235,18 @@ local function addToggle(page, title, description, key, onChanged)
     refreshToggles[key] = update
     safeActivate(row, function()
         if not alive then return end
-        state[key] = not state[key]
+        local previous = state[key]
+        state[key] = not previous
         if onChanged then
             local ok, err = pcall(onChanged, state[key])
-            if not ok then tell("Ошибка: " .. tostring(err)) end
+            if not ok then
+                -- Ошибка callback не должна сохранять нерабочий тумблер ON.
+                state[key] = previous
+                pcall(onChanged, previous)
+                update()
+                tell("Ошибка: " .. tostring(err))
+                return
+            end
         end
         update()
         requestSave()
@@ -7121,7 +7131,7 @@ cleanup = function(safeStop)
     end
     if savedLighting or savedTerrainDecoration or savedTerrainColors
         or next(savedGraphics) ~= nil or next(memoryFX.camera.saved) ~= nil
-        or next(memoryFX.spin.pending) ~= nil then
+        or next(memoryFX.spin.pending) ~= nil or recoil.spread.pending() then
         local previousRecovery = env.ARMY124_RECOVERY
         local pendingRecovery
         pendingRecovery = function()
@@ -7136,12 +7146,14 @@ cleanup = function(safeStop)
             local graphicsOK = pcall(boosterPro.restoreGraphicsSliced)
             local cameraOK = pcall(memoryFX.camera.reset)
             local spinOK = pcall(memoryFX.spin.restorePending)
+            local spreadOK, spreadRestored = pcall(recoil.restoreSpread)
             local done = lightingOK and grassOK and colorsOK and graphicsOK
-                and cameraOK and spinOK
+                and cameraOK and spinOK and spreadOK and spreadRestored == true
                 and not (savedLighting or savedTerrainDecoration or savedTerrainColors)
                 and next(savedGraphics) == nil
                 and next(memoryFX.camera.saved) == nil
                 and next(memoryFX.spin.pending) == nil
+                and not recoil.spread.pending()
             if done and oldDone and env.ARMY124_RECOVERY == pendingRecovery then
                 env.ARMY124_RECOVERY = nil
             end
