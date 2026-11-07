@@ -1,11 +1,11 @@
--- 124 Visuals v1.1.52 | full audit: safe parameter restore, recoil profile, audio diagnostics
+-- 124 Visuals v1.1.53 | full audit: safe parameter restore, recoil profile, audio diagnostics
 -- Первый плейс: 18537079992. Запуск поддерживает все игровые PlaceId.
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.1.52",
+    Version = "1.1.53",
     OriginalPlaceId = 18537079992,
     EspRefreshSeconds = 0.35, -- Быстрый поиск персонажей, без обновления UI каждый кадр.
     EspEventMinSeconds = 0.18, -- Коалесцированные события не запускают 16 полных сканов/сек.
@@ -67,10 +67,10 @@ local CONFIG = {
     RecoilMinPitchDegrees = 0.045, -- Не реагируем на микродрожание камеры.
     RecoilMaxPitchDegrees = 5.0, -- Не воспринимаем резкий разворот как отдачу.
     RecoilMaxCorrectionDegrees = 1.60, -- Ограничение коррекции за кадр.
-    BoosterBatch = 64, -- Меньше изменений графики в одном проходе.
-    BoosterSliceMs = 0.65, -- Снижаем вероятность длинного пика обработки карты.
-    BoosterLowFpsSliceMs = 0.35, -- Строже лимит во время просадок.
-    BoosterInitialDelay = 0.015, BoosterLowFpsDelay = 0.035,
+    BoosterBatch = 96, -- Лимит объектов за один периодический проход.
+    BoosterSliceMs = 0.90, -- Верхняя цель CPU-среза при нормальном FPS.
+    BoosterLowFpsSliceMs = 0.45, -- Более короткий срез при низком FPS.
+    BoosterInitialDelay = 0, BoosterLowFpsDelay = 0, -- Yield без искусственного ожидания.
     BoosterQueueBatch = 32, -- StreamingEnabled: меньше свойств за раз.
     BoosterQueueSliceMs = 0.45,
     BoosterQueueDelay = 0.040, BoosterQueueLowFpsDelay = 0.075,
@@ -1498,6 +1498,11 @@ local graphicsClouds = {Cover = 0, Density = 0}
 
 local function graphicsProperty(obj)
     local level = state.boosterMode
+    -- BALANCED не должен менять десятки тысяч BasePart ради одного тумблера.
+    -- Глобальные тени отключает applyLighting; здесь только постэффекты.
+    if level == "BALANCED" then
+        return obj:IsA("PostEffect") and graphicsDisabled or nil
+    end
     local white = level == "WHITE" or level == "ULTRA"
     local ultra = level == "ULTRA"
     if obj:IsA("Terrain") then
@@ -1600,7 +1605,7 @@ local function optimizeHierarchy(root, revision)
             end
             boosterPro.scanned = boosterPro.scanned + 1
             count = count + 1
-            if count >= CONFIG.BoosterBatch or (count % 4 == 0 and
+            if count >= CONFIG.BoosterBatch or (count % 8 == 0 and
                 (os.clock() - sliceStarted) * 1000 >=
                     (measuredFps < 35 and CONFIG.BoosterLowFpsSliceMs or CONFIG.BoosterSliceMs)) then
                 boosterPro.slicePeakMs = math.max(boosterPro.slicePeakMs,
@@ -1788,7 +1793,11 @@ local function setBooster(enabled, keepBaseline)
         if not keepBaseline then boosterPro.baseline = boosterPro.average(boosterPro.originalFPS) end
         boosterPro.mode = state.boosterMode
         boosterPro.startedAt = os.clock()
-        local setupOk, setupErr = pcall(function()
+        -- Кнопка возвращает управление сразу. Тяжёлые операции Terrain/карты
+        -- начинаются вне обработчика UI; каждая ревизия проверяет актуальность.
+        task.spawn(function()
+            local ok, err = pcall(function()
+            if not alive or revision ~= boosterRevision or not state.booster then return end
             applyLighting()
             if state.boosterMode == "BALANCED" then
                 restoreTerrainGrass()
@@ -1797,23 +1806,7 @@ local function setBooster(enabled, keepBaseline)
                 hideTerrainGrass()
                 whitenTerrain()
             end
-        end)
-        if not setupOk then
-            boosterPro.lastError = tostring(setupErr)
-            warn("[124 Community Visuals] Booster: ошибка подготовки графики: "
-                .. tostring(setupErr))
-            state.booster = false
-            local rollbackOk, rollbackErr = pcall(setBooster, false)
-            if not rollbackOk then
-                warn("[124 Community Visuals] Booster: ошибка запуска отката: "
-                    .. tostring(rollbackErr))
-            end
-            if refreshToggles.booster then pcall(refreshToggles.booster) end
-            requestSave()
-            return
-        end
-        task.spawn(function()
-            local ok, err = pcall(function()
+            if not alive or revision ~= boosterRevision or not state.booster then return end
             -- Сначала синхронизируем старые снимки: это важно при ULTRA -> BALANCED.
             local n, phaseStarted = 0, os.clock()
             for obj in pairs(savedGraphics) do
@@ -1831,11 +1824,14 @@ local function setBooster(enabled, keepBaseline)
             end
             local terrain = Workspace:FindFirstChildOfClass("Terrain")
             if terrain then optimizeObject(terrain) end
-            if not optimizeHierarchy(Workspace, revision) then return end
+            -- BALANCED: быстрый путь, карта не перебирается и не изменяется.
+            -- WHITE/ULTRA: полный обход по CPU-срезам, только по выбору игрока.
+            if state.boosterMode ~= "BALANCED"
+                and not optimizeHierarchy(Workspace, revision) then return end
             if not optimizeHierarchy(Lighting, revision) then return end
             if revision ~= boosterRevision or not state.booster then return end
             boosterPro.complete = true
-            boosterPro.phase = "READY"
+            boosterPro.phase = state.boosterMode == "BALANCED" and "READY FAST" or "READY"
             boosterPro.readyAt = os.clock() + 1.5
             -- Compare FPS only after optimization actually finishes; earlier
             -- samples include initial workload and would trigger a false auto-rollback.
@@ -1843,7 +1839,9 @@ local function setBooster(enabled, keepBaseline)
             boosterPro.after = nil
             boosterPro.guardLowSince = nil
             tell("FPS Booster Pro: " .. state.boosterMode .. " применён; просмотрено "
-                .. tostring(boosterPro.scanned) .. " объектов; измеряем FPS")
+                .. tostring(boosterPro.scanned)
+                .. (state.boosterMode == "BALANCED" and " объектов; карта без изменений; измеряем FPS"
+                    or " объектов; измеряем FPS"))
             end)
             if not ok and alive and revision == boosterRevision and state.booster then
                 boosterPro.complete = false
@@ -4300,8 +4298,16 @@ local function addToggle(page, title, description, key, onChanged)
             or Color3.fromRGB(203, 204, 212)
     end
     refreshToggles[key] = update
-    safeActivate(row, function()
+    local lastMouseActivation = -1e8
+    local function onRowActivated()
         if not alive then return end
+        -- На некоторых клиентах MouseButton1Click и Activated приходят вместе.
+        -- Запасной обработчик AIM не должен переключать его дважды.
+        if key == "aimbot" then
+            local now = os.clock()
+            if now - lastMouseActivation < 0.12 then return end
+            lastMouseActivation = now
+        end
         local previous = state[key]
         state[key] = not previous
         if onChanged then
@@ -4317,7 +4323,13 @@ local function addToggle(page, title, description, key, onChanged)
         end
         update()
         requestSave()
-    end)
+    end
+    safeActivate(row, onRowActivated)
+    if key == "aimbot" then
+        row.Active = true
+        -- Запасной путь для клиентов, не отправляющих Activated на обычный клик.
+        connect(row.MouseButton1Click, onRowActivated)
+    end
     update()
     return row
 end
@@ -4694,8 +4706,10 @@ addToggle(pages.ESP, "Дистанция", "Расстояние в метрах
 addToggle(pages.ESP, "Цвет команд", "Расцветка согласно TeamColor", "teamColors")
 
 addSection(pages.AIM, "TARGETING", "Точка наведения и управление")
-addToggle(pages.AIM, "Aimbot", "Наведение только с экипированным Tool", "aimbot", function(enabled)
-    setAimEnabled(enabled, false)
+addToggle(pages.AIM, "Aimbot", "Кнопка и горячая клавиша включают наведение одинаково", "aimbot", function(enabled)
+    -- Раньше меню включало модуль без aimHeldKey: без ПКМ наведения не было.
+    setAimEnabled(enabled, enabled)
+    tell(enabled and "AIM: ON (активирован кнопкой)" or "AIM: OFF")
 end)
 addAimModeSelector(pages.AIM)
 -- Без знаний об оружии игры не гадаем по названиям. Игрок может один раз
@@ -7005,7 +7019,7 @@ function boosterPro.queueObject(obj)
     boosterPro.queueCount = boosterPro.queueCount + 1
 end
 connect(Workspace.DescendantAdded, function(obj)
-    if not alive or not state.booster then return end
+    if not alive or not state.booster or state.boosterMode == "BALANCED" then return end
     -- A late avatar must not be recolored; restore already captured originals.
     local parent = obj.Parent
     if parent and parent:IsA("Model") and
@@ -7069,7 +7083,8 @@ task.spawn(function()
             local coveredDrops = boosterPro.queueDropped
             task.spawn(function()
                 local ok, result = pcall(function()
-                    return optimizeHierarchy(Workspace, repairRevision)
+                    return (state.boosterMode == "BALANCED"
+                        or optimizeHierarchy(Workspace, repairRevision))
                         and optimizeHierarchy(Lighting, repairRevision)
                 end)
                 if not alive or not state.booster or repairRevision ~= boosterRevision then
