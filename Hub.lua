@@ -3573,7 +3573,7 @@ local sectionSides = {
     ["TARGETING"] = "left", ["ADVANCED"] = "right",
     ["FOV EDITOR"] = "right", ["CONTROL"] = "right", ["RECOIL CONTROL"] = "right",
     ["UTILITY"] = "left", ["PERFORMANCE"] = "right",
-    ["CAMERA FOV"] = "left", ["ANTI-AIM"] = "right",
+    ["CAMERA & LIGHTING"] = "left", ["ANTI-AIM"] = "right",
     ["MOVEMENT"] = "left", ["FLIGHT"] = "right", ["TELEPORT"] = "right",
     
     ["PROFILES"] = "left", ["CONFIG TOOLS"] = "right", ["WINDOW"] = "right",
@@ -4940,7 +4940,6 @@ addButton(pages.MEMORY, "Диагностика Booster", "Режим, прог�
         .. " | Переполнение: " .. tostring(boosterPro.queueDropped)
         .. " | Ошибка: " .. errorText)
 end)
-addToggle(pages.MEMORY, "FullBright", "Осветлить сцену локально", "fullbright", function() applyLighting() end)
 addToggle(pages.MEMORY, "Часы / FPS / Ping", "Информационный блок экрана", "hud")
 addToggle(pages.MEMORY, "HUD активных функций", "Состояние AIM, ESP, Booster", "activeHud")
 addSection(pages.MEMORY, "PERFORMANCE", "Режимы и диагностика")
@@ -5008,21 +5007,6 @@ addButton(pages.MEMORY, "Проверка микрофризов",
     "Показать 1% Low, p99, худший кадр и число задержек от 50 мс", function()
         tell(perfCounters.frametime.summary())
     end)
-addSection(pages.MEMORY, "CAMERA FOV", "Угол обзора, не радиус AIM")
-addToggle(pages.MEMORY, "Camera FOV", "Переопределить вертикальный угол обзора", "cameraFovEnabled", function()
-    memoryFX.camera.apply()
-end)
-addSlider(pages.MEMORY, "Угол камеры", "55–110°, стандартное значение игры вернётся при OFF",
-    "cameraFovDegrees", 55, 110, 1,
-    function(value) return tostring(value) .. "°" end,
-    function() memoryFX.camera.apply() end)
-addButton(pages.MEMORY, "Вернуть FOV камеры", "Отключить настройку и вернуть исходный угол", function()
-    state.cameraFovEnabled = false
-    memoryFX.camera.reset()
-    if refreshToggles.cameraFovEnabled then refreshToggles.cameraFovEnabled() end
-    requestSave()
-    tell("Camera FOV: исходный угол восстановлен")
-end)
 addSection(pages.MISC, "MOVEMENT", "Управление скоростью и столкновениями")
 addToggle(pages.MISC, "Speed", "Скорость ходьбы (8–120 studs/s)", "speedEnabled", function()
     movement.sync()
@@ -5051,6 +5035,25 @@ addButton(pages.MISC, "Сбросить Movement", "Отключить Speed / N
     movement.disableAll()
     requestSave()
     tell("Misc: Speed / Noclip / Fly выключены")
+end)
+
+addSection(pages.MISC, "CAMERA & LIGHTING", "Угол обзора и локальное освещение")
+addToggle(pages.MISC, "Camera FOV", "Изменить вертикальный угол обзора, не радиус AIM", "cameraFovEnabled", function()
+    memoryFX.camera.apply()
+end)
+addSlider(pages.MISC, "Угол камеры", "55–110°, исходный FOV вернётся при отключении",
+    "cameraFovDegrees", 55, 110, 1,
+    function(value) return tostring(value) .. "°" end,
+    function() memoryFX.camera.apply() end)
+addButton(pages.MISC, "Вернуть FOV камеры", "Отключить настройку и восстановить прежний угол", function()
+    state.cameraFovEnabled = false
+    memoryFX.camera.reset()
+    if refreshToggles.cameraFovEnabled then refreshToggles.cameraFovEnabled() end
+    requestSave()
+    tell("Camera FOV: исходный угол восстановлен")
+end)
+addToggle(pages.MISC, "FullBright", "Локально осветлить карту; исходное освещение вернётся при OFF", "fullbright", function()
+    applyLighting()
 end)
 
 addSection(pages.MISC, "TELEPORT", "Переход к игроку по Roblox username или DisplayName")
