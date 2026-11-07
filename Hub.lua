@@ -1,17 +1,19 @@
--- 124 Visuals v1.1.41 LITE | AIM tracking and recoil stability
--- PlaceId: 18537079992
+-- 124 Visuals v1.1.42 LITE | Multi-place support, original aim/recoil stability preserved
+-- Первый плейс: 18537079992. Запуск поддерживает все игровые PlaceId.
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.1.41",
-    PlaceId = 18537079992,
+    Version = "1.1.42",
+    OriginalPlaceId = 18537079992,
     EspRefreshSeconds = 0.35, -- Быстрый поиск персонажей, без обновления UI каждый кадр.
     EspEventMinSeconds = 0.18, -- Коалесцированные события не запускают 16 полных сканов/сек.
     EspMaxPlayers = 64, -- Видимый, настраиваемый лимит вместо скрытого TOP 6/12.
     StudMeters = 0.28, -- Стандартный масштаб Roblox: 1 stud ≈ 0.28 м.
-    ConfigFile = "124_community_settings_v09.json",
+    ConfigFile = game.PlaceId == 18537079992
+        and "124_community_settings_v09.json"
+        or ("124_visuals_settings_" .. tostring(game.PlaceId) .. ".json"),
     MenuKey = Enum.KeyCode.RightShift,
     EspFillTransparency = 0.88, -- Менее заметная подсветка.
     EspOutlineTransparency = 0.38, -- Встроенный Highlight не имеет толщины в px.
@@ -37,7 +39,9 @@ local CONFIG = {
     AimRangeMinMeters = 5,
     AimSmoothnessBaseline = 33, -- Smoothness=3 эквивалентен скорости v0.3 (11).
     AimKeyDefault = "F6", -- По умолчанию назначена F6, можно выбрать другую клавишу.
-    AimKeyFile = "124_community_aim_key.txt", -- Необязательное локальное сохранение.
+    AimKeyFile = game.PlaceId == 18537079992
+        and "124_community_aim_key.txt"
+        or ("124_visuals_aim_key_" .. tostring(game.PlaceId) .. ".txt"), -- Отдельно для каждой игры.
     AimScanInterval = 0.12, -- Таймер действует и при отсутствии целей.
     AimLostRescanSeconds = 0.06,
     AimLosBalancedSeconds = 0.045,
@@ -98,10 +102,12 @@ local CONFIG = {
     Muted = Color3.fromRGB(154, 162, 170),
 }
 
-if game.PlaceId ~= CONFIG.PlaceId then
-    warn("[124 Community Visuals] Неподдерживаемый PlaceId: " .. tostring(game.PlaceId))
+-- В разных играх используем общие сервисы Roblox, без ограничения на один PlaceId.
+if type(game.PlaceId) ~= "number" or game.PlaceId <= 0 then
+    warn("[124 Visuals] Не определён корректный PlaceId")
     return
 end
+print("[124 Visuals] v" .. CONFIG.Version .. " | PlaceId=" .. tostring(game.PlaceId))
 
 local Players = game:GetService("Players")
 local Lighting = game:GetService("Lighting")
