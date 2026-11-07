@@ -1,11 +1,11 @@
--- 124 Visuals v1.1.47 | camera-directed 3D Fly, FOV and FullBright in Misc
+-- 124 Visuals v1.1.48 | triple audit: per-place safe-boot, flight stability, cleanup
 -- Первый плейс: 18537079992. Запуск поддерживает все игровые PlaceId.
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.1.47",
+    Version = "1.1.48",
     OriginalPlaceId = 18537079992,
     EspRefreshSeconds = 0.35, -- Быстрый поиск персонажей, без обновления UI каждый кадр.
     EspEventMinSeconds = 0.18, -- Коалесцированные события не запускают 16 полных сканов/сек.
@@ -2881,7 +2881,8 @@ local function applySettings(incoming, autoLoad)
         state.booster = false
         -- Аварийная загрузка после Safety Stop: старая файловая копия
         -- (при ошибке writefile) не должна снова включать опасные функции.
-        if CONFIG.PlaceCache.safeBoot == true or env.ARMY124_SAFE_BOOT == true then
+        if CONFIG.PlaceCache.safeBoot == true or (game.PlaceId == CONFIG.OriginalPlaceId
+            and env.ARMY124_SAFE_BOOT == true) then
             state.esp = false
             state.tracers = false
             state.espBox = false
@@ -2900,8 +2901,10 @@ local function applySettings(incoming, autoLoad)
             -- синхронный env cache всё равно содержит безопасный снимок.
             if writeProfileFile() then
                 CONFIG.PlaceCache.safeBoot = nil
-                -- Предыдущие версии имели общий флаг, поглощаем его единожды.
-                env.ARMY124_SAFE_BOOT = nil
+                -- Legacy flag принадлежит только исходному PlaceId.
+                if game.PlaceId == CONFIG.OriginalPlaceId then
+                    env.ARMY124_SAFE_BOOT = nil
+                end
             end -- При отказе записи сохраняем флаг для следующего запуска.
         end
     end
@@ -4552,6 +4555,7 @@ local movement = {
     collisionOriginals = setmetatable({}, {__mode = "k"}),
     stepConnection = nil, lastSpeedApply = 0, lastErrorAt = 0,
     nextPassiveAt = 0, lastFlatForward = Vector3.new(0, 0, -1),
+    lastFacing = nil,
 }
 boosterPro.movement = movement
 
@@ -4615,6 +4619,7 @@ function movement.restoreFly()
         end)
     end
     movement.flyHumanoid, movement.flyRoot, movement.originalAutoRotate = nil, nil, nil
+    movement.lastFacing = nil
 end
 
 function movement.ensureFly(humanoid, root)
@@ -4659,7 +4664,12 @@ function movement.ensureFly(humanoid, root)
         for _, obj in ipairs(built) do pcall(function() obj:Destroy() end) end
         movement.restoreFly()
         pcall(function()
-            if humanoid.Parent then humanoid.AutoRotate = originalRotate end
+            if humanoid.Parent then
+                humanoid.AutoRotate = originalRotate
+                if humanoid.Health > 0 then
+                    humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+                end
+            end
         end)
         state.fly = false
         if refreshToggles.fly then pcall(refreshToggles.fly) end
@@ -4726,7 +4736,9 @@ function movement.step()
         movement.restoreCollision()
     end
 
-    if not state.fly then
+    if not state.fly or humanoid.Sit or humanoid.SeatPart ~= nil then
+        -- Физика Fly не должна драться с SeatWeld / управлением транспортом.
+        -- Флаг Fly сохраняется и продолжит работать после выхода из сиденья.
         if movement.flyRoot then movement.restoreFly() end
         return
     end
@@ -4777,7 +4789,12 @@ function movement.step()
         movement.velocity.VectorVelocity = target
     end
     -- Персонаж остаётся прямо, даже если камера смотрит резко вверх/вниз.
-    movement.orientation.CFrame = CFrame.lookAt(Vector3.zero, flatForward)
+    -- Нет смысла отправлять AlignOrientation один и тот же CFrame 60+ раз/сек.
+    -- Обновляем только при заметном изменении направления камеры.
+    if not movement.lastFacing or movement.lastFacing:Dot(flatForward) < 0.999995 then
+        movement.orientation.CFrame = CFrame.lookAt(Vector3.zero, flatForward)
+        movement.lastFacing = flatForward
+    end
 end
 
 function movement.sync()
