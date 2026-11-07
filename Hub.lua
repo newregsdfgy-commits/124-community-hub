@@ -1078,7 +1078,8 @@ local espRefreshQueued = false
 local espRefreshGeneration = 0
 -- Частота событийных обновлений согласована с дальностью сканирования.
 function perfCounters.espVisual.eventCooldown()
-    if state.performanceMode ~= "QUALITY" then
+    if state.performanceMode ~= "QUALITY"
+        or (state.performanceGuard and perfCounters.guard.level > 0) then
         if state.espRangeMeters >= CONFIG.EspExtremeRangeMeters then
             return math.max(CONFIG.EspEventMinSeconds, CONFIG.EspExtremeScanSeconds)
         end
@@ -6813,7 +6814,8 @@ task.spawn(function()
         local tier = visualPerfTier()
         local interval = tier == "ECO" and 0.55 or tier == "QUALITY" and 0.25
             or CONFIG.EspRefreshSeconds
-        if state.performanceMode ~= "QUALITY" then
+        if state.performanceMode ~= "QUALITY"
+            or (state.performanceGuard and perfCounters.guard.level > 0) then
             if state.espRangeMeters >= CONFIG.EspExtremeRangeMeters then
                 interval = math.max(interval, CONFIG.EspExtremeScanSeconds)
             elseif state.espRangeMeters >= CONFIG.EspLongRangeMeters then
