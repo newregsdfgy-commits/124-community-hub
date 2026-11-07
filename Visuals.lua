@@ -2188,6 +2188,88 @@ local recoilFireUntil = 0
 local recoilHolding = false
 local recoilHoldStarted = 0
 
+-- Клиентский No Spread: только явные параметры NumberValue/IntValue/
+-- числовые атрибуты текущего Tool. ModuleScript и серверные траектории не меняем.
+-- Снимок старого значения сохраняется до выключения функции/смены Tool.
+local spreadParameterNames = {
+    spread = true, bulletspread = true, hipspread = true, aimspread = true,
+    minspread = true, maxspread = true, initialspread = true,
+    spreadangle = true, spreaddegrees = true, spreadmultiplier = true,
+    inaccuracy = true, bloom = true, bulletbloom = true,
+}
+controller.spread = {originals = setmetatable({}, {__mode = "k"}), modified = 0}
+local function isSpreadParameter(name)
+    return type(name) == "string"
+        and spreadParameterNames[string.lower(name):gsub("[^%w]", "")] == true
+end
+
+function controller.restoreSpread()
+    local originals = controller.spread.originals
+    for instance, saved in pairs(originals) do
+        if instance and instance.Parent then
+            if saved.value ~= nil then
+                pcall(function()
+                    if instance.Value == 0 then instance.Value = saved.value end
+                end)
+            end
+            for attr, before in pairs(saved.attributes) do
+                pcall(function()
+                    -- Не перетираем изменение игры, если она уже сменила значение.
+                    if instance:GetAttribute(attr) == 0 then
+                        instance:SetAttribute(attr, before)
+                    end
+                end)
+            end
+        end
+        originals[instance] = nil
+    end
+    controller.spread.modified = 0
+end
+
+function controller.applySpread()
+    local tool = recoilTool
+    if not alive or not state.noSpread or not tool
+        or tool.Parent ~= LocalPlayer.Character then return 0 end
+    local originals = controller.spread.originals
+    local changed = 0
+    local function patch(instance)
+        if (instance:IsA("NumberValue") or instance:IsA("IntValue"))
+            and isSpreadParameter(instance.Name) then
+            local value = instance.Value
+            if value > 0 and value < 1000000 then
+                local saved = originals[instance]
+                if not saved then saved = {attributes = {}}; originals[instance] = saved end
+                if saved.value == nil then saved.value = value end
+                instance.Value = 0
+                changed = changed + 1
+            end
+        end
+        -- Атрибуты отслеживаем только у Tool и конфигурационных контейнеров,
+        -- чтобы не обходить избыточные Attributes каждой геометрической детали.
+        if instance == tool or instance:IsA("Configuration")
+            or (instance:IsA("Folder") and string.find(string.lower(instance.Name),
+                "config", 1, true)) then
+            for name, value in pairs(instance:GetAttributes()) do
+                if isSpreadParameter(name) and type(value) == "number"
+                    and value > 0 and value < 1000000 then
+                    local saved = originals[instance]
+                    if not saved then saved = {attributes = {}}; originals[instance] = saved end
+                    if saved.attributes[name] == nil then saved.attributes[name] = value end
+                    instance:SetAttribute(name, 0)
+                    changed = changed + 1
+                end
+            end
+        end
+    end
+    local ok, err = pcall(function()
+        patch(tool)
+        for _, desc in ipairs(tool:GetDescendants()) do patch(desc) end
+    end)
+    if not ok then warn("[124 Visuals] No Spread local: " .. tostring(err)) end
+    controller.spread.modified = controller.spread.modified + changed
+    return changed
+end
+
 local function stopRecoilFire()
     recoilHolding = false
     recoilFireUntil = 0
@@ -2208,7 +2290,7 @@ local function disconnectRecoilConnections(collection)
 end
 
 local function markRecoilShot()
-    if not alive or not state.controlRecoil or not recoilTool then return end
+    if not alive or not (state.controlRecoil or state.noRecoil) or not recoilTool then return end
     controller.shots = controller.shots + 1
     local now = os.clock()
     -- Every Tool.Activated pulse renews the firing watchdog, even when
@@ -2220,6 +2302,7 @@ end
 
 local function equipRecoilTool(tool)
     if recoilTool == tool then return end
+    controller.restoreSpread()
     disconnectRecoilConnections(recoilToolConnections)
     recoilTool = nil
     resetRecoilTracking()
@@ -2229,6 +2312,17 @@ local function equipRecoilTool(tool)
         recoilToolConnections[#recoilToolConnections + 1] = tool.Deactivated:Connect(function()
             recoilHolding = false
             recoilFireUntil = math.max(recoilFireUntil, os.clock() + CONFIG.RecoilShotGraceSeconds)
+        end)
+        if state.noSpread then controller.applySpread() end
+        recoilToolConnections[#recoilToolConnections + 1] = tool.DescendantAdded:Connect(function(obj)
+            if alive and state.noSpread and (isSpreadParameter(obj.Name)
+                or obj:IsA("Configuration")) then
+                task.defer(function()
+                    if alive and state.noSpread and recoilTool == tool then
+                        controller.applySpread()
+                    end
+                end)
+            end
         end)
     end
     -- Без Tool в руках AIM перестаёт управлять камерой и сбрасывает захват.
@@ -2251,6 +2345,7 @@ local function bindRecoilCharacter(character)
 end
 
 local function shutdownRecoilControl()
+    controller.restoreSpread()
     disconnectRecoilConnections(recoilCharacterConnections)
     equipRecoilTool(nil)
 end
@@ -2267,7 +2362,8 @@ local function recoilFrame(dt)
     -- OFF: нулевые вычисления углов камеры.
     -- После включения первый кадр записывает базу, не компенсируя
     -- несуществующий скачок на границе состояний.
-    if not alive or not state.controlRecoil or state.recoilStrength <= 0
+    if not alive or (not state.controlRecoil and not state.noRecoil)
+        or (not state.noRecoil and state.recoilStrength <= 0)
         or recoilTool == nil or recoilTool.Parent ~= LocalPlayer.Character then
         recoilLastCamera, recoilLastPitch = nil, nil
         recoilLastCorrection = 0
@@ -2296,11 +2392,15 @@ local function recoilFrame(dt)
     local pitchUp = signedAngle(previousPitch, currentPitch)
     if pitchUp < math.rad(CONFIG.RecoilMinPitchDegrees)
         or pitchUp > math.rad(CONFIG.RecoilMaxPitchDegrees) then return end
-    local frameCap = math.min(
-        math.rad(CONFIG.RecoilMaxCorrectionDegrees),
-        math.rad(CONFIG.RecoilMaxCorrectionPerSecond) * math.clamp(dt, 0, 0.05)
-    )
-    local correction = math.min(pitchUp * (state.recoilStrength / 100), frameCap)
+    -- No Recoil компенсирует весь обнаруженный подброс в пределах защитных
+    -- порогов. Не маскируем серверный recoil и не подавляем ручные движения.
+    local frameCap = state.noRecoil and math.rad(CONFIG.RecoilMaxPitchDegrees)
+        or math.min(
+            math.rad(CONFIG.RecoilMaxCorrectionDegrees),
+            math.rad(CONFIG.RecoilMaxCorrectionPerSecond) * math.clamp(dt, 0, 0.05)
+        )
+    local strength = state.noRecoil and 1 or (state.recoilStrength / 100)
+    local correction = math.min(pitchUp * strength, frameCap)
     if correction <= 0 then return end
     -- Limit time-based angular correction so high refresh rates don't
     -- amplify single-frame noise; preserve camera yaw and position.
