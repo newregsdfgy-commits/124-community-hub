@@ -1,11 +1,11 @@
--- 124 Visuals v1.1.46 | full audit fixes: ESP event load, text border, movement performance
+-- 124 Visuals v1.1.47 | camera-directed 3D Fly, FOV and FullBright in Misc
 -- Первый плейс: 18537079992. Запуск поддерживает все игровые PlaceId.
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.1.46",
+    Version = "1.1.47",
     OriginalPlaceId = 18537079992,
     EspRefreshSeconds = 0.35, -- Быстрый поиск персонажей, без обновления UI каждый кадр.
     EspEventMinSeconds = 0.18, -- Коалесцированные события не запускают 16 полных сканов/сек.
@@ -4551,7 +4551,7 @@ local movement = {
     noclipCharacter = nil, noclipAdded = nil,
     collisionOriginals = setmetatable({}, {__mode = "k"}),
     stepConnection = nil, lastSpeedApply = 0, lastErrorAt = 0,
-    nextPassiveAt = 0,
+    nextPassiveAt = 0, lastFlatForward = Vector3.new(0, 0, -1),
 }
 boosterPro.movement = movement
 
@@ -4736,12 +4736,18 @@ function movement.step()
         movement.velocity.VectorVelocity = Vector3.zero
         return
     end
+    -- W/S следуют за 3D-взглядом камеры: взгляд вверх + W = набор высоты;
+    -- взгляд вниз + W = снижение. A/D дают горизонтальный стрейф.
+    -- Клавиши Space и Q/Ctrl оставлены только для дополнительной вертикали.
     local look = camera.CFrame.LookVector
-    local forward = Vector3.new(look.X, 0, look.Z)
-    forward = forward.Magnitude > 0.001 and forward.Unit or Vector3.new(0, 0, -1)
-    local right = Vector3.new(-forward.Z, 0, forward.X)
+    local flatLook = Vector3.new(look.X, 0, look.Z)
+    if flatLook.Magnitude > 0.01 then
+        movement.lastFlatForward = flatLook.Unit
+    end
+    local flatForward = movement.lastFlatForward -- Не скачет у вертикальной камеры.
+    local right = Vector3.new(-flatForward.Z, 0, flatForward.X)
     local direction = Vector3.zero
-    if not UserInputService:GetFocusedTextBox() then
+    if not UserInputService:GetFocusedTextBox() and not isRobloxMenuOpen() then
         local forwardAxis = (UserInputService:IsKeyDown(Enum.KeyCode.W) and 1 or 0)
             - (UserInputService:IsKeyDown(Enum.KeyCode.S) and 1 or 0)
         local rightAxis = (UserInputService:IsKeyDown(Enum.KeyCode.D) and 1 or 0)
@@ -4750,18 +4756,28 @@ function movement.step()
             - ((UserInputService:IsKeyDown(Enum.KeyCode.LeftControl)
                 or UserInputService:IsKeyDown(Enum.KeyCode.RightControl)
                 or UserInputService:IsKeyDown(Enum.KeyCode.Q)) and 1 or 0)
-        direction = forward * forwardAxis + right * rightAxis + Vector3.new(0, vertical, 0)
-        if forwardAxis == 0 and rightAxis == 0 and UserInputService.TouchEnabled then
-            direction += humanoid.MoveDirection
-            if humanoid.Jump then direction += Vector3.yAxis end
+
+        -- Roblox virtual thumbstick/gamepad сообщают движение на земле.
+        -- Преобразуем его в 3D-полёт с тем же наклоном камеры, что и для WASD.
+        if forwardAxis == 0 and rightAxis == 0 then
+            local move = humanoid.MoveDirection
+            if move.Magnitude > 0.01 then
+                forwardAxis = math.clamp(move:Dot(flatForward), -1, 1)
+                rightAxis = math.clamp(move:Dot(right), -1, 1)
+            end
         end
+        if UserInputService.TouchEnabled and humanoid.Jump then
+            vertical += 1
+        end
+        direction = look * forwardAxis + right * rightAxis + Vector3.yAxis * vertical
     end
     if direction.Magnitude > 1 then direction = direction.Unit end
     local target = direction * state.flySpeed
     if movement.velocity.VectorVelocity ~= target then
         movement.velocity.VectorVelocity = target
     end
-    movement.orientation.CFrame = CFrame.lookAt(Vector3.zero, forward)
+    -- Персонаж остаётся прямо, даже если камера смотрит резко вверх/вниз.
+    movement.orientation.CFrame = CFrame.lookAt(Vector3.zero, flatForward)
 end
 
 function movement.sync()
@@ -5019,8 +5035,8 @@ addToggle(pages.MISC, "Noclip", "Временно отключить столк�
     movement.sync()
 end)
 
-addSection(pages.MISC, "FLIGHT", "WASD — направление, Space — вверх, Ctrl / Q — вниз")
-addToggle(pages.MISC, "Fly", "Полёт по направлению камеры, без постоянных циклов", "fly", function(enabled)
+addSection(pages.MISC, "FLIGHT", "W/S — полёт по взгляду камеры, A/D — в стороны; Space и Q/Ctrl — дополнительно вверх/вниз")
+addToggle(pages.MISC, "Fly", "W/S поднимают и опускают по наклону камеры; A/D стрейф", "fly", function(enabled)
     if enabled and state.antiAim then
         state.antiAim = false
         memoryFX.spin.reset()
