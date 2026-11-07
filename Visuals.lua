@@ -1,11 +1,11 @@
--- 124 Visuals v1.1.50 | full audit: safe parameter restore, recoil profile, audio diagnostics
+-- 124 Visuals v1.1.51 | full audit: safe parameter restore, recoil profile, audio diagnostics
 -- Первый плейс: 18537079992. Запуск поддерживает все игровые PlaceId.
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.1.50",
+    Version = "1.1.51",
     OriginalPlaceId = 18537079992,
     EspRefreshSeconds = 0.35, -- Быстрый поиск персонажей, без обновления UI каждый кадр.
     EspEventMinSeconds = 0.18, -- Коалесцированные события не запускают 16 полных сканов/сек.
@@ -4796,21 +4796,25 @@ local movement = {
     attachment = nil, velocity = nil, orientation = nil,
     noclipCharacter = nil, noclipAdded = nil,
     collisionOriginals = setmetatable({}, {__mode = "k"}),
-    stepConnection = nil, lastSpeedApply = 0, lastErrorAt = 0,
-    nextPassiveAt = 0, lastFlatForward = Vector3.new(0, 0, -1),
+    stepConnection = nil, lastSpeedApply = 0, lastAppliedSpeed = nil, lastErrorAt = 0,
+    nextPassiveAt = 0, nextNoclipAt = 0, lastFlatForward = Vector3.new(0, 0, -1),
     lastFacing = nil,
 }
 boosterPro.movement = movement
 
 function movement.restoreSpeed()
-    if movement.speedHumanoid and movement.originalSpeed ~= nil then
+    if movement.speedHumanoid and movement.originalSpeed ~= nil
+        and movement.lastAppliedSpeed ~= nil then
         pcall(function()
-            if movement.speedHumanoid.Parent then
+            -- Если сама игра поменяла скорость после последней записи,
+            -- не перезаписываем новое значение устаревшим снимком.
+            if movement.speedHumanoid.Parent
+                and movement.speedHumanoid.WalkSpeed == movement.lastAppliedSpeed then
                 movement.speedHumanoid.WalkSpeed = movement.originalSpeed
             end
         end)
     end
-    movement.speedHumanoid, movement.originalSpeed = nil, nil
+    movement.speedHumanoid, movement.originalSpeed, movement.lastAppliedSpeed = nil, nil, nil
 end
 
 function movement.restoreCollision()
@@ -4825,6 +4829,7 @@ function movement.restoreCollision()
         movement.collisionOriginals[part] = nil
     end
     movement.noclipCharacter = nil
+    movement.nextNoclipAt = 0
 end
 
 function movement.recordPart(obj)
@@ -4856,7 +4861,8 @@ function movement.restoreFly()
             if movement.flyHumanoid.Parent then
                 movement.flyHumanoid.AutoRotate = movement.originalAutoRotate
                 if movement.flyHumanoid.Health > 0 and not movement.flyHumanoid.Sit
-                    and movement.flyHumanoid.SeatPart == nil then
+                    and movement.flyHumanoid.SeatPart == nil
+                    and movement.flyHumanoid:GetState() == Enum.HumanoidStateType.Physics then
                     movement.flyHumanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
                 end
             end
@@ -4911,7 +4917,8 @@ function movement.ensureFly(humanoid, root)
             if humanoid.Parent then
                 humanoid.AutoRotate = originalRotate
                 if humanoid.Health > 0 and not humanoid.Sit
-                    and humanoid.SeatPart == nil then
+                    and humanoid.SeatPart == nil
+                    and humanoid:GetState() == Enum.HumanoidStateType.Physics then
                     humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
                 end
             end
@@ -4957,11 +4964,13 @@ function movement.step()
             movement.restoreSpeed()
             movement.speedHumanoid = humanoid
             movement.originalSpeed = humanoid.WalkSpeed
+            movement.lastAppliedSpeed = nil
             movement.lastSpeedApply = 0
         end
         if os.clock() - movement.lastSpeedApply >= 0.25 then
             if humanoid.WalkSpeed ~= state.speedValue then
                 humanoid.WalkSpeed = state.speedValue
+                movement.lastAppliedSpeed = state.speedValue
             end
             movement.lastSpeedApply = os.clock()
         end
@@ -4973,9 +4982,14 @@ function movement.step()
         if movement.noclipCharacter ~= character then
             movement.startNoclip(character)
         end
-        -- Снимаем коллизию только с частями своего персонажа.
-        for part in pairs(movement.collisionOriginals) do
-            if part.Parent and part.CanCollide then part.CanCollide = false end
+        -- При одновременном Fly не сканируем все части каждый Render/Physics кадр.
+        -- DescendantAdded реагирует немедленно, регулярный контроль не чаще 30 Гц.
+        local now = os.clock()
+        if now >= movement.nextNoclipAt then
+            movement.nextNoclipAt = now + 1 / CONFIG.MiscNoclipRefreshHz
+            for part in pairs(movement.collisionOriginals) do
+                if part.Parent and part.CanCollide then part.CanCollide = false end
+            end
         end
     elseif movement.noclipCharacter then
         movement.restoreCollision()
@@ -5045,6 +5059,7 @@ end
 function movement.sync()
     if not alive then return end
     movement.nextPassiveAt = 0 -- Переключатели применяются без задержки.
+    movement.nextNoclipAt = 0
     local needed = state.speedEnabled or state.noclip or state.fly
     if not needed then
         if movement.stepConnection then
