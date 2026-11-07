@@ -15,7 +15,7 @@ if not fetched then return failure("NETWORK", source) end
 if type(source) ~= "string" or #source < 100000 then
     return failure("DOWNLOAD", "Неполный Lua: " .. tostring(type(source) == "string" and #source or type(source)))
 end
-if not source:find('Version = "1.1.51"', 1, true) then
+if not source:find('Version = "1.1.52"', 1, true) then
     return failure("VERSION", "Вместо v1.1.52 GitHub вернул другую версию")
 end
 if type(loadstring) ~= "function" then
