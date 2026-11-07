@@ -2197,10 +2197,27 @@ local spreadParameterNames = {
     spreadangle = true, spreaddegrees = true, spreadmultiplier = true,
     inaccuracy = true, bloom = true, bulletbloom = true,
 }
-controller.spread = {originals = setmetatable({}, {__mode = "k"}), modified = 0, nextCheckAt = 0}
+controller.spread = {
+    originals = setmetatable({}, {__mode = "k"}), modified = 0,
+    nextCheckAt = 0, currentTool = nil, candidates = {},
+    candidateSet = setmetatable({}, {__mode = "k"}),
+}
 local function isSpreadParameter(name)
     return type(name) == "string"
         and spreadParameterNames[string.lower(name):gsub("[^%w]", "")] == true
+end
+-- Кандидаты индексируются при смене Tool, а не пересканируются при стрельбе.
+local function registerSpreadCandidate(instance)
+    if not instance or controller.spread.candidateSet[instance] then return end
+    if instance == recoilTool or instance:IsA("Configuration")
+        or ((instance:IsA("NumberValue") or instance:IsA("IntValue"))
+            and isSpreadParameter(instance.Name))
+        or (instance:IsA("Folder") and string.find(
+            string.lower(instance.Name), "config", 1, true)) then
+        controller.spread.candidateSet[instance] = true
+        local candidates = controller.spread.candidates
+        candidates[#candidates + 1] = instance
+    end
 end
 
 function controller.restoreSpread()
@@ -2253,6 +2270,16 @@ function controller.applySpread()
     if not alive or not state.noSpread or not tool
         or tool.Parent ~= LocalPlayer.Character then return 0 end
     local originals = controller.spread.originals
+    local spread = controller.spread
+    if spread.currentTool ~= tool then
+        spread.currentTool = tool
+        table.clear(spread.candidates)
+        table.clear(spread.candidateSet)
+        registerSpreadCandidate(tool)
+        for _, descendant in ipairs(tool:GetDescendants()) do
+            registerSpreadCandidate(descendant)
+        end
+    end
     local changed = 0
     local function patch(instance)
         if (instance:IsA("NumberValue") or instance:IsA("IntValue"))
@@ -2284,8 +2311,17 @@ function controller.applySpread()
         end
     end
     local ok, err = pcall(function()
-        patch(tool)
-        for _, desc in ipairs(tool:GetDescendants()) do patch(desc) end
+        local candidates = spread.candidates
+        for i = #candidates, 1, -1 do
+            local instance = candidates[i]
+            if not instance.Parent
+                or (instance ~= tool and not instance:IsDescendantOf(tool)) then
+                spread.candidateSet[instance] = nil
+                table.remove(candidates, i)
+            else
+                patch(instance)
+            end
+        end
     end)
     if not ok then warn("[124 Visuals] No Spread local: " .. tostring(err)) end
     controller.spread.modified = controller.spread.modified + changed
@@ -2339,6 +2375,9 @@ local function equipRecoilTool(tool)
     if recoilTool == tool then return end
     controller.restoreSpread()
     controller.spread.nextCheckAt = 0
+    controller.spread.currentTool = nil
+    table.clear(controller.spread.candidates)
+    table.clear(controller.spread.candidateSet)
     disconnectRecoilConnections(recoilToolConnections)
     recoilTool = nil
     resetRecoilTracking()
@@ -2352,7 +2391,10 @@ local function equipRecoilTool(tool)
         if state.noSpread then controller.applySpread() end
         recoilToolConnections[#recoilToolConnections + 1] = tool.DescendantAdded:Connect(function(obj)
             if alive and state.noSpread and (isSpreadParameter(obj.Name)
-                or obj:IsA("Configuration")) then
+                or obj:IsA("Configuration")
+                or (obj:IsA("Folder") and string.find(
+                    string.lower(obj.Name), "config", 1, true))) then
+                registerSpreadCandidate(obj)
                 task.defer(function()
                     if alive and state.noSpread and recoilTool == tool then
                         controller.applySpread()
