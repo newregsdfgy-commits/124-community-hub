@@ -1,11 +1,11 @@
--- 124 Visuals v1.1.44 LITE | ESP rendering fixes, state isolation and LOD reliability
+-- 124 Visuals v1.1.45 | Misc movement: speed, noclip, fly, player teleport; Memory retained
 -- Первый плейс: 18537079992. Запуск поддерживает все игровые PlaceId.
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.1.44",
+    Version = "1.1.45",
     OriginalPlaceId = 18537079992,
     EspRefreshSeconds = 0.35, -- Быстрый поиск персонажей, без обновления UI каждый кадр.
     EspEventMinSeconds = 0.18, -- Коалесцированные события не запускают 16 полных сканов/сек.
@@ -263,6 +263,11 @@ local state = {
     antiAim = false, -- Визуальная локальная крутилка; стартует только по нажатию.
     antiAimSpeed = 1080, -- Градусов в секунду; ограничение задаётся ползунком.
     antiAimTilt = 12, -- Визуальный наклон туловища в градусах.
+    speedEnabled = false,
+    speedValue = 32, -- WalkSpeed, стандарт игры сохраняется при активации.
+    noclip = false,
+    fly = false,
+    flySpeed = 60, -- Скорость полёта в studs/сек.
     hud = true,
 }
 
@@ -2661,6 +2666,7 @@ local storedKeys = {
     "fovVisible", "fovThickness", "visibleCheck", "teamCheck", "fullbright", "booster",
     "antiAfk", "airAlerts", "hud", "activeHud", "aimKeyName", "controlRecoil", "recoilStrength", "boosterMode",
     "cameraFovEnabled", "cameraFovDegrees", "antiAim", "antiAimSpeed", "antiAimTilt",
+    "speedEnabled", "speedValue", "noclip", "fly", "flySpeed",
 }
 local numericRules = {
     espRangeMeters = {CONFIG.EspRangeMinMeters, CONFIG.EspRangeMaxMeters}, espMaxTargets = {8, 96},
@@ -2670,6 +2676,7 @@ local numericRules = {
     predictionSeconds = {0, 0.25}, aimFovPixels = {40, 400},
     fovThickness = {1, 4}, recoilStrength = {0, 100},
     cameraFovDegrees = {55, 110}, antiAimSpeed = {180, 1440}, antiAimTilt = {0, 25},
+    speedValue = {8, 120}, flySpeed = {10, 150},
 }
 local textRules = {
     aimMode = {head = true, body = true, legs = true},
@@ -2834,6 +2841,9 @@ local function applySettings(incoming, autoLoad)
         state.moduleCpuMonitor = false -- Тяжёлая телеметрия включается вручную.
         state.antiAfk = false
         state.antiAim = false
+        state.speedEnabled = false
+        state.noclip = false
+        state.fly = false
         -- Prevent an old saved profile from activating Booster before a baseline.
         -- The user may still enable it manually after loading the game.
         state.booster = false
@@ -2847,6 +2857,9 @@ local function applySettings(incoming, autoLoad)
             state.fullbright = false
             state.booster = false
             state.cameraFovEnabled = false
+            state.speedEnabled = false
+            state.noclip = false
+            state.fly = false
             -- Не стираем чужой пресет; обновляем только активный CUSTOM.
             if profileName == "CUSTOM" then
                 profiles.CUSTOM = snapshotState()
@@ -3181,12 +3194,13 @@ local function safeActivate(control, callback)
         if not ok then tell("Ошибка UI: " .. tostring(err)) end
     end)
 end
--- HOME remains accessible from the top Active pill; four visible sidebar tabs.
+-- Dashboard доступен через статус; 4 основные вкладки сохраняют раздельные функции.
 local navigation = {
     {key = "HOME", label = "Overview", symbol = "⌂", hidden = true},
     {key = "ESP", label = "ESP", symbol = "◎"},
     {key = "AIM", label = "Aim", symbol = "⌁"},
-    {key = "MISC", label = "Memory", symbol = "▦"},
+    {key = "MISC", label = "Misc", symbol = "◇"},
+    {key = "MEMORY", label = "Memory", symbol = "▦"},
 }
 local function makeColumn(parent, name)
     local scroll = mk("ScrollingFrame", {
@@ -3223,7 +3237,7 @@ for idx, tab in ipairs(navigation) do
         Name = key .. "Tab", LayoutOrder = idx,
         BackgroundColor3 = P.panel,
         BorderSizePixel = 0,
-        Size = UDim2.new(1 / 3, -8, 0, 40),
+        Size = UDim2.new(1 / 4, -8, 0, 40),
         Text = tab.symbol .. "  " .. tab.label,
         Visible = not tab.hidden,
         Font = Enum.Font.GothamMedium, TextSize = 11,
@@ -3527,6 +3541,7 @@ local sectionSides = {
     ["FOV EDITOR"] = "right", ["CONTROL"] = "right", ["RECOIL CONTROL"] = "right",
     ["UTILITY"] = "left", ["PERFORMANCE"] = "right",
     ["CAMERA FOV"] = "left", ["ANTI-AIM"] = "right",
+    ["MOVEMENT"] = "left", ["FLIGHT"] = "right", ["TELEPORT"] = "right",
     
     ["PROFILES"] = "left", ["CONFIG TOOLS"] = "right", ["WINDOW"] = "right",
 }
@@ -3591,8 +3606,8 @@ local function applyResponsiveLayout()
             tabUnderline[nav.key].Position = UDim2.fromOffset(0, 4)
             tabUnderline[nav.key].Size = UDim2.new(0, 3, 1, -8)
         else
-            button.Size = UDim2.new(1 / 3, -8, 0, 40)
-            local short = nav.key == "MISC" and "PERF" or nav.key
+            button.Size = UDim2.new(1 / 4, -8, 0, 40)
+            local short = nav.key == "MEMORY" and "PERF" or nav.key
             button.Text = short
             button.TextSize = width < 355 and 9 or 10
             button.TextXAlignment = Enum.TextXAlignment.Center
@@ -3660,11 +3675,12 @@ local function showPage(key)
     end
     currentPage = key
     local titles = {HOME = "Dashboard", ESP = "Visuals", AIM = "Aim",
-        MISC = "Performance"}
+        MISC = "Misc", MEMORY = "Performance"}
     local descriptions = {HOME = "Live game performance and optimization overview",
         ESP = "Player overlays and visibility controls",
         AIM = "Targeting, weapon filters and FOV",
-        MISC = "Client graphics, monitoring and performance"}
+        MISC = "Movement and character tools",
+        MEMORY = "Client graphics, monitoring and performance"}
     pageHeader.Text = titles[key] or key
     pageSubHeader.Text = descriptions[key] or ""
     for name, page in pairs(pages) do
@@ -3681,7 +3697,7 @@ end
 for name, button in pairs(tabButtons) do
     safeActivate(button, function() showPage(name) end)
 end
-boosterPro.dashboard.openSettings = function() showPage("MISC") end
+boosterPro.dashboard.openSettings = function() showPage("MEMORY") end
 applyResponsiveLayout()
 showPage("ESP")
 local currentLayoutCamera = nil
@@ -4493,16 +4509,16 @@ addButton(pages.AIM, "Управление", "ПКМ: удерживать | к�
         .. " | Scan: " .. tostring(perfCounters.aimScanMs) .. " мс")
 end)
 
-addSection(pages.MISC, "AIR MOTION WATCH", "Подозрительное перемещение — не определение модераторов")
-addToggle(pages.MISC, "Оповещения о полёте", "6+ секунд стабильного движения в воздухе", "airAlerts", function(on)
+addSection(pages.MEMORY, "AIR MOTION WATCH", "Подозрительное перемещение — не определение модераторов")
+addToggle(pages.MEMORY, "Оповещения о полёте", "6+ секунд стабильного движения в воздухе", "airAlerts", function(on)
     if not on and boosterPro.airMonitor then boosterPro.airMonitor.clear() end
 end)
-addButton(pages.MISC, "Нагрузка Air Watch", "Игроки / замеры / лучи / время прохода", function()
+addButton(pages.MEMORY, "Нагрузка Air Watch", "Игроки / замеры / лучи / время прохода", function()
     local mon = boosterPro.airMonitor
     if mon and mon.diagnostics then tell(mon.diagnostics()) end
 end)
-addSection(pages.MISC, "SESSION DIAGNOSTICS", "Клиентские события, без обхода античита")
-addToggle(pages.MISC, "Анализ логов",
+addSection(pages.MEMORY, "SESSION DIAGNOSTICS", "Клиентские события, без обхода античита")
+addToggle(pages.MEMORY, "Анализ логов",
     "OFF по умолчанию: LogService не обрабатывается в фоне",
     "sessionDiagnostics", function(enabled)
         perfCounters.session.setEnabled(enabled)
@@ -4513,23 +4529,23 @@ perfCounters.session.label = mk("TextLabel", {
     Text = "Logs OFF | Warn 0 | Err 0 | Keywords 0",
     TextColor3 = CONFIG.Muted, Font = Enum.Font.Code,
     TextSize = 10, TextWrapped = true,
-}, columnFor(pages.MISC))
-registerWidget(pages.MISC, perfCounters.session.label)
+}, columnFor(pages.MEMORY))
+registerWidget(pages.MEMORY, perfCounters.session.label)
 round(perfCounters.session.label, 6)
-addButton(pages.MISC, "Проверка клиентских предупреждений",
+addButton(pages.MEMORY, "Проверка клиентских предупреждений",
     "Не видит серверный античит и не определяет риск бана", function()
     tell(perfCounters.session.summary() .. " | Совпадения не доказывают наличие античита")
 end)
-addButton(pages.MISC, "Safety Stop — закрыть Visuals",
+addButton(pages.MEMORY, "Safety Stop — закрыть Visuals",
     "Выключить модули и сохранить рискованные функции в состоянии OFF", function()
     tell("Safety Stop: выключаем Hub и сохраняем рискованные функции OFF")
     if cleanup then cleanup(true) end
 end)
-addSection(pages.MISC, "UTILITY", "Настройки клиента и графика")
-addToggle(pages.MISC, "AntiAFK", "VirtualUser при событии Idled", "antiAfk", function(on)
+addSection(pages.MEMORY, "UTILITY", "Настройки клиента и графика")
+addToggle(pages.MEMORY, "AntiAFK", "VirtualUser при событии Idled", "antiAfk", function(on)
     if not on then releaseAntiAfk() end
 end)
-addToggle(pages.MISC, "FPS Booster Pro", "Графика в 3 режимах, с откатом", "booster", setBooster)
+addToggle(pages.MEMORY, "FPS Booster Pro", "Графика в 3 режимах, с откатом", "booster", setBooster)
 -- FPS Guard does not claim a performance gain: when the measured FPS stays
 -- noticeably worse than the pre-Booster baseline, it disables and rolls back.
 -- This is only available after at least three actual pre-Booster samples.
@@ -4561,8 +4577,8 @@ boosterPro.autoRollback = function()
     tell("FPS Guard: Booster выключен — FPS упал с " .. tostring(baseline)
         .. " до " .. tostring(avg) .. ". Возвращаем графику.")
 end
-addSection(pages.MISC, "GRAPHICS QUALITY", "Выбери степень оптимизации")
-boosterPro.repaint = addChoice(pages.MISC, "Режим графики", {
+addSection(pages.MEMORY, "GRAPHICS QUALITY", "Выбери степень оптимизации")
+boosterPro.repaint = addChoice(pages.MEMORY, "Режим графики", {
     {value = "BALANCED", label = "BALANCED"},
     {value = "WHITE", label = "WHITE MAP"},
     {value = "ULTRA", label = "ULTRA LOW"},
@@ -4575,10 +4591,10 @@ boosterPro.label = mk("TextLabel", {
     TextWrapped = true, Text = "До: н/д FPS | После: н/д",
     TextSize = 10, TextColor3 = Color3.fromRGB(221, 225, 227),
     Font = Enum.Font.Code,
-}, columnFor(pages.MISC))
-registerWidget(pages.MISC, boosterPro.label)
+}, columnFor(pages.MEMORY))
+registerWidget(pages.MEMORY, boosterPro.label)
 round(boosterPro.label, 6)
-addButton(pages.MISC, "Сравнение FPS", "Реальные замеры после окончания обработки", function()
+addButton(pages.MEMORY, "Сравнение FPS", "Реальные замеры после окончания обработки", function()
     tell("Booster Pro [" .. state.boosterMode .. "]: " .. boosterPro.readout()
         .. " | Проверено: " .. tostring(boosterPro.scanned)
         .. " | Очередь: " .. tostring(boosterPro.queueCount)
@@ -4587,7 +4603,7 @@ addButton(pages.MISC, "Сравнение FPS", "Реальные замеры �
         .. string.format("%.2f/%.2f ms", boosterPro.slicePeakMs,
             boosterPro.queuePeakMs))
 end)
-addButton(pages.MISC, "Диагностика Booster", "Режим, прогресс, изменения и ошибки обработки", function()
+addButton(pages.MEMORY, "Диагностика Booster", "Режим, прогресс, изменения и ошибки обработки", function()
     local errorText = boosterPro.lastError and tostring(boosterPro.lastError):sub(1, 110)
         or "нет"
     tell("BOOSTER " .. tostring(boosterPro.phase)
@@ -4599,16 +4615,16 @@ addButton(pages.MISC, "Диагностика Booster", "Режим, прогр�
         .. " | Переполнение: " .. tostring(boosterPro.queueDropped)
         .. " | Ошибка: " .. errorText)
 end)
-addToggle(pages.MISC, "FullBright", "Осветлить сцену локально", "fullbright", function() applyLighting() end)
-addToggle(pages.MISC, "Часы / FPS / Ping", "Информационный блок экрана", "hud")
-addToggle(pages.MISC, "HUD активных функций", "Состояние AIM, ESP, Booster", "activeHud")
-addSection(pages.MISC, "PERFORMANCE", "Режимы и диагностика")
-repaintPerf = addChoice(pages.MISC, "Режим производительности", {
+addToggle(pages.MEMORY, "FullBright", "Осветлить сцену локально", "fullbright", function() applyLighting() end)
+addToggle(pages.MEMORY, "Часы / FPS / Ping", "Информационный блок экрана", "hud")
+addToggle(pages.MEMORY, "HUD активных функций", "Состояние AIM, ESP, Booster", "activeHud")
+addSection(pages.MEMORY, "PERFORMANCE", "Режимы и диагностика")
+repaintPerf = addChoice(pages.MEMORY, "Режим производительности", {
     {value = "AUTO", label = "AUTO"},
     {value = "ECO", label = "ECO"},
     {value = "QUALITY", label = "QUALITY"},
 }, "performanceMode")
-addToggle(pages.MISC, "Performance Guard",
+addToggle(pages.MEMORY, "Performance Guard",
     "При просадках снижает частоту Box/Skeleton, не число ESP-целей",
     "performanceGuard", function(enabled)
         perfCounters.guard.reset()
@@ -4618,21 +4634,21 @@ addToggle(pages.MISC, "Performance Guard",
             perfCounters.guard.reset()
         end
     end)
-addToggle(pages.MISC, "Module CPU Monitor",
+addToggle(pages.MEMORY, "Module CPU Monitor",
     "Измеряет время обработчиков AIM/Recoil/ESP; OFF для минимального overhead",
     "moduleCpuMonitor", function()
         perfCounters.cpu.reset()
     end)
-addButton(pages.MISC, "Нагрузка модулей (avg / peak)",
+addButton(pages.MEMORY, "Нагрузка модулей (avg / peak)",
     "Примерное время вызовов в мс, не общий процент CPU", function()
         tell(perfCounters.cpu.summary())
     end)
-addToggle(pages.MISC, "Lazy Loading",
+addToggle(pages.MEMORY, "Lazy Loading",
     "Создаёт ESP-слои только при первом включении функций",
     "lazyLoading", function()
         perfCounters.lazy.prepare()
     end)
-addButton(pages.MISC, "Диагностика Performance",
+addButton(pages.MEMORY, "Диагностика Performance",
     "Текущий Guard, число ESP-слоёв, AIM не ограничивается", function()
         tell(perfCounters.guard.description() .. " | lazy tracer "
             .. tostring(perfCounters.lazy.tracersCreated)
@@ -4644,14 +4660,14 @@ perfCounters.guard.label = mk("TextLabel", {
     BackgroundColor3 = CONFIG.Surface, BorderSizePixel = 0,
     Text = "Performance Guard: OFF", TextColor3 = CONFIG.Muted,
     Font = Enum.Font.Code, TextSize = 10, TextWrapped = true,
-}, columnFor(pages.MISC))
-registerWidget(pages.MISC, perfCounters.guard.label)
+}, columnFor(pages.MEMORY))
+registerWidget(pages.MEMORY, perfCounters.guard.label)
 round(perfCounters.guard.label, 6)
 local perfLabel = mk("TextLabel", {Name = "PerfDiagnostics", BackgroundColor3 = CONFIG.Surface,
     BorderSizePixel = 0, Size = UDim2.new(1, 0, 0, 35),
     Text = "ESP 0 · Box 0 · Scan 0ms", TextColor3 = CONFIG.Muted,
-    TextSize = 10, Font = Enum.Font.Code}, columnFor(pages.MISC))
-registerWidget(pages.MISC, perfLabel)
+    TextSize = 10, Font = Enum.Font.Code}, columnFor(pages.MEMORY))
+registerWidget(pages.MEMORY, perfLabel)
 round(perfLabel, 6)
 perfCounters.frametime.label = mk("TextLabel", {
     Name = "FrameTimeDiagnostics",
@@ -4660,22 +4676,22 @@ perfCounters.frametime.label = mk("TextLabel", {
     Text = "1% Low: замер... | p99: замер...",
     TextColor3 = CONFIG.Muted, TextSize = 10,
     Font = Enum.Font.Code, TextWrapped = true,
-}, columnFor(pages.MISC))
-registerWidget(pages.MISC, perfCounters.frametime.label)
+}, columnFor(pages.MEMORY))
+registerWidget(pages.MEMORY, perfCounters.frametime.label)
 round(perfCounters.frametime.label, 6)
-addButton(pages.MISC, "Проверка микрофризов",
+addButton(pages.MEMORY, "Проверка микрофризов",
     "Показать 1% Low, p99, худший кадр и число задержек от 50 мс", function()
         tell(perfCounters.frametime.summary())
     end)
-addSection(pages.MISC, "CAMERA FOV", "Угол обзора, не радиус AIM")
-addToggle(pages.MISC, "Camera FOV", "Переопределить вертикальный угол обзора", "cameraFovEnabled", function()
+addSection(pages.MEMORY, "CAMERA FOV", "Угол обзора, не радиус AIM")
+addToggle(pages.MEMORY, "Camera FOV", "Переопределить вертикальный угол обзора", "cameraFovEnabled", function()
     memoryFX.camera.apply()
 end)
-addSlider(pages.MISC, "Угол камеры", "55–110°, стандартное значение игры вернётся при OFF",
+addSlider(pages.MEMORY, "Угол камеры", "55–110°, стандартное значение игры вернётся при OFF",
     "cameraFovDegrees", 55, 110, 1,
     function(value) return tostring(value) .. "°" end,
     function() memoryFX.camera.apply() end)
-addButton(pages.MISC, "Вернуть FOV камеры", "Отключить настройку и вернуть исходный угол", function()
+addButton(pages.MEMORY, "Вернуть FOV камеры", "Отключить настройку и вернуть исходный угол", function()
     state.cameraFovEnabled = false
     memoryFX.camera.reset()
     if refreshToggles.cameraFovEnabled then refreshToggles.cameraFovEnabled() end
@@ -4700,7 +4716,7 @@ addButton(pages.MISC, "Сбросить Anti-Aim", "Выключить вращ�
     tell("Anti-Aim: отключён, исходная анимация восстановлена")
 end)
 -- LITE: Bunny Hop and chat panels removed entirely.
-addButton(pages.MISC, "Reset Character", "Локальный сброс Humanoid", function()
+addButton(pages.MEMORY, "Reset Character", "Локальный сброс Humanoid", function()
     local character = LocalPlayer.Character
     local hum = character and character:FindFirstChildOfClass("Humanoid")
     if not hum then
@@ -6515,13 +6531,13 @@ task.spawn(function()
                 perfCounters.session.lastShown = summary
             end
         end
-        if panel.Visible and pages.MISC.Visible and perfCounters.guard.label then
+        if panel.Visible and pages.MEMORY.Visible and perfCounters.guard.label then
             local label = perfCounters.guard.description()
             if perfCounters.guard.label.Text ~= label then
                 perfCounters.guard.label.Text = label
             end
         end
-        if state.hud or state.activeHud or pages.MISC.Visible then
+        if state.hud or state.activeHud or pages.MEMORY.Visible then
             local display = string.format("FPS %d | ESP %d | Shape %d | Scan %.1f ms | %s",
                 measuredFps, perfCounters.espCount, perfCounters.shapeCount,
                 perfCounters.aimScanMs, perfTier())
@@ -6529,7 +6545,7 @@ task.spawn(function()
         end
         -- O(N log N) percentile work only when the PERFORMANCE page is visible,
         -- and no more than once every three seconds. Never in RenderStepped.
-        if panel.Visible and pages.MISC.Visible
+        if panel.Visible and pages.MEMORY.Visible
             and os.clock() - perfCounters.frametime.lastUpdated >= 3 then
             perfCounters.frametime.lastUpdated = os.clock()
             local summary = perfCounters.frametime.summary()
