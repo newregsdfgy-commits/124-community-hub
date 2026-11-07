@@ -1097,8 +1097,8 @@ local function queueESPRefresh()
         if not alive or not state.esp then return end
         local cooldown = perfCounters.espVisual.eventCooldown()
         if os.clock() - perfCounters.espVisual.lastScanAt < cooldown then
-            -- Радиус сменился после постановки таймера: откладываем скан.
-            queueESPRefresh()
+            -- Фоновый проход уже обновил данные; очередь обработана.
+            -- Нельзя ставить себя заново на таймер бесконечно.
             return
         end
         local ok, err = pcall(refreshESP)
