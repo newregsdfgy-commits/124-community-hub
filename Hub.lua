@@ -1,11 +1,11 @@
--- 124 Visuals v1.1.49 | Misc local weapon controls and private audio-ID player
+-- 124 Visuals v1.1.50 | full audit: safe parameter restore, recoil profile, audio diagnostics
 -- Первый плейс: 18537079992. Запуск поддерживает все игровые PlaceId.
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.1.49",
+    Version = "1.1.50",
     OriginalPlaceId = 18537079992,
     EspRefreshSeconds = 0.35, -- Быстрый поиск персонажей, без обновления UI каждый кадр.
     EspEventMinSeconds = 0.18, -- Коалесцированные события не запускают 16 полных сканов/сек.
@@ -2197,7 +2197,7 @@ local spreadParameterNames = {
     spreadangle = true, spreaddegrees = true, spreadmultiplier = true,
     inaccuracy = true, bloom = true, bulletbloom = true,
 }
-controller.spread = {originals = setmetatable({}, {__mode = "k"}), modified = 0}
+controller.spread = {originals = setmetatable({}, {__mode = "k"}), modified = 0, nextCheckAt = 0}
 local function isSpreadParameter(name)
     return type(name) == "string"
         and spreadParameterNames[string.lower(name):gsub("[^%w]", "")] == true
@@ -2205,25 +2205,47 @@ end
 
 function controller.restoreSpread()
     local originals = controller.spread.originals
+    local allRestored = true
     for instance, saved in pairs(originals) do
-        if instance and instance.Parent then
+        if not instance or not instance.Parent then
+            -- Объект удалён самой игрой: возвращать свойства больше некуда.
+            originals[instance] = nil
+        else
             if saved.value ~= nil then
-                pcall(function()
-                    if instance.Value == 0 then instance.Value = saved.value end
-                end)
-            end
-            for attr, before in pairs(saved.attributes) do
-                pcall(function()
-                    -- Не перетираем изменение игры, если она уже сменила значение.
-                    if instance:GetAttribute(attr) == 0 then
-                        instance:SetAttribute(attr, before)
+                local ok = pcall(function()
+                    -- Если игра сама сменила значение, не перезаписываем его.
+                    if instance.Value == 0 then
+                        instance.Value = saved.value
+                        if instance.Value ~= saved.value then
+                            error("No Spread value restore mismatch")
+                        end
                     end
                 end)
+                if ok then saved.value = nil else allRestored = false end
+            end
+            for attr, before in pairs(saved.attributes) do
+                local ok = pcall(function()
+                    if instance:GetAttribute(attr) == 0 then
+                        instance:SetAttribute(attr, before)
+                        if instance:GetAttribute(attr) ~= before then
+                            error("No Spread attribute restore mismatch")
+                        end
+                    end
+                end)
+                if ok then saved.attributes[attr] = nil else allRestored = false end
+            end
+            -- При отказе Roblox API снимок остаётся для следующих попыток.
+            if saved.value == nil and next(saved.attributes) == nil then
+                originals[instance] = nil
             end
         end
-        originals[instance] = nil
     end
-    controller.spread.modified = 0
+    if allRestored then controller.spread.modified = 0 end
+    return allRestored
+end
+
+function controller.spread.pending()
+    return next(controller.spread.originals) ~= nil
 end
 
 function controller.applySpread()
@@ -2290,9 +2312,22 @@ local function disconnectRecoilConnections(collection)
 end
 
 local function markRecoilShot()
-    if not alive or not (state.controlRecoil or state.noRecoil) or not recoilTool then return end
-    controller.shots = controller.shots + 1
+    if not alive or not recoilTool then return end
     local now = os.clock()
+    -- Некоторые Tool пересоздают значения spread в обработчике Activated.
+    -- Проверяем клиентские параметры максимум два раза в секунду, не каждый
+    -- кадр и не до обработки остальных обработчиков того же события.
+    if state.noSpread and now >= controller.spread.nextCheckAt then
+        controller.spread.nextCheckAt = now + 0.5
+        local firedTool = recoilTool
+        task.delay(0.08, function()
+            if alive and state.noSpread and recoilTool == firedTool then
+                pcall(controller.applySpread)
+            end
+        end)
+    end
+    if not (state.controlRecoil or state.noRecoil) then return end
+    controller.shots = controller.shots + 1
     -- Every Tool.Activated pulse renews the firing watchdog, even when
     -- an automatic weapon omits Deactivated between successive shots.
     recoilHoldStarted = now
@@ -2303,6 +2338,7 @@ end
 local function equipRecoilTool(tool)
     if recoilTool == tool then return end
     controller.restoreSpread()
+    controller.spread.nextCheckAt = 0
     disconnectRecoilConnections(recoilToolConnections)
     recoilTool = nil
     resetRecoilTracking()
@@ -2974,6 +3010,8 @@ local function applySettings(incoming, autoLoad)
     local wasBooster = state.booster
     local oldBoosterMode = state.boosterMode
     for key, value in pairs(sanitized) do state[key] = value end
+    -- Любой профиль обязан соблюдать взаимоисключение ручного Recoil и No Recoil.
+    if state.noRecoil and state.controlRecoil then state.controlRecoil = false end
     -- Миграция: старые профили могли сохранить толстые линии (2-4 px).
     -- При первом запуске новой версии используем тонкий стиль 1 px.
     if autoLoad then state.espLineThickness = 1 end
@@ -5282,8 +5320,9 @@ addToggle(pages.MISC, "No Spread", "Только доступные числов
             tell(touched > 0 and ("No Spread: изменено клиентских параметров: " .. tostring(touched))
                 or "No Spread: подходящих параметров у текущего Tool нет; ждём оружие")
         else
-            recoil.restoreSpread()
-            tell("No Spread: локальные параметры восстановлены")
+            local restored = recoil.restoreSpread()
+            tell(restored and "No Spread: локальные параметры восстановлены"
+                or "No Spread: восстановление не завершено; снимки сохранены для повтора")
         end
 end)
 addButton(pages.MISC, "Диагностика оружия", "Показать Tool и число изменённых клиентских параметров", function()
