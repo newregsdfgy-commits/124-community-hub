@@ -1,11 +1,11 @@
--- 124 Visuals v1.1.40 LITE | coalesced ESP and guarded Booster/teardown
+-- 124 Visuals v1.1.41 LITE | AIM tracking and recoil stability
 -- PlaceId: 18537079992
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.1.40",
+    Version = "1.1.41",
     PlaceId = 18537079992,
     EspRefreshSeconds = 0.35, -- Быстрый поиск персонажей, без обновления UI каждый кадр.
     EspEventMinSeconds = 0.18, -- Коалесцированные события не запускают 16 полных сканов/сек.
@@ -28,7 +28,11 @@ local CONFIG = {
     AimFovMinPixels = 40,
     AimFovMaxPixels = 400,
     AimLockTolerance = 1.18, -- При сопровождении допускаем небольшой выход из первоначального FOV.
-    AimVisibleRaycastChecks = 6, -- Пропускаем невидимый мелкий мусор при проверке видимости.
+    AimVisibleRaycastChecks = 6, -- Пропускаем прозрачные служебные детали.
+    AimLosCandidatesPerScan = 8, -- Ограничиваем число LOS-проверок при плотных серверах.
+    AimOcclusionGraceSeconds = 0.12, -- Один короткий сбой LOS не переключает цель.
+    AimPredictionMaxStuds = 10, -- Исключаем рывки от аномальной скорости сборки.
+    AimMaxTurnDegreesPerSecond = 360, -- Предел поворота в режиме Smooth.
     AimRangeMaxMeters = 180,
     AimRangeMinMeters = 5,
     AimSmoothnessBaseline = 33, -- Smoothness=3 эквивалентен скорости v0.3 (11).
@@ -41,7 +45,8 @@ local CONFIG = {
     AimLosQualitySeconds = 0.02,
     RecoilShotGraceSeconds = 0.20, -- Поздний откат камеры после отпускания спуска.
     RecoilFireWindowSeconds = 0.40, -- Короткий выстрел (в т.ч. на телефоне).
-    RecoilMaxHoldSeconds = 3.50, -- Предохранитель, если Tool.Deactivated не пришло.
+    RecoilMaxHoldSeconds = 6.0, -- Ограничение удержания при отсутствии Deactivated.
+    RecoilMaxCorrectionPerSecond = 120, -- Единая плавность при 60/120+ FPS.
     RecoilMaxFrameSeconds = 0.16, -- Не компенсируем скачок камеры после лагов.
     RecoilMinPitchDegrees = 0.045, -- Не реагируем на микродрожание камеры.
     RecoilMaxPitchDegrees = 5.0, -- Не воспринимаем резкий разворот как отдачу.
@@ -490,6 +495,7 @@ local aimNextScan = 0
 local aimPro = {
     equipped = nil,
     nextLos = 0,
+    blockedSince = 0,
     rayParams = RaycastParams.new(),
     rayIgnore = {},
     candidates = {},
@@ -502,6 +508,7 @@ function aimPro.reset()
     aimTarget = nil
     aimNextScan = 0
     aimPro.nextLos = 0
+    aimPro.blockedSince = 0
 end
 function aimPro.equippedTool()
     local tool = aimPro.equipped
@@ -1794,20 +1801,26 @@ end
 -- AIM: поиск объекта в FOV, сохранение цели, необязательная проверка видимости.
 -- ВАЖНО: отключение Visible Check пропускает Raycast, но объект должен быть перед камерой.
 -- ПК: удерживание ПКМ. Android: кнопка AIM.
+-- A streamed or malformed rig may contain a non-part named Head/Torso.
+-- Filter candidates *before* accepting the first match.
+local function aimPart(character, name)
+    local candidate = character:FindFirstChild(name)
+    return candidate and candidate:IsA("BasePart") and candidate or nil
+end
 local function targetPart(character)
     if state.aimMode == "head" then
-        return character:FindFirstChild("Head")
+        return aimPart(character, "Head")
     elseif state.aimMode == "body" then
-        return character:FindFirstChild("UpperTorso")
-            or character:FindFirstChild("Torso")
-            or character:FindFirstChild("HumanoidRootPart")
+        return aimPart(character, "UpperTorso")
+            or aimPart(character, "Torso")
+            or aimPart(character, "HumanoidRootPart")
     end
-    return character:FindFirstChild("LeftLowerLeg")
-        or character:FindFirstChild("RightLowerLeg")
-        or character:FindFirstChild("Left Leg")
-        or character:FindFirstChild("Right Leg")
-        or character:FindFirstChild("LeftUpperLeg")
-        or character:FindFirstChild("RightUpperLeg")
+    return aimPart(character, "LeftLowerLeg")
+        or aimPart(character, "RightLowerLeg")
+        or aimPart(character, "Left Leg")
+        or aimPart(character, "Right Leg")
+        or aimPart(character, "LeftUpperLeg")
+        or aimPart(character, "RightUpperLeg")
 end
 
 local function sameTeam(player)
@@ -1846,7 +1859,12 @@ local function predictedPoint(part)
     if not state.prediction then return point end
     local ok, velocity = pcall(function() return part.AssemblyLinearVelocity end)
     if ok and typeof(velocity) == "Vector3" then
-        point = point + velocity * state.predictionSeconds
+        local offset = velocity * state.predictionSeconds
+        local distance = offset.Magnitude
+        if distance > CONFIG.AimPredictionMaxStuds then
+            offset = offset * (CONFIG.AimPredictionMaxStuds / distance)
+        end
+        point = point + offset
     end
     return point
 end
@@ -1893,8 +1911,21 @@ local function findAimTarget(camera)
         local chosen = targetPart(aimTarget.character)
         if chosen then
             local kept = examineTarget(camera, aimTarget.player, chosen, myRoot,
-                center, fov * CONFIG.AimLockTolerance, state.visibleCheck)
-            if kept then return done(kept) end
+                center, fov * CONFIG.AimLockTolerance, false)
+            if kept then
+                if not state.visibleCheck or canSee(camera, chosen.Position, kept.character) then
+                    aimPro.blockedSince = 0
+                    return done(kept)
+                end
+                -- Keep the same target briefly without moving the camera
+                -- through a wall. A single streaming/LOS miss won't retarget.
+                local now = os.clock()
+                if aimPro.blockedSince == 0 then aimPro.blockedSince = now end
+                if now - aimPro.blockedSince < CONFIG.AimOcclusionGraceSeconds then
+                    kept.blocked = true
+                    return done(kept)
+                end
+            end
         end
     end
 
@@ -1920,11 +1951,16 @@ local function findAimTarget(camera)
     end
     if not state.visibleCheck then return done(best) end
     table.sort(candidates, function(a, b) return a.pixelsSquared < b.pixelsSquared end)
+    local tested = 0
     for _, candidate in ipairs(candidates) do
+        if tested >= CONFIG.AimLosCandidatesPerScan then break end
+        tested = tested + 1
         if canSee(camera, candidate.part.Position, candidate.character) then
+            aimPro.blockedSince = 0
             return done(candidate)
         end
     end
+    aimPro.blockedSince = 0
     return done(nil)
 end
 
@@ -1959,7 +1995,11 @@ local function aimFrame(dt)
     local scannedThisFrame = false
     if now >= aimNextScan then
         aimNextScan = now + scanEvery
+        local previous = aimTarget
         aimTarget = findAimTarget(camera)
+        if not aimTarget or (previous and previous.player ~= aimTarget.player) then
+            aimPro.blockedSince = 0
+        end
         scannedThisFrame = true
         if aimTarget then
             -- Новый поиск уже сделал LOS при включённом Visible Check.
@@ -1969,6 +2009,8 @@ local function aimFrame(dt)
     local current = aimTarget
     -- Отсутствие цели НЕ обнуляет таймер поиска (было до 60 сканов/с).
     if not current then return end
+    -- Occluded lock is retained for stability but NEVER drives the camera.
+    if current.blocked then return end
     local part = current.part
     if not part or not part.Parent or not current.player
         or current.player.Character ~= current.character or sameTeam(current.player)
@@ -1990,26 +2032,39 @@ local function aimFrame(dt)
     -- Проверка видимости прицеливания остаётся активной, но Raycast реже.
     if state.visibleCheck and not scannedThisFrame and now >= aimPro.nextLos then
         if not canSee(camera, point, current.character) then
+            if state.targetLock then
+                if aimPro.blockedSince == 0 then aimPro.blockedSince = now end
+                if now - aimPro.blockedSince < CONFIG.AimOcclusionGraceSeconds then
+                    current.blocked = true
+                    aimNextScan = math.min(aimNextScan, now + CONFIG.AimLostRescanSeconds)
+                    return
+                end
+            end
+            aimPro.blockedSince = 0
             aimTarget = nil
             aimNextScan = math.min(aimNextScan, now + CONFIG.AimLostRescanSeconds)
             return
         end
+        aimPro.blockedSince = 0
         aimPro.nextLos = now + losInterval
     end
     local goal = CFrame.lookAt(origin, predictedPoint(part))
     if state.aimSmoothness == 0 then
         camera.CFrame = goal
     else
-        -- Не меняем уже проверенную формулу поворота и плавности.
+        -- Frame-rate independent smoothing with a bounded angular step.
+        -- Avoid a sudden jump on a late frame without altering Smooth=0.
         local cx, cy, cz = camera.CFrame:ToOrientation()
         local gx, gy = goal:ToOrientation()
         local speed = CONFIG.AimSmoothnessBaseline / state.aimSmoothness
-        local dtSafe = math.clamp(dt, 0, 0.1)
+        local dtSafe = math.clamp(dt, 0, 0.05)
         local alphaX = math.clamp(1 - math.exp(-speed * state.aimSmoothX / 5 * dtSafe), 0, 1)
         local alphaY = math.clamp(1 - math.exp(-speed * state.aimSmoothY / 5 * dtSafe), 0, 1)
-        local nextPitch = cx + signedAngle(cx, gx) * alphaY
-        local nextYaw = cy + signedAngle(cy, gy) * alphaX
-        camera.CFrame = CFrame.new(origin) * CFrame.fromOrientation(nextPitch, nextYaw, cz)
+        local maxStep = math.rad(CONFIG.AimMaxTurnDegreesPerSecond) * dtSafe
+        local pitchStep = math.clamp(signedAngle(cx, gx) * alphaY, -maxStep, maxStep)
+        local yawStep = math.clamp(signedAngle(cy, gy) * alphaX, -maxStep, maxStep)
+        camera.CFrame = CFrame.new(origin) * CFrame.fromOrientation(
+            cx + pitchStep, cy + yawStep, cz)
     end
 end
 
