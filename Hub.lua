@@ -4951,8 +4951,121 @@ addButton(pages.MEMORY, "Вернуть FOV камеры", "Отключить �
     requestSave()
     tell("Camera FOV: исходный угол восстановлен")
 end)
+addSection(pages.MISC, "MOVEMENT", "Управление скоростью и столкновениями")
+addToggle(pages.MISC, "Speed", "Скорость ходьбы (8–120 studs/s)", "speedEnabled", function()
+    movement.sync()
+end)
+addSlider(pages.MISC, "WalkSpeed", "Настраиваемое значение, обычная скорость восстановится при OFF",
+    "speedValue", 8, 120, 1,
+    function(value) return tostring(value) .. " studs/s" end,
+    function() movement.sync() end)
+addToggle(pages.MISC, "Noclip", "Временно отключить столкновения своего персонажа", "noclip", function()
+    movement.sync()
+end)
+
+addSection(pages.MISC, "FLIGHT", "WASD — направление, Space — вверх, Ctrl / Q — вниз")
+addToggle(pages.MISC, "Fly", "Полёт по направлению камеры, без постоянных циклов", "fly", function(enabled)
+    if enabled and state.antiAim then
+        state.antiAim = false
+        memoryFX.spin.reset()
+        if refreshToggles.antiAim then pcall(refreshToggles.antiAim) end
+    end
+    movement.sync()
+end)
+addSlider(pages.MISC, "Fly Speed", "Скорость полёта 10–150 studs/s",
+    "flySpeed", 10, 150, 5,
+    function(value) return tostring(value) .. " studs/s" end)
+addButton(pages.MISC, "Сбросить Movement", "Отключить Speed / Noclip / Fly и вернуть исходные свойства", function()
+    movement.disableAll()
+    requestSave()
+    tell("Misc: Speed / Noclip / Fly выключены")
+end)
+
+addSection(pages.MISC, "TELEPORT", "Переход к игроку по Roblox username или DisplayName")
+local tpEntry = mk("Frame", {
+    Name = "TeleportToPlayerEntry", BackgroundColor3 = CONFIG.Surface,
+    BorderSizePixel = 0, Size = UDim2.new(1, 0, 0, 76),
+}, columnFor(pages.MISC))
+registerWidget(pages.MISC, tpEntry)
+round(tpEntry, 3)
+mk("UIStroke", {Color = P.border, Transparency = 0.48, Thickness = 1}, tpEntry)
+mk("TextLabel", {
+    BackgroundTransparency = 1, Text = "TP to Player", Font = Enum.Font.GothamMedium,
+    TextSize = 12, TextColor3 = P.text, TextXAlignment = Enum.TextXAlignment.Left,
+    Position = UDim2.fromOffset(10, 5), Size = UDim2.new(1, -20, 0, 18),
+}, tpEntry)
+local tpInput = mk("TextBox", {
+    Name = "TargetUsername", Text = "", PlaceholderText = "@username / DisplayName",
+    ClearTextOnFocus = false, Font = Enum.Font.Gotham,
+    TextSize = 12, TextColor3 = P.text, PlaceholderColor3 = P.dim,
+    BackgroundColor3 = P.tile, BorderSizePixel = 0,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    Position = UDim2.fromOffset(10, 29), Size = UDim2.new(1, -20, 0, 36),
+}, tpEntry)
+round(tpInput, 5)
+mk("UIPadding", {
+    PaddingLeft = UDim.new(0, 9), PaddingRight = UDim.new(0, 9),
+}, tpInput)
+
+addButton(pages.MISC, "TP to Player", "Ввести ник выше и телепортироваться рядом с игроком", function()
+    local query = tpInput.Text:match("^%s*(.-)%s*$"):gsub("^@", "")
+    query = string.lower(query)
+    if #query < 2 then tell("TP: введи хотя бы 2 символа ника"); return end
+    local exact, candidate, matches = nil, nil, 0
+    -- Username имеет приоритет над неоднозначными DisplayName.
+    for _, person in ipairs(perfCounters.roster) do
+        if person ~= LocalPlayer and string.lower(person.Name) == query then
+            exact = person
+            break
+        end
+    end
+    if not exact then
+        for _, person in ipairs(perfCounters.roster) do
+            if person ~= LocalPlayer then
+                local username, display = string.lower(person.Name), string.lower(person.DisplayName)
+                if username:sub(1, #query) == query or display == query
+                    or display:sub(1, #query) == query then
+                    candidate = person
+                    matches += 1
+                end
+            end
+        end
+    end
+    local target = exact or (matches == 1 and candidate or nil)
+    if not target then
+        tell(matches > 1 and "TP: найдено несколько игроков, уточни @username"
+            or "TP: игрок не найден в текущем сервере")
+        return
+    end
+    local theirChar = target.Character
+    local theirRoot = theirChar and theirChar:FindFirstChild("HumanoidRootPart")
+    local theirHum = theirChar and theirChar:FindFirstChildOfClass("Humanoid")
+    local myChar = LocalPlayer.Character
+    local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
+    if not (theirRoot and theirRoot:IsA("BasePart")
+        and theirHum and theirHum.Health > 0
+        and myRoot and myRoot:IsA("BasePart")) then
+        tell("TP: цель или твой персонаж ещё не загружены")
+        return
+    end
+    local ok, err = pcall(function()
+        myChar:PivotTo(theirRoot.CFrame * CFrame.new(0, 3, 5))
+        myRoot.AssemblyLinearVelocity = Vector3.zero
+    end)
+    if ok then
+        tell("TP: перемещение рядом с " .. target.Name .. " отправлено")
+    else
+        tell("TP: ошибка: " .. tostring(err))
+    end
+end)
+
 addSection(pages.MISC, "ANTI-AIM", "Локальное вращение тела; реальная репликация не гарантируется")
 addToggle(pages.MISC, "Anti-Aim Spin", "Быстрая крутилка + наклон корпуса", "antiAim", function(enabled)
+    if enabled and state.fly then
+        state.fly = false
+        movement.sync()
+        if refreshToggles.fly then pcall(refreshToggles.fly) end
+    end
     if not enabled then memoryFX.spin.reset() end
 end)
 addSlider(pages.MISC, "Скорость вращения", "180–1440°/сек. При активном AIM вращение останавливается",
