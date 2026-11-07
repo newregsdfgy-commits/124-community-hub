@@ -4135,9 +4135,12 @@ local function addSlider(page, title, description, key, minValue, maxValue, step
         if state[key] ~= snapped then
             state[key] = snapped
             if onChanged then onChanged(snapped) end
+            -- Синхронизируем второй слайдер того же ключа без повторного скана.
+            local synchronize = refreshSliders[key]
+            if synchronize then pcall(synchronize) end
+            requestSave()
         end
         repaint()
-        requestSave()
     end
     refreshSliders[key] = repaint
     connect(touchArea.InputBegan, function(input)
@@ -5281,6 +5284,8 @@ local function buildReferenceMenu()
             if state[key] ~= nextValue then
                 state[key] = nextValue
                 dirty = true
+                -- Основной слайдер обновляется сразу, без дорогостоящего ESP-скана.
+                if old then pcall(old) end
                 -- At most about 9 expensive visual refreshes per second.
                 if os.clock() - lastApplyAt >= 0.11 then commitValue() end
             end
@@ -5357,7 +5362,8 @@ local function buildReferenceMenu()
         UDim2.new(0, 15, 0, 102), function() return referenceStrokeEnabled end,
         function()
             referenceStrokeEnabled = not referenceStrokeEnabled
-            pcall(refreshESP)
+            -- Не выполнять синхронный обход игроков из обработчика клика.
+            queueESPRefresh()
         end)
     borderSwitch.row.Size = UDim2.new(1, -30, 0, 28)
     textLabel(skins, "SkinsHeader", "◇   MOD SKINN", UDim2.fromOffset(16, 10),
