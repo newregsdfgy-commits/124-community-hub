@@ -4509,6 +4509,259 @@ addButton(pages.AIM, "Управление", "ПКМ: удерживать | к�
         .. " | Scan: " .. tostring(perfCounters.aimScanMs) .. " мс")
 end)
 
+-- Один контроллер для Speed / Noclip / Fly: никаких вечных циклов.
+-- Физика локальная; игровые серверы могут переопределять перемещение.
+local movement = {
+    character = nil, originalSpeed = nil, speedHumanoid = nil,
+    originalAutoRotate = nil, flyHumanoid = nil, flyRoot = nil,
+    attachment = nil, velocity = nil, orientation = nil,
+    noclipCharacter = nil, noclipAdded = nil,
+    collisionOriginals = setmetatable({}, {__mode = "k"}),
+    stepConnection = nil, lastSpeedApply = 0, lastErrorAt = 0,
+}
+boosterPro.movement = movement
+
+function movement.restoreSpeed()
+    if movement.speedHumanoid and movement.originalSpeed ~= nil then
+        pcall(function()
+            if movement.speedHumanoid.Parent then
+                movement.speedHumanoid.WalkSpeed = movement.originalSpeed
+            end
+        end)
+    end
+    movement.speedHumanoid, movement.originalSpeed = nil, nil
+end
+
+function movement.restoreCollision()
+    if movement.noclipAdded then
+        movement.noclipAdded:Disconnect()
+        movement.noclipAdded = nil
+    end
+    for part, original in pairs(movement.collisionOriginals) do
+        pcall(function()
+            if part.Parent then part.CanCollide = original end
+        end)
+        movement.collisionOriginals[part] = nil
+    end
+    movement.noclipCharacter = nil
+end
+
+function movement.recordPart(obj)
+    if not obj:IsA("BasePart") then return end
+    if movement.collisionOriginals[obj] == nil then
+        movement.collisionOriginals[obj] = obj.CanCollide
+    end
+    if obj.CanCollide then obj.CanCollide = false end
+end
+
+function movement.startNoclip(character)
+    movement.restoreCollision()
+    movement.noclipCharacter = character
+    for _, obj in ipairs(character:GetDescendants()) do movement.recordPart(obj) end
+    movement.noclipAdded = character.DescendantAdded:Connect(function(obj)
+        if alive and state.noclip and movement.noclipCharacter == character then
+            movement.recordPart(obj)
+        end
+    end)
+end
+
+function movement.restoreFly()
+    if movement.velocity then pcall(function() movement.velocity:Destroy() end) end
+    if movement.orientation then pcall(function() movement.orientation:Destroy() end) end
+    if movement.attachment then pcall(function() movement.attachment:Destroy() end) end
+    movement.velocity, movement.orientation, movement.attachment = nil, nil, nil
+    if movement.flyHumanoid and movement.originalAutoRotate ~= nil then
+        pcall(function()
+            if movement.flyHumanoid.Parent then
+                movement.flyHumanoid.AutoRotate = movement.originalAutoRotate
+                if movement.flyHumanoid.Health > 0 then
+                    movement.flyHumanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+                end
+            end
+        end)
+    end
+    movement.flyHumanoid, movement.flyRoot, movement.originalAutoRotate = nil, nil, nil
+end
+
+function movement.ensureFly(humanoid, root)
+    if movement.flyRoot == root and movement.velocity and movement.velocity.Parent == root
+        and movement.orientation and movement.orientation.Parent == root then
+        return true
+    end
+    movement.restoreFly()
+    local built = {}
+    local ok, err = pcall(function()
+        local attachment = Instance.new("Attachment")
+        built[#built + 1] = attachment
+        attachment.Name = "VisualsFlightAttachment"
+        attachment.Parent = root
+        local linear = Instance.new("LinearVelocity")
+        built[#built + 1] = linear
+        linear.Name = "VisualsFlightVelocity"
+        linear.Attachment0 = attachment
+        linear.RelativeTo = Enum.ActuatorRelativeTo.World
+        linear.VelocityConstraintMode = Enum.VelocityConstraintMode.Vector
+        linear.ForceLimitsEnabled = false
+        linear.VectorVelocity = Vector3.zero
+        linear.Parent = root
+        local align = Instance.new("AlignOrientation")
+        built[#built + 1] = align
+        align.Name = "VisualsFlightOrientation"
+        align.Attachment0 = attachment
+        align.Mode = Enum.OrientationAlignmentMode.OneAttachment
+        align.RigidityEnabled = false
+        align.MaxTorque = 10000000
+        align.Responsiveness = 20
+        align.Parent = root
+        movement.originalAutoRotate = humanoid.AutoRotate
+        humanoid.AutoRotate = false
+        humanoid:ChangeState(Enum.HumanoidStateType.Physics)
+        movement.attachment, movement.velocity, movement.orientation =
+            attachment, linear, align
+        movement.flyHumanoid, movement.flyRoot = humanoid, root
+    end)
+    if not ok then
+        for _, obj in ipairs(built) do pcall(function() obj:Destroy() end) end
+        movement.restoreFly()
+        state.fly = false
+        if refreshToggles.fly then pcall(refreshToggles.fly) end
+        tell("Fly: не удалось включить: " .. tostring(err))
+    end
+    return ok
+end
+
+function movement.releaseCharacter()
+    movement.restoreFly()
+    movement.restoreSpeed()
+    movement.restoreCollision()
+    movement.character = nil
+end
+
+function movement.step()
+    if not alive then return end
+    local character = LocalPlayer.Character
+    if movement.character ~= character then
+        movement.releaseCharacter()
+        movement.character = character
+    end
+    if not character then return end
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    local root = character:FindFirstChild("HumanoidRootPart")
+    if not (humanoid and humanoid.Health > 0 and root and root:IsA("BasePart")) then
+        movement.restoreFly()
+        movement.restoreSpeed()
+        movement.restoreCollision()
+        return
+    end
+
+    if state.speedEnabled then
+        if movement.speedHumanoid ~= humanoid then
+            movement.restoreSpeed()
+            movement.speedHumanoid = humanoid
+            movement.originalSpeed = humanoid.WalkSpeed
+            movement.lastSpeedApply = 0
+        end
+        if os.clock() - movement.lastSpeedApply >= 0.25 then
+            if humanoid.WalkSpeed ~= state.speedValue then
+                humanoid.WalkSpeed = state.speedValue
+            end
+            movement.lastSpeedApply = os.clock()
+        end
+    elseif movement.speedHumanoid then
+        movement.restoreSpeed()
+    end
+
+    if state.noclip then
+        if movement.noclipCharacter ~= character then
+            movement.startNoclip(character)
+        end
+        -- Снимаем коллизию только с частями своего персонажа.
+        for part in pairs(movement.collisionOriginals) do
+            if part.Parent and part.CanCollide then part.CanCollide = false end
+        end
+    elseif movement.noclipCharacter then
+        movement.restoreCollision()
+    end
+
+    if not state.fly then
+        if movement.flyRoot then movement.restoreFly() end
+        return
+    end
+    if not movement.ensureFly(humanoid, root) then return end
+    local camera = Workspace.CurrentCamera
+    if not camera then
+        movement.velocity.VectorVelocity = Vector3.zero
+        return
+    end
+    local look = camera.CFrame.LookVector
+    local forward = Vector3.new(look.X, 0, look.Z)
+    forward = forward.Magnitude > 0.001 and forward.Unit or Vector3.new(0, 0, -1)
+    local right = Vector3.new(-forward.Z, 0, forward.X)
+    local direction = Vector3.zero
+    if not UserInputService:GetFocusedTextBox() then
+        local forwardAxis = (UserInputService:IsKeyDown(Enum.KeyCode.W) and 1 or 0)
+            - (UserInputService:IsKeyDown(Enum.KeyCode.S) and 1 or 0)
+        local rightAxis = (UserInputService:IsKeyDown(Enum.KeyCode.D) and 1 or 0)
+            - (UserInputService:IsKeyDown(Enum.KeyCode.A) and 1 or 0)
+        local vertical = (UserInputService:IsKeyDown(Enum.KeyCode.Space) and 1 or 0)
+            - ((UserInputService:IsKeyDown(Enum.KeyCode.LeftControl)
+                or UserInputService:IsKeyDown(Enum.KeyCode.RightControl)
+                or UserInputService:IsKeyDown(Enum.KeyCode.Q)) and 1 or 0)
+        direction = forward * forwardAxis + right * rightAxis + Vector3.new(0, vertical, 0)
+        if forwardAxis == 0 and rightAxis == 0 and UserInputService.TouchEnabled then
+            direction += humanoid.MoveDirection
+            if humanoid.Jump then direction += Vector3.yAxis end
+        end
+    end
+    if direction.Magnitude > 1 then direction = direction.Unit end
+    local target = direction * state.flySpeed
+    if movement.velocity.VectorVelocity ~= target then
+        movement.velocity.VectorVelocity = target
+    end
+    movement.orientation.CFrame = CFrame.lookAt(Vector3.zero, forward)
+end
+
+function movement.sync()
+    if not alive then return end
+    local needed = state.speedEnabled or state.noclip or state.fly
+    if not needed then
+        if movement.stepConnection then
+            movement.stepConnection:Disconnect()
+            movement.stepConnection = nil
+        end
+        movement.releaseCharacter()
+        return
+    end
+    if not movement.stepConnection then
+        local signal = RunService.PreSimulation or RunService.Stepped
+        movement.stepConnection = signal:Connect(function()
+            local ok, err = pcall(movement.step)
+            if not ok and os.clock() - movement.lastErrorAt >= 3 then
+                movement.lastErrorAt = os.clock()
+                warn("[124 Visuals / Misc] " .. tostring(err))
+            end
+        end)
+    end
+    local ok, err = pcall(movement.step)
+    if not ok then tell("Misc: " .. tostring(err)) end
+end
+
+function movement.disableAll()
+    state.speedEnabled, state.noclip, state.fly = false, false, false
+    movement.sync()
+    for _, key in ipairs({"speedEnabled", "noclip", "fly"}) do
+        if refreshToggles[key] then pcall(refreshToggles[key]) end
+    end
+end
+
+function movement.shutdown()
+    if movement.stepConnection then
+        movement.stepConnection:Disconnect()
+        movement.stepConnection = nil
+    end
+    movement.releaseCharacter()
+end
+
 addSection(pages.MEMORY, "AIR MOTION WATCH", "Подозрительное перемещение — не определение модераторов")
 addToggle(pages.MEMORY, "Оповещения о полёте", "6+ секунд стабильного движения в воздухе", "airAlerts", function(on)
     if not on and boosterPro.airMonitor then boosterPro.airMonitor.clear() end
