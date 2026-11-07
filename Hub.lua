@@ -463,7 +463,7 @@ function perfCounters.session.setEnabled(enabled)
 end
 
 -- Fixed-size ring buffer for frametime. O(1) work, no allocations per frame.
--- Percentile/sort only when diagnostics are requested or MISC is visible.
+-- Percentile/sort only when diagnostics are requested or Memory is visible.
 perfCounters.frametime = {data = {}, cursor = 1, count = 0, scratch = {},
     lastUpdated = 0, label = nil, lastShown = "", spikesThisSecond = 0}
 function perfCounters.frametime.observe(dt)
@@ -4595,6 +4595,7 @@ function movement.ensureFly(humanoid, root)
     end
     movement.restoreFly()
     local built = {}
+    local originalRotate = humanoid.AutoRotate
     local ok, err = pcall(function()
         local attachment = Instance.new("Attachment")
         built[#built + 1] = attachment
@@ -4628,6 +4629,9 @@ function movement.ensureFly(humanoid, root)
     if not ok then
         for _, obj in ipairs(built) do pcall(function() obj:Destroy() end) end
         movement.restoreFly()
+        pcall(function()
+            if humanoid.Parent then humanoid.AutoRotate = originalRotate end
+        end)
         state.fly = false
         if refreshToggles.fly then pcall(refreshToggles.fly) end
         tell("Fly: не удалось включить: " .. tostring(err))
@@ -6701,7 +6705,7 @@ cleanup = function(safeStop)
 end
 
 env.ARMY124_CLEANUP = cleanup
--- LogService не подписывается при загрузке: включается только из MISC.
+-- LogService не подписывается при загрузке: включается только из Memory.
 perfCounters.session.setEnabled(state.sessionDiagnostics)
 connect(close.Activated, function() if cleanup then cleanup() end end)
 connect(Players.PlayerRemoving, deleteRender)
@@ -6853,7 +6857,7 @@ end
 local frames, accumulated = 0, 0
 connect(RunService.RenderStepped, function(dt)
     if not alive then return end
-    perfCounters.frametime.observe(dt) -- O(1); статистика вычисляется только в MISC.
+    perfCounters.frametime.observe(dt) -- O(1); статистика вычисляется только в Memory.
     frames = frames + 1
     accumulated = accumulated + math.max(dt, 0)
     if accumulated >= 1 then
