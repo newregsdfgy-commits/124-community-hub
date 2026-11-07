@@ -1,11 +1,11 @@
--- 124 Visuals v1.1.48 | triple audit: per-place safe-boot, flight stability, cleanup
+-- 124 Visuals v1.1.49 | Misc local weapon controls and private audio-ID player
 -- Первый плейс: 18537079992. Запуск поддерживает все игровые PlaceId.
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.1.48",
+    Version = "1.1.49",
     OriginalPlaceId = 18537079992,
     EspRefreshSeconds = 0.35, -- Быстрый поиск персонажей, без обновления UI каждый кадр.
     EspEventMinSeconds = 0.18, -- Коалесцированные события не запускают 16 полных сканов/сек.
@@ -256,6 +256,8 @@ local state = {
     airAlerts = false, -- Фоновый мониторинг только по запросу.
     aimbot = false,
     controlRecoil = false, -- По умолчанию выключено: не трогаем камеру без согласия.
+    noRecoil = false, -- Только локальная компенсация наблюдаемого подброса камеры.
+    noSpread = false, -- Только явные клиентские настройки Tool; серверный spread не меняет.
     recoilStrength = 75, -- Процент подавления измеренного вертикального скачка.
     aimKeyName = CONFIG.AimKeyDefault,
     aimMode = "body", -- head / body / legs; сохраняем прежний режим по умолчанию.
@@ -273,6 +275,9 @@ local state = {
     noclip = false,
     fly = false,
     flySpeed = 60, -- Скорость полёта в studs/сек.
+    musicId = "", -- Локальный звук НЕ запускается автоматически при загрузке.
+    musicVolume = 35,
+    musicLoop = true,
     hud = true,
 }
 
@@ -2696,9 +2701,10 @@ local storedKeys = {
     "prediction", "predictionSeconds", "targetLock", "aimFovPixels", "aimMode",
     "aimOnlyRegisteredWeapons", "aimWeaponNames",
     "fovVisible", "fovThickness", "visibleCheck", "teamCheck", "fullbright", "booster",
-    "antiAfk", "airAlerts", "hud", "activeHud", "aimKeyName", "controlRecoil", "recoilStrength", "boosterMode",
+    "antiAfk", "airAlerts", "hud", "activeHud", "aimKeyName", "controlRecoil", "noRecoil", "noSpread", "recoilStrength", "boosterMode",
     "cameraFovEnabled", "cameraFovDegrees", "antiAim", "antiAimSpeed", "antiAimTilt",
     "speedEnabled", "speedValue", "noclip", "fly", "flySpeed",
+    "musicId", "musicVolume", "musicLoop",
 }
 local numericRules = {
     espRangeMeters = {CONFIG.EspRangeMinMeters, CONFIG.EspRangeMaxMeters}, espMaxTargets = {8, 96},
@@ -2709,6 +2715,7 @@ local numericRules = {
     fovThickness = {1, 4}, recoilStrength = {0, 100},
     cameraFovDegrees = {55, 110}, antiAimSpeed = {180, 1440}, antiAimTilt = {0, 25},
     speedValue = {8, 120}, flySpeed = {10, 150},
+    musicVolume = {0, 100},
 }
 local textRules = {
     aimMode = {head = true, body = true, legs = true},
@@ -2741,6 +2748,11 @@ local function validatedSettings(values)
             elseif type(baseline) == "string" and type(incoming) == "string" then
                 if key == "aimWeaponNames" then
                     result[key] = incoming:sub(1, 400)
+                elseif key == "musicId" then
+                    -- Только десятичный Roblox asset ID, не Lua/URL.
+                    if incoming == "" or (#incoming <= 19 and incoming:match("^%d+$")) then
+                        result[key] = incoming
+                    end
                 elseif key == "aimKeyName" then
                     if validAimKeyName(incoming) then result[key] = incoming end
                 elseif textRules[key] and textRules[key][incoming] then
@@ -2873,6 +2885,8 @@ local function applySettings(incoming, autoLoad)
         state.moduleCpuMonitor = false -- Тяжёлая телеметрия включается вручную.
         state.antiAfk = false
         state.antiAim = false
+        state.noRecoil = false
+        state.noSpread = false
         state.speedEnabled = false
         state.noclip = false
         state.fly = false
@@ -2887,6 +2901,8 @@ local function applySettings(incoming, autoLoad)
             state.tracers = false
             state.espBox = false
             state.controlRecoil = false
+            state.noRecoil = false
+            state.noSpread = false
             state.fullbright = false
             state.booster = false
             state.cameraFovEnabled = false
@@ -3578,6 +3594,7 @@ local sectionSides = {
     ["UTILITY"] = "left", ["PERFORMANCE"] = "right",
     ["CAMERA & LIGHTING"] = "left", ["ANTI-AIM"] = "right",
     ["MOVEMENT"] = "left", ["FLIGHT"] = "right", ["TELEPORT"] = "right",
+    ["WEAPON CONTROL"] = "left", ["LOCAL MUSIC"] = "right",
     
     ["PROFILES"] = "left", ["CONFIG TOOLS"] = "right", ["WINDOW"] = "right",
 }
