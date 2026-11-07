@@ -2364,6 +2364,15 @@ local function markRecoilShot()
     end
     if not (state.controlRecoil or state.noRecoil) then return end
     controller.shots = controller.shots + 1
+    -- Первый выстрел после включения: до первого RenderStep ещё нет эталонного
+    -- pitch. Берём его при Tool.Activated, чтобы не пропускать начальный подброс.
+    if recoilLastPitch == nil then
+        local camera = Workspace.CurrentCamera
+        if camera then
+            recoilLastCamera = camera
+            recoilLastPitch = camera.CFrame:ToOrientation()
+        end
+    end
     -- Every Tool.Activated pulse renews the firing watchdog, even when
     -- an automatic weapon omits Deactivated between successive shots.
     recoilHoldStarted = now
