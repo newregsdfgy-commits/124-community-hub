@@ -2608,7 +2608,8 @@ local function initializeHubUI()
 local gui = mk("ScreenGui", {
     Name = "Army124CommunityVisualsGUI",
     ResetOnSpawn = false,
-    IgnoreGuiInset = true,
+    -- CoreUISafeInsets keeps menu controls below Roblox chat/backpack buttons.
+    IgnoreGuiInset = false,
     DisplayOrder = 100,
     ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
 }, PlayerGui)
@@ -3192,6 +3193,18 @@ local function loadCustomSettings()
 end
 
 local viewport = Workspace.CurrentCamera and Workspace.CurrentCamera.ViewportSize or Vector2.new(390, 720)
+-- The ScreenGui respects Roblox UI insets; use the same safe size for layout.
+local function uiSafeView(raw)
+    local ok, topLeft, bottomRight = pcall(function()
+        return GuiService:GetGuiInset()
+    end)
+    if ok and typeof(topLeft) == "Vector2" and typeof(bottomRight) == "Vector2" then
+        return Vector2.new(
+            math.max(160, raw.X - topLeft.X - bottomRight.X),
+            math.max(160, raw.Y - topLeft.Y - bottomRight.Y))
+    end
+    return raw
+end
 local TweenService = game:GetService("TweenService")
 -- Neutral graphite palette matched to the supplied reference screenshot.
 -- UI-only: gameplay and ESP graphics retain their existing configuration.
@@ -3216,6 +3229,7 @@ end
 local wideLayout = isReferenceLandscape(viewport)
     or ((not UserInputService.TouchEnabled) and viewport.X >= 770 and viewport.Y >= 560)
 local function windowMetrics(view)
+    view = uiSafeView(view)
     local mobile = UserInputService.TouchEnabled
     local screenshotMobile = isReferenceLandscape(view)
     local wide = screenshotMobile or ((not mobile) and view.X >= 770 and view.Y >= 560)
@@ -3250,7 +3264,7 @@ local panelScale = mk("UIScale", {Scale = uiBaseScale}, panel)
 -- GUI работает с IgnoreGuiInset=true, поэтому размеры берём из ViewportSize.
 function boosterPro.clampWindowPosition(position, size, anchor)
     local camera = Workspace.CurrentCamera
-    local view = camera and camera.ViewportSize or viewport
+    local view = uiSafeView(camera and camera.ViewportSize or viewport)
     anchor = anchor or Vector2.new(0, 0)
     local width = view.X * size.X.Scale + size.X.Offset
     local height = view.Y * size.Y.Scale + size.Y.Offset
