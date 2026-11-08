@@ -1,11 +1,11 @@
--- 124 Visuals v1.1.54 | full audit: safe parameter restore, recoil profile, audio diagnostics
+-- 124 Visuals v1.1.55 | full audit: safe parameter restore, recoil profile, audio diagnostics
 -- Первый плейс: 18537079992. Запуск поддерживает все игровые PlaceId.
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.1.54",
+    Version = "1.1.55",
     OriginalPlaceId = 18537079992,
     EspRefreshSeconds = 0.35, -- Быстрый поиск персонажей, без обновления UI каждый кадр.
     EspEventMinSeconds = 0.18, -- Коалесцированные события не запускают 16 полных сканов/сек.
@@ -3365,6 +3365,7 @@ mk("Frame", {
 local tabs = mk("Frame", {
     Name = "VisualsNavigation", BackgroundColor3 = P.background, BorderSizePixel = 0,
     Position = UDim2.fromOffset(0, 0), Size = UDim2.new(0, 196, 1, 0),
+    ClipsDescendants = true,
 }, panel)
 round(tabs, 3)
 -- Отделяем декоративную линию от горизонтального UIListLayout.
@@ -3478,7 +3479,7 @@ local function makeColumn(parent, name)
         ScrollingDirection = Enum.ScrollingDirection.Y,
         AutomaticCanvasSize = Enum.AutomaticSize.Y,
         CanvasSize = UDim2.new(0, 0, 0, 0),
-        Active = true,
+        Active = true, ClipsDescendants = true,
     }, parent)
     round(scroll, 3)
     mk("UIStroke", {Color = P.border, Thickness = 1, Transparency = 0.54}, scroll)
@@ -3525,7 +3526,7 @@ for idx, tab in ipairs(navigation) do
         Name = key .. "Page", BackgroundTransparency = 1,
         Position = UDim2.fromOffset(12, 82),
         Size = UDim2.new(1, -24, 1, -155),
-        Visible = key == "HOME",
+        Visible = key == "HOME", ClipsDescendants = true,
     }, panel)
     pages[key] = page
     if key ~= "HOME" then
@@ -3844,29 +3845,33 @@ local function applyResponsiveLayout()
     end
     wideLayout = wide
     pageHeader.Visible, pageSubHeader.Visible = false, false
-    -- Side navigation never jumps to the right or bottom on resize.
-    -- 92px portrait rail leaves the functional page visible beside it.
+    -- Four-tab measured layout: legacy navSlots used negative relative
+    -- height and cut off Settings on short landscape viewports.
+    local compactShort = not wide and height < 320
+    local navTop = wide and 96 or (compactShort and 58 or 70)
+    local bottomReserve = wide and 90 or (height < 300 and 9 or 53)
+    local buttonHeight = wide and 55 or (compactShort and 31 or 39)
     tabs.Position = UDim2.fromOffset(0, 0)
     tabs.Size = UDim2.new(0, wide and 196 or 92, 1, 0)
-    navSlots.Position = UDim2.fromOffset(0, wide and 96 or 92)
-    navSlots.Size = UDim2.new(1, 0, 1, wide and -190 or -192)
+    navSlots.Position = UDim2.fromOffset(0, navTop)
+    navSlots.Size = UDim2.new(1, 0, 0, math.max(0, height - navTop - bottomReserve))
     navigationLayout.FillDirection = Enum.FillDirection.Vertical
     navigationLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
     navigationLayout.VerticalAlignment = Enum.VerticalAlignment.Top
-    navigationLayout.Padding = UDim.new(0, wide and 8 or 6)
+    navigationLayout.Padding = UDim.new(0, wide and 8 or (compactShort and 3 or 5))
     for _, nav in ipairs(navigation) do
         local button = tabButtons[nav.key]
         if wide then
-            button.Size = UDim2.new(1, -6, 0, 55)
+            button.Size = UDim2.new(1, -6, 0, buttonHeight)
             button.Text = "  " .. nav.symbol .. "     " .. nav.label
             button.TextSize = 14
             button.TextXAlignment = Enum.TextXAlignment.Left
         else
-            button.Size = UDim2.new(1, -4, 0, 50)
+            button.Size = UDim2.new(1, -4, 0, buttonHeight)
             local short = nav.key == "MEMORY" and "MEM"
                 or nav.key == "MISC" and "SET" or nav.key
             button.Text = nav.symbol .. "  " .. short
-            button.TextSize = 10
+            button.TextSize = compactShort and 9 or 10
             button.TextXAlignment = Enum.TextXAlignment.Center
         end
         tabUnderline[nav.key].Position = UDim2.fromOffset(0, 5)
@@ -3875,11 +3880,12 @@ local function applyResponsiveLayout()
     for _, page in pairs(pages) do
         if wide then
             page.Position = UDim2.fromOffset(207, 81)
-            page.Size = UDim2.new(1, -220, 1, -95)
+            page.Size = UDim2.new(1, -220, 1, -121)
         else
             page.Position = UDim2.fromOffset(101, 81)
-            page.Size = UDim2.new(1, -110, 1, -95)
+            page.Size = UDim2.new(1, -110, 1, -120)
         end
+        page.ClipsDescendants = true
         local info = pageColumns[page]
         if info then
             if wide then
@@ -3910,6 +3916,10 @@ local function applyResponsiveLayout()
         referenceESP.layout(wide)
     end
     if boosterPro.dashboard then boosterPro.dashboard.layout(wide) end
+    if boosterPro.uiFooter and boosterPro.uiFooter.Parent then
+        boosterPro.uiFooter.Position = UDim2.new(0, wide and 207 or 101, 1, -29)
+        boosterPro.uiFooter.Size = UDim2.new(1, wide and -220 or -110, 0, 22)
+    end
     local brandTitle = bar:FindFirstChild("BrandTitle")
     local brandCaption = bar:FindFirstChild("BrandCaption")
     if brandTitle then
@@ -5684,15 +5694,18 @@ applyResponsiveLayout()
 
 
 local status = mk("TextLabel", {
-    Name = "Footer", Position = UDim2.new(0, 18, 1, -70),
-    Size = UDim2.new(1, -36, 0, 15), BackgroundTransparency = 1,
-    Text = "124 COMMUNITY VISUALS   ·   v" .. CONFIG.Version .. "    ·    LOCAL SESSION",
-    TextSize = 10, Font = Enum.Font.Code,
+    Name = "Footer", Position = UDim2.new(0, wideLayout and 207 or 101, 1, -29),
+    Size = UDim2.new(1, wideLayout and -220 or -110, 0, 22),
+    BackgroundTransparency = 0, BackgroundColor3 = P.background,
+    BorderSizePixel = 0, ZIndex = 4,
+    Text = "124 VISUALS · READY",
+    TextSize = 9, Font = Enum.Font.Code,
     TextColor3 = CONFIG.Muted,
     TextXAlignment = Enum.TextXAlignment.Left,
     TextTruncate = Enum.TextTruncate.AtEnd,
 }, panel)
 statusMessage = status
+boosterPro.uiFooter = status
 
 local mini = mk("TextButton", {
     Name = "OpenHub", Position = UDim2.new(0, 12, 0.39, 0),
@@ -5989,6 +6002,7 @@ local function buildReferenceMenu()
     local robloxName = textLabel(tabs, "RobloxCaption", "ROBLOX",
         UDim2.new(0.5, -36, 1, -44), UDim2.fromOffset(80, 20), 11, muted,
         Enum.Font.GothamBold)
+    robloxName.TextXAlignment = Enum.TextXAlignment.Center
 
     -- Topbar: search / local status / session uptime / dashboard.
     local search = corners(mk("TextBox", {Name = "ReferenceSearch",
@@ -6411,7 +6425,20 @@ local function buildReferenceMenu()
         version.Position = UDim2.fromOffset(wide and 86 or 15, wide and 50 or 51)
         version.Size = UDim2.fromOffset(wide and 78 or 74, 17)
         version.TextSize = wide and 10 or 9
-        robloxMark.Visible, robloxName.Visible = true, wide
+        -- Never cover the fourth tab with a decorative Roblox mark.
+        robloxMark.Visible = wide or panel.Size.Y.Offset >= 300
+        robloxName.Visible = wide
+        robloxMark.Position = wide and UDim2.new(0.5, -20, 1, -95)
+            or UDim2.new(0.5, -15, 1, -43)
+        robloxMark.Size = wide and UDim2.fromOffset(40, 40)
+            or UDim2.fromOffset(30, 30)
+        local markHole = robloxMark:FindFirstChild("RobloxCutout")
+        if markHole then
+            markHole.Position = wide and UDim2.fromOffset(13, 13)
+                or UDim2.fromOffset(10, 10)
+            markHole.Size = wide and UDim2.fromOffset(14, 14)
+                or UDim2.fromOffset(10, 10)
+        end
         search.Visible, safe.Visible, clock.Visible, active.Visible = wide, wide, wide, wide
         local title = bar:FindFirstChild("BrandTitle")
         local caption = bar:FindFirstChild("BrandCaption")
