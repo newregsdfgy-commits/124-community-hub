@@ -1,11 +1,11 @@
--- 124 Visuals v1.1.53 | full audit: safe parameter restore, recoil profile, audio diagnostics
+-- 124 Visuals v1.1.54 | full audit: safe parameter restore, recoil profile, audio diagnostics
 -- Первый плейс: 18537079992. Запуск поддерживает все игровые PlaceId.
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.1.53",
+    Version = "1.1.54",
     OriginalPlaceId = 18537079992,
     EspRefreshSeconds = 0.35, -- Быстрый поиск персонажей, без обновления UI каждый кадр.
     EspEventMinSeconds = 0.18, -- Коалесцированные события не запускают 16 полных сканов/сек.
@@ -3360,30 +3360,31 @@ mk("Frame", {
     Position = UDim2.fromOffset(0, 75), Size = UDim2.new(1, 0, 0, 1),
 }, panel)
 
--- Sidebar on desktop; bottom navigation stays accessible on small screens.
+-- Reference 403VIP: permanent LEFT navigation in desktop and portrait layouts.
+-- The narrow sidebar preserves a large invisible click region for each tab.
 local tabs = mk("Frame", {
     Name = "VisualsNavigation", BackgroundColor3 = P.background, BorderSizePixel = 0,
-    Position = UDim2.new(0, 0, 1, -57), Size = UDim2.new(1, 0, 0, 57),
+    Position = UDim2.fromOffset(0, 0), Size = UDim2.new(0, 196, 1, 0),
 }, panel)
 round(tabs, 3)
 -- Отделяем декоративную линию от горизонтального UIListLayout.
 -- В v1.0.0 линия занимала полный слот и выталкивала вкладки ЗА окно.
 mk("Frame", {
     Name = "NavLine", BackgroundColor3 = P.border, BorderSizePixel = 0,
-    Size = UDim2.new(1, 0, 0, 1),
+    Position = UDim2.new(1, -1, 0, 0), Size = UDim2.new(0, 1, 1, 0),
 }, tabs)
 local navSlots = mk("Frame", {
     Name = "NavigationSlots", BackgroundTransparency = 1,
-    Position = UDim2.fromOffset(0, 1), Size = UDim2.new(1, 0, 1, -1),
+    Position = UDim2.fromOffset(0, 96), Size = UDim2.new(1, 0, 1, -190),
 }, tabs)
 mk("UIPadding", {
     PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10),
     PaddingTop = UDim.new(0, 7), PaddingBottom = UDim.new(0, 7),
 }, navSlots)
 local navigationLayout = mk("UIListLayout", {
-    FillDirection = Enum.FillDirection.Horizontal,
+    FillDirection = Enum.FillDirection.Vertical,
     HorizontalAlignment = Enum.HorizontalAlignment.Center,
-    VerticalAlignment = Enum.VerticalAlignment.Center,
+    VerticalAlignment = Enum.VerticalAlignment.Top,
     SortOrder = Enum.SortOrder.LayoutOrder,
     Padding = UDim.new(0, 4),
 }, navSlots)
@@ -3467,8 +3468,8 @@ local navigation = {
     {key = "HOME", label = "Overview", symbol = "⌂", hidden = true},
     {key = "ESP", label = "ESP", symbol = "◎"},
     {key = "AIM", label = "Aim", symbol = "⌁"},
-    {key = "MISC", label = "Misc", symbol = "◇"},
     {key = "MEMORY", label = "Memory", symbol = "▦"},
+    {key = "MISC", label = "Settings", symbol = "⚙"},
 }
 local function makeColumn(parent, name)
     local scroll = mk("ScrollingFrame", {
@@ -3505,14 +3506,14 @@ for idx, tab in ipairs(navigation) do
         Name = key .. "Tab", LayoutOrder = idx,
         BackgroundColor3 = P.panel,
         BorderSizePixel = 0,
-        Size = UDim2.new(1 / 4, -8, 0, 40),
+        Size = UDim2.new(1, -6, 0, 56),
         Text = tab.symbol .. "  " .. tab.label,
         Visible = not tab.hidden,
         Font = Enum.Font.GothamMedium, TextSize = 11,
         TextXAlignment = Enum.TextXAlignment.Center,
         TextColor3 = P.dim, AutoButtonColor = false,
     }, navSlots)
-    round(button, 9)
+    round(button, 7)
     tabOutlines[key] = mk("UIStroke", {Color = P.border, Transparency = 1, Thickness = 1}, button)
     tabButtons[key] = button
     tabUnderline[key] = mk("Frame", {
@@ -3843,54 +3844,41 @@ local function applyResponsiveLayout()
     end
     wideLayout = wide
     pageHeader.Visible, pageSubHeader.Visible = false, false
-    if wide then
-        -- User-selected right sidebar: same reference buttons, mirrored layout.
-        -- The reference ESP card keeps its labels at left and pill toggles at right.
-        tabs.Position = UDim2.new(1, -196, 0, 0)
-        tabs.Size = UDim2.new(0, 196, 1, 0)
-        navSlots.Position = UDim2.fromOffset(0, 96)
-        navSlots.Size = UDim2.new(1, 0, 1, -190)
-        navigationLayout.FillDirection = Enum.FillDirection.Vertical
-        navigationLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-        navigationLayout.VerticalAlignment = Enum.VerticalAlignment.Top
-        navigationLayout.Padding = UDim.new(0, 8)
-    else
-        -- Mobile: five evenly sized buttons in a bottom row.
-        tabs.Position = UDim2.new(0, 0, 1, -57)
-        tabs.Size = UDim2.new(1, 0, 0, 57)
-        navSlots.Position = UDim2.fromOffset(0, 1)
-        navSlots.Size = UDim2.new(1, 0, 1, -1)
-        navigationLayout.FillDirection = Enum.FillDirection.Horizontal
-        navigationLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-        navigationLayout.VerticalAlignment = Enum.VerticalAlignment.Center
-        navigationLayout.Padding = UDim.new(0, 4)
-    end
+    -- Side navigation never jumps to the right or bottom on resize.
+    -- 92px portrait rail leaves the functional page visible beside it.
+    tabs.Position = UDim2.fromOffset(0, 0)
+    tabs.Size = UDim2.new(0, wide and 196 or 92, 1, 0)
+    navSlots.Position = UDim2.fromOffset(0, wide and 96 or 92)
+    navSlots.Size = UDim2.new(1, 0, 1, wide and -190 or -192)
+    navigationLayout.FillDirection = Enum.FillDirection.Vertical
+    navigationLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+    navigationLayout.VerticalAlignment = Enum.VerticalAlignment.Top
+    navigationLayout.Padding = UDim.new(0, wide and 8 or 6)
     for _, nav in ipairs(navigation) do
         local button = tabButtons[nav.key]
         if wide then
-            button.Size = UDim2.new(1, -16, 0, 58)
-            button.Text = "   " .. nav.symbol .. "     " .. nav.label
+            button.Size = UDim2.new(1, -6, 0, 55)
+            button.Text = "  " .. nav.symbol .. "     " .. nav.label
             button.TextSize = 14
             button.TextXAlignment = Enum.TextXAlignment.Left
-            tabUnderline[nav.key].Position = UDim2.fromOffset(0, 4)
-            tabUnderline[nav.key].Size = UDim2.new(0, 3, 1, -8)
         else
-            button.Size = UDim2.new(1 / 4, -8, 0, 40)
-            local short = nav.key == "MEMORY" and "PERF" or nav.key
-            button.Text = short
-            button.TextSize = width < 355 and 9 or 10
+            button.Size = UDim2.new(1, -4, 0, 50)
+            local short = nav.key == "MEMORY" and "MEM"
+                or nav.key == "MISC" and "SET" or nav.key
+            button.Text = nav.symbol .. "  " .. short
+            button.TextSize = 10
             button.TextXAlignment = Enum.TextXAlignment.Center
-            tabUnderline[nav.key].Position = UDim2.new(0.5, -11, 1, -3)
-            tabUnderline[nav.key].Size = UDim2.fromOffset(22, 2)
         end
+        tabUnderline[nav.key].Position = UDim2.fromOffset(0, 5)
+        tabUnderline[nav.key].Size = UDim2.new(0, 3, 1, -10)
     end
     for _, page in pairs(pages) do
         if wide then
-            page.Position = UDim2.fromOffset(14, 81)
-            page.Size = UDim2.new(1, -224, 1, -95)
+            page.Position = UDim2.fromOffset(207, 81)
+            page.Size = UDim2.new(1, -220, 1, -95)
         else
-            page.Position = UDim2.fromOffset(12, 81)
-            page.Size = UDim2.new(1, -24, 1, -155)
+            page.Position = UDim2.fromOffset(101, 81)
+            page.Size = UDim2.new(1, -110, 1, -95)
         end
         local info = pageColumns[page]
         if info then
@@ -3946,7 +3934,7 @@ local function showPage(key)
     end
     currentPage = key
     local titles = {HOME = "Dashboard", ESP = "Visuals", AIM = "Aim",
-        MISC = "Misc", MEMORY = "Performance"}
+        MISC = "Settings", MEMORY = "Performance"}
     local descriptions = {HOME = "Live game performance and optimization overview",
         ESP = "Player overlays and visibility controls",
         AIM = "Targeting, weapon filters and FOV",
@@ -4260,44 +4248,44 @@ end
 
 local function addToggle(page, title, description, key, onChanged)
     local row = mk("TextButton", {
-        Name = key, Size = UDim2.new(1, 0, 0, 55),
-        BackgroundColor3 = P.tile, BorderSizePixel = 0,
+        Name = key, Size = UDim2.new(1, 0, 0, 47),
+        BackgroundColor3 = Color3.fromRGB(29, 30, 34), BorderSizePixel = 0,
         AutoButtonColor = false, Text = "",
     }, columnFor(page))
     registerWidget(page, row)
-    round(row, 3)
-    mk("UIStroke", {Color = P.border, Transparency = 0.48, Thickness = 1}, row)
+    round(row, 6)
+    mk("UIStroke", {Color = P.border, Transparency = 0.67, Thickness = 1}, row)
     mk("TextLabel", {
         BackgroundTransparency = 1,
-        Position = UDim2.fromOffset(11, 5), Size = UDim2.new(1, -72, 0, 21),
+        Position = UDim2.fromOffset(11, 4), Size = UDim2.new(1, -60, 0, 19),
         Text = title, TextSize = 12, Font = Enum.Font.GothamMedium,
         TextColor3 = P.text, TextXAlignment = Enum.TextXAlignment.Left,
         TextTruncate = Enum.TextTruncate.AtEnd,
     }, row)
     mk("TextLabel", {
         BackgroundTransparency = 1,
-        Position = UDim2.fromOffset(11, 31), Size = UDim2.new(1, -72, 0, 15),
+        Position = UDim2.fromOffset(11, 25), Size = UDim2.new(1, -60, 0, 15),
         Text = description, TextSize = 9, Font = Enum.Font.Gotham,
         TextColor3 = P.dim, TextXAlignment = Enum.TextXAlignment.Left,
         TextTruncate = Enum.TextTruncate.AtEnd,
     }, row)
     local pill = mk("Frame", {
-        Name = "Switch", Position = UDim2.new(1, -51, 0.5, -11),
-        Size = UDim2.fromOffset(40, 22), BackgroundColor3 = P.off,
+        Name = "Switch", Position = UDim2.new(1, -44, 0.5, -8),
+        Size = UDim2.fromOffset(32, 16), BackgroundColor3 = P.off,
         BorderSizePixel = 0,
     }, row)
-    round(pill, 4)
+    round(pill, 8)
     local knob = mk("Frame", {
-        Name = "Knob", Position = UDim2.fromOffset(3, 3),
-        Size = UDim2.fromOffset(16, 16),
+        Name = "Knob", Position = UDim2.fromOffset(2, 2),
+        Size = UDim2.fromOffset(12, 12),
         BackgroundColor3 = Color3.fromRGB(222, 223, 227), BorderSizePixel = 0,
     }, pill)
-    round(knob, 3)
+    round(knob, 6)
     local function update()
         if not row.Parent then return end
         local enabled = state[key] == true
         pill.BackgroundColor3 = enabled and P.accent or P.off
-        knob.Position = UDim2.fromOffset(enabled and 21 or 3, 3)
+        knob.Position = UDim2.fromOffset(enabled and 18 or 2, 2)
         knob.BackgroundColor3 = enabled and Color3.fromRGB(255, 250, 251)
             or Color3.fromRGB(203, 204, 212)
     end
@@ -5978,7 +5966,7 @@ local function buildReferenceMenu()
             TextXAlignment = Enum.TextXAlignment.Left,
             TextTruncate = Enum.TextTruncate.AtEnd}, parent)
     end
-    -- Screenshot's upper-left brand, with v1.0 underneath.
+    -- Screenshot's upper-left brand, with the actual script version below.
     local brand = textLabel(tabs, "ReferenceBrand", "124 Visuals",
         UDim2.fromOffset(19, 18), UDim2.fromOffset(168, 35), 23, light,
         Enum.Font.GothamBlack)
@@ -5987,7 +5975,7 @@ local function buildReferenceMenu()
         Enum.Font.Gotham)
     -- Vector Roblox mark: tilted square with the distinctive square cutout.
     -- No remote image and no fragile undocumented Roblox asset ID.
-    mk("Frame", {Name = "SidebarEdge", Position = UDim2.fromOffset(0, 0),
+    mk("Frame", {Name = "SidebarEdge", Position = UDim2.new(1, -1, 0, 0),
         Size = UDim2.new(0, 1, 1, 0), BackgroundColor3 = border,
         BorderSizePixel = 0, BackgroundTransparency = 0.24}, tabs)
     local robloxMark = corners(mk("Frame", {
@@ -6004,7 +5992,7 @@ local function buildReferenceMenu()
 
     -- Topbar: search / local status / session uptime / dashboard.
     local search = corners(mk("TextBox", {Name = "ReferenceSearch",
-        Position = UDim2.fromOffset(17, 14), Size = UDim2.new(1, -593, 0, 45),
+        Position = UDim2.fromOffset(214, 15), Size = UDim2.fromOffset(315, 43),
         BackgroundColor3 = Color3.fromRGB(26, 27, 30),
         BorderSizePixel = 0, ClearTextOnFocus = false, Text = "",
         PlaceholderText = "⌕   Search functions...",
@@ -6015,21 +6003,21 @@ local function buildReferenceMenu()
     mk("UIPadding", {PaddingLeft = UDim.new(0, 15),
         PaddingRight = UDim.new(0, 9)}, search)
     local safe = corners(mk("TextLabel", {Name = "ReferenceSafe",
-        AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -474, 0, 17),
+        AnchorPoint = Vector2.new(0, 0), Position = UDim2.fromOffset(549, 17),
         Size = UDim2.fromOffset(75, 40), Text = "●  Ready",
         BackgroundColor3 = Color3.fromRGB(23, 24, 27),
         TextColor3 = Color3.fromRGB(115, 225, 135), TextSize = 13,
         Font = Enum.Font.GothamMedium, BorderSizePixel = 0}, bar), 10)
     mk("UIStroke", {Color = border, Transparency = 0.5}, safe)
     local clock = corners(mk("TextLabel", {Name = "ReferenceTimer",
-        AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -356, 0, 17),
+        AnchorPoint = Vector2.new(0, 0), Position = UDim2.fromOffset(636, 17),
         Size = UDim2.fromOffset(112, 40), Text = "◷  00:00:00",
         BackgroundColor3 = Color3.fromRGB(23, 24, 27),
         TextColor3 = light, TextSize = 12, Font = Enum.Font.Code,
         BorderSizePixel = 0}, bar), 10)
     mk("UIStroke", {Color = border, Transparency = 0.5}, clock)
     local active = corners(mk("TextButton", {Name = "ReferenceActive",
-        AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -250, 0, 17),
+        AnchorPoint = Vector2.new(0, 0), Position = UDim2.fromOffset(760, 17),
         Size = UDim2.fromOffset(95, 40), Text = "Active",
         BackgroundColor3 = Color3.fromRGB(23, 24, 27),
         TextColor3 = Color3.fromRGB(124, 220, 133), TextSize = 13,
@@ -6078,7 +6066,7 @@ local function buildReferenceMenu()
     local toggleColorOff = Color3.fromRGB(71, 73, 80)
     local function paintSwitch(track, knob, enabled, available)
         track.BackgroundColor3 = enabled and toggleColorOn or toggleColorOff
-        knob.Position = UDim2.fromOffset(enabled and 21 or 3, 2)
+        knob.Position = UDim2.fromOffset(enabled and 16 or 2, 2)
         knob.BackgroundColor3 = available and light or Color3.fromRGB(165, 166, 171)
     end
     local function miniSwitch(parent, name, title, position, stateReader, action)
@@ -6094,13 +6082,13 @@ local function buildReferenceMenu()
         local pill = corners(mk("Frame", {Name = "Switch",
             AnchorPoint = Vector2.new(1, 0.5),
             Position = UDim2.new(1, -4, 0.5, 0),
-            Size = UDim2.fromOffset(36, 18),
-            BackgroundColor3 = toggleColorOff, BorderSizePixel = 0}, row), 9)
+            Size = UDim2.fromOffset(30, 16),
+            BackgroundColor3 = toggleColorOff, BorderSizePixel = 0}, row), 8)
         mk("UIStroke", {Color = Color3.fromRGB(126, 129, 136),
             Transparency = 0.64, Thickness = 1}, pill)
         local knob = corners(mk("Frame", {Name = "Knob",
-            Position = UDim2.fromOffset(3, 2), Size = UDim2.fromOffset(14, 14),
-            BackgroundColor3 = light, BorderSizePixel = 0}, pill), 7)
+            Position = UDim2.fromOffset(2, 2), Size = UDim2.fromOffset(12, 12),
+            BackgroundColor3 = light, BorderSizePixel = 0}, pill), 6)
         local function update()
             if not row.Parent then return end
             paintSwitch(pill, knob, stateReader(), action ~= nil)
@@ -6414,20 +6402,28 @@ local function buildReferenceMenu()
             math.floor(elapsed / 3600), math.floor(elapsed / 60) % 60, elapsed % 60)
     end
     local function layout(wide)
-        brand.Visible, version.Visible = wide, wide
-        robloxMark.Visible, robloxName.Visible = wide, wide
+        -- Keep branding in the fixed left rail in both orientations.
+        brand.Visible, version.Visible = true, true
+        brand.Text = wide and "124 Visuals" or "124"
+        brand.Position = UDim2.fromOffset(wide and 19 or 15, wide and 18 or 18)
+        brand.Size = UDim2.fromOffset(wide and 168 or 70, 35)
+        brand.TextSize = wide and 23 or 21
+        version.Position = UDim2.fromOffset(wide and 86 or 15, wide and 50 or 51)
+        version.Size = UDim2.fromOffset(wide and 78 or 74, 17)
+        version.TextSize = wide and 10 or 9
+        robloxMark.Visible, robloxName.Visible = true, wide
         search.Visible, safe.Visible, clock.Visible, active.Visible = wide, wide, wide, wide
         local title = bar:FindFirstChild("BrandTitle")
         local caption = bar:FindFirstChild("BrandCaption")
-        if title then title.Visible = not wide end
-        if caption then caption.Visible = not wide end
+        if title then title.Visible = false end
+        if caption then caption.Visible = false end
         hide.Parent = wide and tabs or bar
-        hide.Position = wide and UDim2.new(0, 3, 0.5, -15)
-            or UDim2.new(1, -77, 0, 21)
-        hide.Size = wide and UDim2.fromOffset(22, 32) or UDim2.fromOffset(28, 28)
-        close.Position = wide and UDim2.new(1, -218, 0, 22)
-            or UDim2.new(1, -42, 0, 21)
-        close.Size = wide and UDim2.fromOffset(17, 26)
+        hide.Position = wide and UDim2.new(0, 4, 1, -54)
+            or UDim2.new(1, -80, 0, 22)
+        hide.Size = wide and UDim2.fromOffset(22, 30) or UDim2.fromOffset(27, 28)
+        close.Position = wide and UDim2.new(1, -40, 0, 23)
+            or UDim2.new(1, -43, 0, 22)
+        close.Size = wide and UDim2.fromOffset(26, 26)
             or UDim2.fromOffset(27, 28)
     end
     tick()
