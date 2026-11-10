@@ -1,11 +1,11 @@
--- 124 Visuals v1.1.57 | full audit: safe parameter restore, recoil profile, audio diagnostics
+-- 124 Visuals v1.1.58 | full audit: safe parameter restore, recoil profile, audio diagnostics
 -- Первый плейс: 18537079992. Запуск поддерживает все игровые PlaceId.
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.1.57",
+    Version = "1.1.58",
     OriginalPlaceId = 18537079992,
     EspRefreshSeconds = 0.35, -- Быстрый поиск персонажей, без обновления UI каждый кадр.
     EspEventMinSeconds = 0.18, -- Коалесцированные события не запускают 16 полных сканов/сек.
@@ -303,6 +303,7 @@ local boosterPro = {
     changedProperties = 0, phase = "OFF", lastError = nil,
     recoveryFailures = 0, recoveryNextAt = 0,
     restoreRetryAt = 0, restoreRetryRunning = false,
+    terrainRestoreRetryAt = 0, -- Backoff on inaccessible Terrain: no recurring 1s spikes.
     bootRoots = {}, -- Единственные ScreenGui, созданные данной копией Hub.
 }
 -- Только для исполнителей, умеющих читать/писать Terrain.Decoration.
@@ -1207,10 +1208,12 @@ connect(Players.PlayerRemoving, function(player)
     deleteRender(player)
 end)
 
--- FullBright и FPS Booster имеют общую исходную копию освещения.
+-- Shared Lighting ownership: only properties actually written by this
+-- script are restored. Dynamic day/night changes stay with the game.
 local lightingProperties = {
     "Brightness", "Ambient", "OutdoorAmbient", "ExposureCompensation", "GlobalShadows"
 }
+local lightingOwned = {} -- key -> last value this script imposed (false is valid).
 
 local function captureLighting()
     if savedLighting then return end
@@ -1235,15 +1238,43 @@ local function wantedLightingValue(key)
     return nil
 end
 
--- При смене игрового времени ClockTime НЕ трогаем: это устраняет дневные вспышки.
--- Настройки удерживаются по событию, а не только раз в 2 секунды.
+local function restoreOwnedLighting(key)
+    local imposed = lightingOwned[key]
+    if imposed == nil then return true end
+    local original = savedLighting and savedLighting[key]
+    local ok = pcall(function()
+        local current = Lighting[key]
+        -- Another owner/game changed this property: never overwrite it.
+        if original ~= nil and current == imposed and current ~= original then
+            Lighting[key] = original
+            if Lighting[key] ~= original then error("Lighting restore mismatch") end
+        end
+    end)
+    if ok then
+        lightingOwned[key] = nil
+    else
+        boosterPro.restoreFailures = boosterPro.restoreFailures + 1
+        if boosterPro.restoreFailures <= 3 then
+            warn("[124 Visuals] Lighting: восстановление " .. tostring(key) .. " будет повторено")
+        end
+    end
+    return ok
+end
+
 local function enforceLightingProperty(key)
     if not alive or lightingApplying or not savedLighting then return end
     local wanted = wantedLightingValue(key)
     if wanted == nil then return end
     lightingApplying = true
     pcall(function()
-        if Lighting[key] ~= wanted then Lighting[key] = wanted end
+        local current = Lighting[key]
+        if current ~= wanted then
+            -- Preserve the latest dynamic value from the game, not an old
+            -- snapshot taken several day/night transitions ago.
+            savedLighting[key] = current
+            lightingOwned[key] = wanted
+            Lighting[key] = wanted
+        end
     end)
     lightingApplying = false
 end
@@ -1253,21 +1284,9 @@ local function applyLighting()
     if not state.fullbright and not state.booster then
         if savedLighting then
             lightingApplying = true
-            -- Сохраняем ПОЛНЫЙ снимок до полного отката: если пользователь снова
-            -- включит FullBright после частичного отказа, оригиналы не потеряются.
             local complete = true
-            for key, original in pairs(savedLighting) do
-                local ok = pcall(function()
-                    if Lighting[key] ~= original then Lighting[key] = original end
-                    if Lighting[key] ~= original then error("Lighting restore mismatch") end
-                end)
-                if not ok then
-                    complete = false
-                    boosterPro.restoreFailures = boosterPro.restoreFailures + 1
-                    if boosterPro.restoreFailures <= 3 then
-                        warn("[124 Community Visuals] Lighting: откат " .. tostring(key) .. " не выполнен; повторим")
-                    end
-                end
+            for _, key in ipairs(lightingProperties) do
+                if not restoreOwnedLighting(key) then complete = false end
             end
             lightingApplying = false
             if complete then savedLighting = nil end
@@ -1280,14 +1299,17 @@ local function applyLighting()
         local wanted = wantedLightingValue(key)
         if wanted ~= nil then
             pcall(function()
-                if Lighting[key] ~= wanted then Lighting[key] = wanted end
+                local current = Lighting[key]
+                if current ~= wanted then
+                    savedLighting[key] = current
+                    lightingOwned[key] = wanted
+                    Lighting[key] = wanted
+                end
             end)
-        elseif savedLighting[key] ~= nil then
-            -- Когда FullBright отключён, но Booster работает, возвращаем
-            -- остальные параметры освещения, оставляя тени выключенными.
-            pcall(function()
-                if Lighting[key] ~= savedLighting[key] then Lighting[key] = savedLighting[key] end
-            end)
+        else
+            -- Example: FullBright OFF while Booster is still ON. Restore
+            -- FullBright-owned colors, but leave unowned game lighting alone.
+            restoreOwnedLighting(key)
         end
     end
     lightingApplying = false
@@ -1480,6 +1502,7 @@ end
 -- временных таблиц и Color3.fromRGB на каждом объекте.
 local graphicsWhite = Color3.new(1, 1, 1)
 local graphicsPlain = {CastShadow = false}
+local graphicsNoProperties = {} -- Shared immutable map avoids downgrade allocations.
 local graphicsWhitePart = {CastShadow = false, Material = Enum.Material.SmoothPlastic,
     MaterialVariant = "", Color = graphicsWhite}
 local graphicsUltraPart = {CastShadow = false, Material = Enum.Material.SmoothPlastic,
@@ -1542,7 +1565,7 @@ local function optimizeObject(obj, alreadyScreened)
     -- Не проверяем цепочку родителей и не создаём таблицу для нерелевантных объектов.
     if not desired and not snap then return end
     if not alreadyScreened and boosterPro.isProtected(obj) then return end
-    desired = desired or {}
+    desired = desired or graphicsNoProperties
     if snap then
         for key, original in pairs(snap) do
             if desired[key] == nil then
@@ -1768,6 +1791,7 @@ local function setBooster(enabled, keepBaseline)
     -- Любая новая ревизия отменяет ожидающий фоновый откат старой.
     boosterPro.restoreRetryAt = 0
     boosterPro.restoreRetryRunning = false
+    boosterPro.terrainRestoreRetryAt = 0
     boosterPro.complete = false
     boosterPro.readyAt = nil
     boosterPro.restoreFailures = 0
@@ -1864,6 +1888,7 @@ local function setBooster(enabled, keepBaseline)
         -- Отключение тоже не должно выполнять Terrain/Lighting-перезаписи
         -- внутри обработчика кнопки: всё выполняет контролируемый worker.
         task.spawn(function()
+            local ok, err = pcall(function()
             if revision ~= boosterRevision or state.booster then return end
             restoreTerrainGrass()
             restoreTerrainColors()
@@ -1891,6 +1916,7 @@ local function setBooster(enabled, keepBaseline)
                 local terrainPending = savedTerrainDecoration ~= nil
                     or savedTerrainColors ~= nil
                 local restorePending = remaining > 0 or terrainPending
+                    or savedLighting ~= nil
                 boosterPro.phase = restorePending and "RESTORE PENDING"
                     or (boosterPro.lastError and "FAILED" or "OFF")
                 if restorePending or boosterPro.restoreFailures > 0 then
@@ -1900,6 +1926,13 @@ local function setBooster(enabled, keepBaseline)
                 else
                     tell("FPS Booster Pro: исходные свойства восстановлены")
                 end
+            end
+            end)
+            if not ok and alive and revision == boosterRevision and not state.booster then
+                boosterPro.phase = "RESTORE PENDING"
+                boosterPro.lastError = "restore worker: " .. tostring(err)
+                boosterPro.restoreRetryAt = 0
+                warn("[124 Visuals] Booster rollback worker: " .. tostring(err))
             end
         end)
     end
@@ -7068,6 +7101,19 @@ connect(bar.InputBegan, function(input)
     if not panel.Visible or input.Position.X >= bar.AbsolutePosition.X + bar.AbsoluteSize.X - 100 then
         return
     end
+    -- The header contains a searchable TextBox and clickable status controls.
+    -- Do not start a window drag on top of any of those interactive elements.
+    for _, control in ipairs(bar:GetChildren()) do
+        if control:IsA("TextBox") or control:IsA("TextButton") then
+            if control.Visible then
+                local at, size = control.AbsolutePosition, control.AbsoluteSize
+                if input.Position.X >= at.X and input.Position.X <= at.X + size.X
+                    and input.Position.Y >= at.Y and input.Position.Y <= at.Y + size.Y then
+                    return
+                end
+            end
+        end
+    end
     dragging = true
     dragTouch = input.UserInputType == Enum.UserInputType.Touch and input or nil
     dragOrigin = input.Position
@@ -7374,7 +7420,8 @@ end
 function boosterPro.retryPendingGraphics()
     if not alive or state.booster or boosterPro.phase ~= "RESTORE PENDING" then return end
     local noObjects = next(savedGraphics) == nil
-    if noObjects and savedTerrainDecoration == nil and savedTerrainColors == nil then
+    if noObjects and savedTerrainDecoration == nil and savedTerrainColors == nil
+        and savedLighting == nil then
         boosterPro.phase = boosterPro.lastError and "FAILED" or "OFF"
         return
     end
@@ -7395,7 +7442,7 @@ function boosterPro.retryPendingGraphics()
             warn("[124 Community Visuals] Booster restore retry: " .. tostring(complete))
         end
         if ok and complete and savedTerrainDecoration == nil
-            and savedTerrainColors == nil then
+            and savedTerrainColors == nil and savedLighting == nil then
             boosterPro.phase = boosterPro.lastError and "FAILED" or "OFF"
         end
     end)
@@ -7740,8 +7787,16 @@ task.spawn(function()
             applyLighting()
         end
         if not state.booster or state.boosterMode == "BALANCED" then
-            if savedTerrainDecoration then restoreTerrainGrass() end
-            if savedTerrainColors then restoreTerrainColors() end
+            -- NotScriptable Terrain setters can fail repeatedly in some clients.
+            -- Retry only after backoff instead of hammering up to 20 materials
+            -- every HUD refresh (a source of off-state microstutters).
+            local now = os.clock()
+            if now >= boosterPro.terrainRestoreRetryAt then
+                local grassOk = not savedTerrainDecoration or restoreTerrainGrass()
+                local colorsOk = not savedTerrainColors or restoreTerrainColors()
+                boosterPro.terrainRestoreRetryAt =
+                    now + ((grassOk and colorsOk) and 1.5 or 12)
+            end
         end
         if not state.booster then boosterPro.retryPendingGraphics() end
         stats.Visible = state.hud
