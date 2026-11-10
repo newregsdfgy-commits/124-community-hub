@@ -287,9 +287,6 @@ local connections = {}
 local renderData = {}
 local savedLighting = nil
 local savedGraphics = setmetatable({}, { __mode = "k" })
--- Last property values actually written by Booster; separate weak ownership
--- map prevents overwriting game-side changes during restore/mode downgrade.
-local graphicsWritten = setmetatable({}, { __mode = "k" })
 local boosterRevision = 0
 -- Один объект состояния, чтобы избежать избытка локальных переменных в Luau.
 local boosterPro = {
@@ -304,6 +301,8 @@ local boosterPro = {
     repairCoveredDrops = 0, repairRetryAt = 0, repairErrors = 0,
     queueLastAt = 0, slicePeakMs = 0, queuePeakMs = 0,
     changedProperties = 0, phase = "OFF", lastError = nil,
+    -- Weak object keys track values actively written by Booster.
+    graphicsWritten = setmetatable({}, {__mode = "k"}),
     recoveryFailures = 0, recoveryNextAt = 0,
     restoreRetryAt = 0, restoreRetryRunning = false,
     terrainRestoreRetryAt = 0, -- Backoff on inaccessible Terrain: no recurring 1s spikes.
@@ -1561,8 +1560,8 @@ end
 
 -- Restore only a Booster-owned value. If the game or another script
 -- changed this property after we wrote it, keep that new value intact.
-local function restoreBoosterProperty(obj, snapshot, key, original)
-    local written = graphicsWritten[obj]
+function boosterPro.restoreBoosterProperty(obj, snapshot, key, original)
+    local written = boosterPro.graphicsWritten[obj]
     local lastWritten = written and written[key] or nil
     local ok = pcall(function()
         if not obj.Parent then return end
@@ -1578,7 +1577,7 @@ local function restoreBoosterProperty(obj, snapshot, key, original)
         snapshot[key] = nil
         if written then
             written[key] = nil
-            if not next(written) then graphicsWritten[obj] = nil end
+            if not next(written) then boosterPro.graphicsWritten[obj] = nil end
         end
         return true
     end
@@ -1596,7 +1595,7 @@ local function optimizeObject(obj, alreadyScreened)
     if snap then
         for key, original in pairs(snap) do
             if desired[key] == nil then
-                if not restoreBoosterProperty(obj, snap, key, original) then
+                if not boosterPro.restoreBoosterProperty(obj, snap, key, original) then
                     boosterPro.restoreFailures = boosterPro.restoreFailures + 1
                     if boosterPro.restoreFailures <= 3 then
                         warn("[124 Visuals] Booster mode downgrade failed for " .. tostring(key))
@@ -1608,7 +1607,7 @@ local function optimizeObject(obj, alreadyScreened)
     for key, target in pairs(desired) do
         local read, current = pcall(function() return obj[key] end)
         if read and current ~= target then
-            local previousWrite = graphicsWritten[obj]
+            local previousWrite = boosterPro.graphicsWritten[obj]
             if snap and snap[key] ~= nil and previousWrite
                 and previousWrite[key] ~= nil and current ~= previousWrite[key] then
                 -- The game changed this property while Booster was active:
@@ -1619,8 +1618,8 @@ local function optimizeObject(obj, alreadyScreened)
             if wrote then
                 if not snap then snap = {}; savedGraphics[obj] = snap end
                 if snap[key] == nil then snap[key] = current end
-                local written = graphicsWritten[obj]
-                if not written then written = {}; graphicsWritten[obj] = written end
+                local written = boosterPro.graphicsWritten[obj]
+                if not written then written = {}; boosterPro.graphicsWritten[obj] = written end
                 written[key] = target
                 local checked, applied = pcall(function() return obj[key] end)
                 if checked and applied == target then
@@ -1631,7 +1630,7 @@ local function optimizeObject(obj, alreadyScreened)
     end
     if snap and not next(snap) then
         savedGraphics[obj] = nil
-        graphicsWritten[obj] = nil
+        boosterPro.graphicsWritten[obj] = nil
     end
 end
 
@@ -1726,7 +1725,7 @@ end
 function boosterPro.restoreObject(obj, snapshot)
     local left = false
     for key, original in pairs(snapshot) do
-        if not restoreBoosterProperty(obj, snapshot, key, original) then
+        if not boosterPro.restoreBoosterProperty(obj, snapshot, key, original) then
             left = true
             boosterPro.restoreFailures = boosterPro.restoreFailures + 1
             if boosterPro.restoreFailures <= 3 then
@@ -1737,7 +1736,7 @@ function boosterPro.restoreObject(obj, snapshot)
     end
     if not left then
         savedGraphics[obj] = nil
-        graphicsWritten[obj] = nil
+        boosterPro.graphicsWritten[obj] = nil
     end
 end
 
