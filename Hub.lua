@@ -1,11 +1,11 @@
--- 124 Visuals v1.1.56 | full audit: safe parameter restore, recoil profile, audio diagnostics
+-- 124 Visuals v1.1.57 | full audit: safe parameter restore, recoil profile, audio diagnostics
 -- Первый плейс: 18537079992. Запуск поддерживает все игровые PlaceId.
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.1.56",
+    Version = "1.1.57",
     OriginalPlaceId = 18537079992,
     EspRefreshSeconds = 0.35, -- Быстрый поиск персонажей, без обновления UI каждый кадр.
     EspEventMinSeconds = 0.18, -- Коалесцированные события не запускают 16 полных сканов/сек.
@@ -229,6 +229,7 @@ local state = {
     tracers = false,
     espBox = false,
     espEnemyOnly = false,
+    crosshairLocal = false, -- Сохраняемый локальный прицел.
     espRangeMeters = 200,
     espMaxTargets = CONFIG.EspMaxPlayers, -- Настраиваемая вместимость ESP, отдельно от метров.
     espColorPreset = "TEAM", -- TEAM / GOLD / GREEN / WHITE
@@ -2904,7 +2905,7 @@ end
 local HttpService = game:GetService("HttpService")
 local storedKeys = {
     "esp", "tracers", "names", "health", "distance", "teamColors", "espBox",
-    "espEnemyOnly", "espRangeMeters", "espMaxTargets", "espColorPreset", "espLineThickness", "performanceMode",
+    "espEnemyOnly", "crosshairLocal", "espRangeMeters", "espMaxTargets", "espColorPreset", "espLineThickness", "performanceMode",
     "performanceGuard", "moduleCpuMonitor", "lazyLoading",
     "sessionDiagnostics",
     "aimbot", "aimRangeMeters", "aimSmoothness", "aimSmoothX", "aimSmoothY",
@@ -4651,7 +4652,7 @@ local function addAimModeSelector(page)
             Position = UDim2.new((index - 1)/3, 2, 0, 0),
             BorderSizePixel = 0, BackgroundColor3 = Color3.fromRGB(42, 43, 51),
             Text = mode.text, Font = Enum.Font.GothamBold, TextSize = 10,
-            TextColor3 = CONFIG.Muted, AutoButtonColor = false,
+            TextColor3 = P.dim, AutoButtonColor = false,
         }, bar)
         round(button, 3)
         buttons[mode.value] = button
@@ -5321,10 +5322,10 @@ addToggle(pages.MEMORY, "Анализ логов",
         perfCounters.session.setEnabled(enabled)
     end)
 perfCounters.session.label = mk("TextLabel", {
-    Name = "ClientSessionDiagnostics", BackgroundColor3 = CONFIG.Surface,
+    Name = "ClientSessionDiagnostics", BackgroundColor3 = P.tile,
     BorderSizePixel = 0, Size = UDim2.new(1, 0, 0, 38),
     Text = "Logs OFF | Warn 0 | Err 0 | Keywords 0",
-    TextColor3 = CONFIG.Muted, Font = Enum.Font.Code,
+    TextColor3 = P.dim, Font = Enum.Font.Code,
     TextSize = 10, TextWrapped = true,
 }, columnFor(pages.MEMORY))
 registerWidget(pages.MEMORY, perfCounters.session.label)
@@ -5383,7 +5384,7 @@ boosterPro.repaint = addChoice(pages.MEMORY, "Режим графики", {
     if state.booster then setBooster(true, true) end
 end)
 boosterPro.label = mk("TextLabel", {
-    Name = "BoosterProFPSComparison", BackgroundColor3 = CONFIG.Surface,
+    Name = "BoosterProFPSComparison", BackgroundColor3 = P.tile,
     BorderSizePixel = 0, Size = UDim2.new(1, 0, 0, 44),
     TextWrapped = true, Text = "До: н/д FPS | После: н/д",
     TextSize = 10, TextColor3 = Color3.fromRGB(221, 225, 227),
@@ -5453,24 +5454,24 @@ addButton(pages.MEMORY, "Диагностика Performance",
     end)
 perfCounters.guard.label = mk("TextLabel", {
     Name = "PerformanceGuardDiagnostics", Size = UDim2.new(1, 0, 0, 28),
-    BackgroundColor3 = CONFIG.Surface, BorderSizePixel = 0,
-    Text = "Performance Guard: OFF", TextColor3 = CONFIG.Muted,
+    BackgroundColor3 = P.tile, BorderSizePixel = 0,
+    Text = "Performance Guard: OFF", TextColor3 = P.dim,
     Font = Enum.Font.Code, TextSize = 10, TextWrapped = true,
 }, columnFor(pages.MEMORY))
 registerWidget(pages.MEMORY, perfCounters.guard.label)
 round(perfCounters.guard.label, 6)
-local perfLabel = mk("TextLabel", {Name = "PerfDiagnostics", BackgroundColor3 = CONFIG.Surface,
+local perfLabel = mk("TextLabel", {Name = "PerfDiagnostics", BackgroundColor3 = P.tile,
     BorderSizePixel = 0, Size = UDim2.new(1, 0, 0, 35),
-    Text = "ESP 0 · Box 0 · Scan 0ms", TextColor3 = CONFIG.Muted,
+    Text = "ESP 0 · Box 0 · Scan 0ms", TextColor3 = P.dim,
     TextSize = 10, Font = Enum.Font.Code}, columnFor(pages.MEMORY))
 registerWidget(pages.MEMORY, perfLabel)
 round(perfLabel, 6)
 perfCounters.frametime.label = mk("TextLabel", {
     Name = "FrameTimeDiagnostics",
     Size = UDim2.new(1, 0, 0, 38),
-    BackgroundColor3 = CONFIG.Surface, BorderSizePixel = 0,
+    BackgroundColor3 = P.tile, BorderSizePixel = 0,
     Text = "1% Low: замер... | p99: замер...",
-    TextColor3 = CONFIG.Muted, TextSize = 10,
+    TextColor3 = P.dim, TextSize = 10,
     Font = Enum.Font.Code, TextWrapped = true,
 }, columnFor(pages.MEMORY))
 registerWidget(pages.MEMORY, perfCounters.frametime.label)
@@ -5646,7 +5647,7 @@ local musicIdInput = mk("TextBox", {
     PlaceholderText = "Вставь числовой ID музыки",
     ClearTextOnFocus = false, Font = Enum.Font.Gotham, TextSize = 12,
     TextColor3 = P.text, PlaceholderColor3 = P.dim,
-    BackgroundColor3 = CONFIG.Surface, BorderSizePixel = 0,
+    BackgroundColor3 = P.tile, BorderSizePixel = 0,
     TextXAlignment = Enum.TextXAlignment.Left,
     Position = UDim2.fromOffset(10, 31),
     Size = UDim2.new(1, -20, 0, 31),
@@ -5720,7 +5721,7 @@ end)
 
 addSection(pages.MISC, "TELEPORT", "Переход к игроку по Roblox username или DisplayName")
 local tpEntry = mk("Frame", {
-    Name = "TeleportToPlayerEntry", BackgroundColor3 = CONFIG.Surface,
+    Name = "TeleportToPlayerEntry", BackgroundColor3 = P.tile,
     BorderSizePixel = 0, Size = UDim2.new(1, 0, 0, 76),
 }, columnFor(pages.MISC))
 registerWidget(pages.MISC, tpEntry)
@@ -5845,7 +5846,7 @@ local status = mk("TextLabel", {
     BorderSizePixel = 0, ZIndex = 4,
     Text = "124 VISUALS · READY",
     TextSize = 9, Font = Enum.Font.Code,
-    TextColor3 = CONFIG.Muted,
+    TextColor3 = P.dim,
     TextXAlignment = Enum.TextXAlignment.Left,
     TextTruncate = Enum.TextTruncate.AtEnd,
 }, panel)
@@ -6154,7 +6155,7 @@ local function buildReferenceMenu()
         Position = UDim2.fromOffset(214, 15), Size = UDim2.fromOffset(315, 43),
         BackgroundColor3 = Color3.fromRGB(26, 27, 30),
         BorderSizePixel = 0, ClearTextOnFocus = false, Text = "",
-        PlaceholderText = "⌕   Search functions...",
+        PlaceholderText = "⌕   Поиск ESP...",
         PlaceholderColor3 = Color3.fromRGB(124, 126, 131),
         Font = Enum.Font.Gotham, TextColor3 = light, TextSize = 13,
         TextXAlignment = Enum.TextXAlignment.Left}, bar), 12)
@@ -6550,8 +6551,17 @@ local function buildReferenceMenu()
         CONFIG.AimFovMaxPixels, 5, function(value) return tostring(value) .. "px" end,
         72, refreshFovRing)
 
-    -- Search now filters the ACTUAL ESP cards, not the disabled preview.
-    -- Only runs after a TextBox change; there is no polling or frame hook.
+    -- Search the ACTUAL ESP cards: title, subtitle, and section headings.
+    -- No polling; only reacts to TextBox edits. Avoid repeated toast spam.
+    local searchEmpty = mk("TextLabel", {
+        Name = "PremiumSearchEmpty", BackgroundTransparency = 1,
+        Position = UDim2.new(0, 8, 0.5, -16),
+        Size = UDim2.new(1, -16, 0, 32),
+        Text = "Ничего не найдено", TextSize = 12,
+        Font = Enum.Font.GothamMedium, TextColor3 = P.dim,
+        Visible = false, TextXAlignment = Enum.TextXAlignment.Center,
+        ZIndex = 8,
+    }, pages.ESP)
     connect(search:GetPropertyChangedSignal("Text"), function()
         if not alive then return end
         local query = string.lower(search.Text):match("^%s*(.-)%s*$")
@@ -6561,19 +6571,23 @@ local function buildReferenceMenu()
             for _, item in ipairs(info.widgets) do
                 local widget = item.object
                 if widget and widget.Parent then
-                    local caption = widget:FindFirstChildWhichIsA("TextLabel", true)
-                    local content = string.lower(widget.Name .. " "
-                        .. (caption and caption.Text or ""))
-                    local found = query == "" or content:find(query, 1, true) ~= nil
+                    local found = true
+                    if query ~= "" then
+                        local fields = {widget.Name}
+                        for _, label in ipairs(widget:GetDescendants()) do
+                            if label:IsA("TextLabel") and label.Text ~= "" then
+                                fields[#fields + 1] = label.Text
+                            end
+                        end
+                        found = string.lower(table.concat(fields, " ")):find(query, 1, true) ~= nil
+                    end
                     widget.Visible = found
                     if found then matches = matches + 1 end
                 end
             end
         end
-        if query ~= "" then
-            showPage("ESP")
-            if matches == 0 then tell("Поиск: совпадений не найдено") end
-        end
+        searchEmpty.Visible = query ~= "" and matches == 0
+        if query ~= "" then showPage("ESP") end
     end)
     local function clearSearch()
         if search.Text ~= "" then search.Text = "" end
@@ -6994,24 +7008,31 @@ local aimTouchButton = mk("TextButton", {
     Name = "AimHold", AnchorPoint = Vector2.new(1, 1),
     Position = UDim2.new(1, -16, 1, -115),
     Size = UDim2.fromOffset(90, 41),
-    BackgroundColor3 = Color3.fromRGB(47, 48, 45),
-    TextColor3 = Color3.fromRGB(230, 224, 207),
+    BackgroundColor3 = P.tile,
+    TextColor3 = P.text,
     Text = "AIM: OFF", TextSize = 12,
     Font = Enum.Font.GothamMedium, Visible = false,
 }, gui)
 round(aimTouchButton, 5)
 repaintAimTouch = function()
     if not aimTouchButton.Parent then return end
-    local active = state.aimbot and aimHeldTouch
+    -- GUI/F6 may activate aimHeldKey without setting aimHeldTouch.
+    local active = state.aimbot and (aimHeldTouch or aimHeldKey or aimHeldMouse)
     aimTouchButton.Text = active and (aimPro.equippedTool() and "AIM: ON" or "AIM: NO GUN")
         or "AIM: OFF"
-    aimTouchButton.BackgroundColor3 = active and CONFIG.Accent or Color3.fromRGB(47, 48, 45)
-    aimTouchButton.TextColor3 = active and CONFIG.Window or Color3.fromRGB(230, 224, 207)
+    aimTouchButton.BackgroundColor3 = active and P.accent or P.tile
+    aimTouchButton.TextColor3 = active and P.background or P.text
 end
 aimPro.changed = function() if alive then repaintAimTouch() end end
 connect(aimTouchButton.Activated, function()
     if not state.aimbot then return end
-    aimHeldTouch = not aimHeldTouch
+    if aimHeldTouch or aimHeldKey then
+        -- Touch OFF also stops GUI/F6 activation (no phantom active mode).
+        aimHeldTouch = false
+        aimHeldKey = false
+    else
+        aimHeldTouch = true
+    end
     aimTarget = nil
     aimNextScan = 0
     repaintAimTouch()
@@ -7034,7 +7055,7 @@ activeInfo = mk("TextLabel", {
     Name = "ActiveFeatures", AnchorPoint = Vector2.new(1, 0),
     Position = UDim2.new(1, -10, 0, 41), Size = UDim2.fromOffset(192, 19),
     BackgroundColor3 = Color3.fromRGB(28, 31, 32), BackgroundTransparency = 0.22,
-    TextColor3 = CONFIG.Accent, TextSize = 10, Font = Enum.Font.Code,
+    TextColor3 = P.accent, TextSize = 10, Font = Enum.Font.Code,
     Text = "", Visible = false,
 }, gui)
 round(activeInfo, 3)
