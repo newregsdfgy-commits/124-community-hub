@@ -4050,6 +4050,9 @@ end
 local sliderDrag = nil
 local function showPage(key)
     if not pages[key] then return end
+    if key ~= "ESP" and referenceESP and referenceESP.clearSearch then
+        referenceESP.clearSearch()
+    end
     sliderDrag = nil -- Смена вкладки отменяет незавершённое перетаскивание.
     if referenceESP and referenceESP.cancelInteraction then
         referenceESP.cancelInteraction()
@@ -4839,6 +4842,14 @@ addToggle(pages.ESP, "Имена", "DisplayName над персонажами", 
 addToggle(pages.ESP, "Здоровье", "HP над персонажами", "health")
 addToggle(pages.ESP, "Дистанция", "Расстояние в метрах (≈)", "distance")
 addToggle(pages.ESP, "Цвет команд", "Расцветка согласно TeamColor", "teamColors")
+-- Local crosshair was previously reachable only in the hidden 403VIP preview.
+-- Route it through the same native toggle UI without modifying ESP behavior.
+addToggle(pages.ESP, "Локальный прицел", "Небольшой маркер в центре экрана", "crosshairLocal",
+    function(enabled)
+        if boosterPro.setLocalCrosshair then
+            boosterPro.setLocalCrosshair(enabled)
+        end
+    end)
 
 addSection(pages.AIM, "TARGETING", "Точка наведения и управление")
 addToggle(pages.AIM, "Aimbot", "Кнопка и горячая клавиша включают наведение одинаково", "aimbot", function(enabled)
@@ -6517,31 +6528,55 @@ local function buildReferenceMenu()
             Size = UDim2.fromOffset(rect[3], rect[4]), BorderSizePixel = 0,
             BackgroundColor3 = light, ZIndex = 200}, crosshair)
     end
-    local crosshairEnabled = false
+    local crosshairEnabled = state.crosshairLocal == true
+    boosterPro.setLocalCrosshair = function(enabled)
+        crosshairEnabled = enabled == true
+        crosshair.Visible = crosshairEnabled
+    end
+    boosterPro.setLocalCrosshair(crosshairEnabled)
     local cross = miniSwitch(visual, "EnableCrosshair", "Enable Crosshair",
         UDim2.fromOffset(15, 36), function() return crosshairEnabled end,
         function()
             crosshairEnabled = not crosshairEnabled
+            state.crosshairLocal = crosshairEnabled
             crosshair.Visible = crosshairEnabled
+            if refreshToggles.crosshairLocal then
+                pcall(refreshToggles.crosshairLocal)
+            end
         end)
     cross.row.Size = UDim2.new(1, -30, 0, 26)
     makeSlider(visual, "FOV Circle", "aimFovPixels", CONFIG.AimFovMinPixels,
         CONFIG.AimFovMaxPixels, 5, function(value) return tostring(value) .. "px" end,
         72, refreshFovRing)
 
+    -- Search now filters the ACTUAL ESP cards, not the disabled preview.
+    -- Only runs after a TextBox change; there is no polling or frame hook.
     connect(search:GetPropertyChangedSignal("Text"), function()
         if not alive then return end
-        local query = string.lower(search.Text)
+        local query = string.lower(search.Text):match("^%s*(.-)%s*$")
         local matches = 0
-        for _, item in ipairs(rows) do
-            local found = query == "" or string.find(string.lower(item.label),
-                query, 1, true) ~= nil
-            item.row.Visible = found
-            if found then matches = matches + 1 end
+        local info = pageColumns[pages.ESP]
+        if info then
+            for _, item in ipairs(info.widgets) do
+                local widget = item.object
+                if widget and widget.Parent then
+                    local caption = widget:FindFirstChildWhichIsA("TextLabel", true)
+                    local content = string.lower(widget.Name .. " "
+                        .. (caption and caption.Text or ""))
+                    local found = query == "" or content:find(query, 1, true) ~= nil
+                    widget.Visible = found
+                    if found then matches = matches + 1 end
+                end
+            end
         end
-        emptySearch.Visible = matches == 0
-        if query ~= "" then showPage("ESP") end
+        if query ~= "" then
+            showPage("ESP")
+            if matches == 0 then tell("Поиск: совпадений не найдено") end
+        end
     end)
+    local function clearSearch()
+        if search.Text ~= "" then search.Text = "" end
+    end
     local started = os.clock()
     local function tick()
         local elapsed = math.max(0, math.floor(os.clock() - started))
@@ -6598,7 +6633,7 @@ local function buildReferenceMenu()
     end
     tick()
     return {root = root, layout = layout, tick = tick,
-        cancelInteraction = cancelPointer}
+        clearSearch = clearSearch, cancelInteraction = cancelPointer}
 end
 referenceESP = buildReferenceMenu()
 applyResponsiveLayout()
