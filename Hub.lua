@@ -1,11 +1,11 @@
--- 124 Visuals v1.1.55 | full audit: safe parameter restore, recoil profile, audio diagnostics
+-- 124 Visuals v1.1.56 | full audit: safe parameter restore, recoil profile, audio diagnostics
 -- Первый плейс: 18537079992. Запуск поддерживает все игровые PlaceId.
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.1.55",
+    Version = "1.1.56",
     OriginalPlaceId = 18537079992,
     EspRefreshSeconds = 0.35, -- Быстрый поиск персонажей, без обновления UI каждый кадр.
     EspEventMinSeconds = 0.18, -- Коалесцированные события не запускают 16 полных сканов/сек.
@@ -3206,17 +3206,17 @@ local function uiSafeView(raw)
     return raw
 end
 local TweenService = game:GetService("TweenService")
--- Neutral graphite palette matched to the supplied reference screenshot.
--- UI-only: gameplay and ESP graphics retain their existing configuration.
+-- Premium violet palette. UI-only: gameplay and ESP colors are unchanged.
+-- Static gradients and borders are cheap; no blur, particles or RenderStepped FX.
 local P = {
-    background = Color3.fromRGB(16, 17, 19),
-    panel = Color3.fromRGB(21, 22, 25),
-    tile = Color3.fromRGB(34, 35, 39),
-    border = Color3.fromRGB(47, 48, 53),
-    text = Color3.fromRGB(242, 243, 245),
-    dim = Color3.fromRGB(163, 165, 171),
-    accent = Color3.fromRGB(225, 226, 230),
-    off = Color3.fromRGB(74, 75, 80),
+    background = Color3.fromRGB(14, 12, 23),
+    panel = Color3.fromRGB(22, 19, 34),
+    tile = Color3.fromRGB(33, 29, 48),
+    border = Color3.fromRGB(75, 60, 99),
+    text = Color3.fromRGB(245, 242, 255),
+    dim = Color3.fromRGB(170, 160, 193),
+    accent = Color3.fromRGB(176, 115, 255),
+    off = Color3.fromRGB(67, 65, 84),
 }
 -- На телефоне даже альбомный экран остаётся одноколоночным: элементы
 -- управления не должны уменьшаться до нечитабельного размера.
@@ -3248,6 +3248,27 @@ local function windowMetrics(view)
 end
 local winWidth, winHeight, _, initialScale = windowMetrics(viewport)
 local uiBaseScale = initialScale
+-- Separate behind-the-panel aura: no UI-only painting over world geometry.
+local aura = mk("Frame", {
+    Name = "VioletAura", AnchorPoint = Vector2.new(0.5, 0.5),
+    Position = UDim2.fromScale(0.5, 0.5),
+    Size = UDim2.fromOffset(winWidth + 8, winHeight + 8),
+    BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 1,
+}, gui)
+round(aura, 18)
+mk("UIStroke", {
+    Color = Color3.fromRGB(133, 64, 241),
+    Thickness = 10, Transparency = 0.82,
+}, aura)
+local auraInner = mk("Frame", {
+    Name = "VioletAuraCore", Size = UDim2.fromScale(1, 1),
+    BackgroundTransparency = 1, BorderSizePixel = 0,
+}, aura)
+round(auraInner, 18)
+mk("UIStroke", {
+    Color = P.accent, Thickness = 3, Transparency = 0.53,
+}, auraInner)
+local auraScale = mk("UIScale", {Scale = uiBaseScale}, aura)
 local panel = mk("Frame", {
     Name = "CommunityVisualsPanel",
     AnchorPoint = Vector2.new(0.5, 0.5),
@@ -3255,11 +3276,24 @@ local panel = mk("Frame", {
     Size = UDim2.fromOffset(winWidth, winHeight),
     BackgroundColor3 = P.background,
     BorderSizePixel = 0,
-    Active = true, ClipsDescendants = true,
+    Active = true, ClipsDescendants = true, ZIndex = 2,
 }, gui)
-round(panel, 14)
-mk("UIStroke", {Color = P.border, Transparency = 0.04, Thickness = 1}, panel)
+round(panel, 18)
+mk("UIStroke", {Color = P.accent, Transparency = 0.31, Thickness = 1.5}, panel)
 local panelScale = mk("UIScale", {Scale = uiBaseScale}, panel)
+local function syncVioletAura()
+    if not panel.Parent or not aura.Parent then return end
+    aura.Position = panel.Position
+    aura.Size = UDim2.new(panel.Size.X.Scale, panel.Size.X.Offset + 8,
+        panel.Size.Y.Scale, panel.Size.Y.Offset + 8)
+    auraScale.Scale = panelScale.Scale
+    aura.Visible = panel.Visible
+end
+connect(panel:GetPropertyChangedSignal("Position"), syncVioletAura)
+connect(panel:GetPropertyChangedSignal("Size"), syncVioletAura)
+connect(panel:GetPropertyChangedSignal("Visible"), syncVioletAura)
+connect(panelScale:GetPropertyChangedSignal("Scale"), syncVioletAura)
+syncVioletAura()
 -- AnchorPoint-aware экранный clamp: возвращает панель / плавающую кнопку в кадр.
 -- GUI работает с IgnoreGuiInset=true, поэтому размеры берём из ViewportSize.
 function boosterPro.clampWindowPosition(position, size, anchor)
@@ -3297,21 +3331,35 @@ local function hidePanelAnimation()
     if panelTween then panelTween:Cancel(); panelTween = nil end
     panelScale.Scale = uiBaseScale
 end
--- The accent mark is inexpensive; no animated gradients, glow or overlays.
+-- Static violet inner corner wash (no postprocessing or animated objects).
+local cornerWash = mk("Frame", {
+    Name = "VioletCornerWash", AnchorPoint = Vector2.new(1, 1),
+    Position = UDim2.fromScale(1, 1), Size = UDim2.fromOffset(310, 190),
+    BackgroundColor3 = Color3.fromRGB(73, 29, 132),
+    BackgroundTransparency = 0.58, BorderSizePixel = 0, Active = false,
+}, panel)
+round(cornerWash, 110)
+mk("UIGradient", {
+    Rotation = 30,
+    Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 1),
+        NumberSequenceKeypoint.new(1, 0.24),
+    }),
+}, cornerWash)
 mk("Frame", {
-    Name = "TopAccent", Visible = false, BorderSizePixel = 0,
+    Name = "TopAccent", BorderSizePixel = 0,
     BackgroundColor3 = P.accent,
-    Position = UDim2.fromOffset(14, 0), Size = UDim2.fromOffset(83, 2),
+    Position = UDim2.fromOffset(17, 0), Size = UDim2.fromOffset(110, 2),
 }, panel)
 local bar = mk("Frame", {
-    Name = "DragBar", BackgroundColor3 = Color3.fromRGB(24, 25, 28),
+    Name = "DragBar", BackgroundColor3 = Color3.fromRGB(26, 20, 41),
     BackgroundTransparency = 0,
     Size = UDim2.new(1, 0, 0, 76), Active = true,
 }, panel)
 -- Static gradient only; no perpetual UI animation or extra frame hooks.
 mk("UIGradient", {Rotation = 0,
-    Color = ColorSequence.new(Color3.fromRGB(27, 28, 32),
-        Color3.fromRGB(18, 19, 22))}, bar)
+    Color = ColorSequence.new(Color3.fromRGB(33, 24, 53),
+        Color3.fromRGB(17, 15, 27))}, bar)
 local emblem = mk("Frame", {
     Name = "BrandMark", Visible = false, BackgroundColor3 = P.tile,
     BorderSizePixel = 0, Position = UDim2.fromOffset(16, 17),
@@ -3373,19 +3421,64 @@ mk("Frame", {
     Name = "HeaderDivider", BorderSizePixel = 0, BackgroundColor3 = P.border,
     Position = UDim2.fromOffset(0, 75), Size = UDim2.new(1, 0, 0, 1),
 }, panel)
+-- Continuous glass content plate lives BEHIND independently scrollable pages.
+local contentPlate = mk("Frame", {
+    Name = "PremiumContentPlate",
+    Position = UDim2.fromOffset(207, 81),
+    Size = UDim2.new(1, -220, 1, -121),
+    BackgroundColor3 = Color3.fromRGB(23, 19, 36),
+    BorderSizePixel = 0, ClipsDescendants = true,
+}, panel)
+round(contentPlate, 15)
+mk("UIStroke", {Color = P.accent, Transparency = 0.71, Thickness = 1}, contentPlate)
+mk("UIGradient", {
+    Rotation = 20,
+    Color = ColorSequence.new(Color3.fromRGB(31, 24, 49),
+        Color3.fromRGB(18, 16, 30)),
+}, contentPlate)
+local plateShine = mk("Frame", {
+    Name = "VioletHeaderSheen", AnchorPoint = Vector2.new(1, 0),
+    Position = UDim2.new(1, 0, 0, 0),
+    Size = UDim2.new(0.52, 0, 0, 125),
+    BackgroundColor3 = Color3.fromRGB(97, 38, 170),
+    BackgroundTransparency = 0.75, BorderSizePixel = 0, Active = false,
+}, contentPlate)
+round(plateShine, 68)
+mk("UIGradient", {
+    Rotation = 0,
+    Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 1),
+        NumberSequenceKeypoint.new(1, 0.39),
+    }),
+}, plateShine)
 
 -- Reference 403VIP: permanent LEFT navigation in desktop and portrait layouts.
 -- The narrow sidebar preserves a large invisible click region for each tab.
 local tabs = mk("Frame", {
-    Name = "VisualsNavigation", BackgroundColor3 = P.background, BorderSizePixel = 0,
+    Name = "VisualsNavigation", BackgroundColor3 = Color3.fromRGB(20, 16, 31),
+    BorderSizePixel = 0,
     Position = UDim2.fromOffset(0, 0), Size = UDim2.new(0, 196, 1, 0),
     ClipsDescendants = true,
 }, panel)
-round(tabs, 3)
+mk("UIGradient", {Rotation = 90,
+    Color = ColorSequence.new(Color3.fromRGB(28, 19, 47),
+        Color3.fromRGB(15, 13, 26))}, tabs)
+local sidebarAura = mk("Frame", {
+    Name = "SidebarVioletSheen", AnchorPoint = Vector2.new(0, 1),
+    Position = UDim2.new(0, 0, 1, 0), Size = UDim2.new(1, 0, 0, 150),
+    BackgroundColor3 = Color3.fromRGB(94, 35, 160),
+    BackgroundTransparency = 0.85, BorderSizePixel = 0, Active = false,
+}, tabs)
+mk("UIGradient", {Rotation = 90,
+    Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 1),
+        NumberSequenceKeypoint.new(1, 0.17),
+    })}, sidebarAura)
 -- Отделяем декоративную линию от горизонтального UIListLayout.
 -- В v1.0.0 линия занимала полный слот и выталкивала вкладки ЗА окно.
 mk("Frame", {
-    Name = "NavLine", BackgroundColor3 = P.border, BorderSizePixel = 0,
+    Name = "NavLine", BackgroundColor3 = Color3.fromRGB(98, 72, 142),
+    BorderSizePixel = 0, BackgroundTransparency = 0.48,
     Position = UDim2.new(1, -1, 0, 0), Size = UDim2.new(0, 1, 1, 0),
 }, tabs)
 local navSlots = mk("Frame", {
@@ -3488,7 +3581,8 @@ local navigation = {
 }
 local function makeColumn(parent, name)
     local scroll = mk("ScrollingFrame", {
-        Name = name, BackgroundColor3 = P.panel, BorderSizePixel = 0,
+        Name = name, BackgroundColor3 = P.panel, BackgroundTransparency = 1,
+        BorderSizePixel = 0,
         ScrollBarThickness = 3, ScrollBarImageColor3 = P.accent,
         ScrollingDirection = Enum.ScrollingDirection.Y,
         AutomaticCanvasSize = Enum.AutomaticSize.Y,
@@ -3496,7 +3590,8 @@ local function makeColumn(parent, name)
         Active = true, ClipsDescendants = true,
     }, parent)
     round(scroll, 3)
-    mk("UIStroke", {Color = P.border, Thickness = 1, Transparency = 0.54}, scroll)
+    -- No individual scroll frame border: content plate owns the outline.
+    mk("UIStroke", {Color = P.border, Thickness = 1, Transparency = 1}, scroll)
     scroll.ScrollingEnabled = true
     scroll.ElasticBehavior = Enum.ElasticBehavior.WhenScrollable
     table.insert(scrollFrames, scroll)
@@ -3507,11 +3602,11 @@ local function makeColumn(parent, name)
     end)
     mk("UIListLayout", {
         SortOrder = Enum.SortOrder.LayoutOrder,
-        Padding = UDim.new(0, 6),
+        Padding = UDim.new(0, 8),
     }, scroll)
     mk("UIPadding", {
-        PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 10),
-        PaddingTop = UDim.new(0, 7), PaddingBottom = UDim.new(0, 9),
+        PaddingLeft = UDim.new(0, 12), PaddingRight = UDim.new(0, 13),
+        PaddingTop = UDim.new(0, 11), PaddingBottom = UDim.new(0, 14),
     }, scroll)
     return scroll
 end
@@ -3528,8 +3623,8 @@ for idx, tab in ipairs(navigation) do
         TextXAlignment = Enum.TextXAlignment.Center,
         TextColor3 = P.dim, AutoButtonColor = false,
     }, navSlots)
-    round(button, 7)
-    tabOutlines[key] = mk("UIStroke", {Color = P.border, Transparency = 1, Thickness = 1}, button)
+    round(button, 10)
+    tabOutlines[key] = mk("UIStroke", {Color = P.accent, Transparency = 1, Thickness = 1.2}, button)
     tabButtons[key] = button
     tabUnderline[key] = mk("Frame", {
         Name = "ActiveLine", BackgroundColor3 = P.accent,
@@ -3858,6 +3953,8 @@ local function applyResponsiveLayout()
             boosterPro.floatingButton.Size, boosterPro.floatingButton.AnchorPoint)
     end
     wideLayout = wide
+    contentPlate.Position = UDim2.fromOffset(wide and 207 or 101, 81)
+    contentPlate.Size = UDim2.new(1, wide and -220 or -110, 1, wide and -121 or -120)
     pageHeader.Visible, pageSubHeader.Visible = false, false
     -- Four-tab measured layout: legacy navSlots used negative relative
     -- height and cut off Settings on short landscape viewports.
@@ -3902,29 +3999,34 @@ local function applyResponsiveLayout()
         page.ClipsDescendants = true
         local info = pageColumns[page]
         if info then
-            if wide then
+            -- The ESP page matches the reference image: one full-width
+            -- scrolling stack of violet cards instead of an old split preview.
+            local singleColumn = (not wide) or page == pages.ESP
+            if singleColumn then
+                info.left.Position = UDim2.fromScale(0, 0)
+                info.left.Size = UDim2.fromScale(1, 1)
+                info.right.Visible = false
+            else
                 info.left.Position = UDim2.fromOffset(0, 0)
                 info.left.Size = UDim2.new(0.5, -5, 1, 0)
                 info.right.Position = UDim2.new(0.5, 5, 0, 0)
                 info.right.Size = UDim2.new(0.5, -5, 1, 0)
                 info.right.Visible = true
-            else
-                info.left.Position = UDim2.fromScale(0, 0)
-                info.left.Size = UDim2.fromScale(1, 1)
-                info.right.Visible = false
             end
             for _, item in ipairs(info.widgets) do
-                local desired = wide and info[item.side] or info.left
+                local desired = singleColumn and info.left or info[item.side]
                 if item.object.Parent ~= desired then item.object.Parent = desired end
             end
         end
     end
     if referenceESP then
         if referenceESP.cancelInteraction then referenceESP.cancelInteraction() end
-        referenceESP.root.Visible = wide
+        -- Keep legacy reference widgets allocated for compatibility but hidden.
+        -- Native ESP cards are the only active / visible ESP controls.
+        referenceESP.root.Visible = false
         local espColumns = pageColumns[pages.ESP]
         if espColumns then
-            espColumns.left.Visible = not wide
+            espColumns.left.Visible = true
             espColumns.right.Visible = false
         end
         referenceESP.layout(wide)
@@ -3948,6 +4050,9 @@ end
 local sliderDrag = nil
 local function showPage(key)
     if not pages[key] then return end
+    if key ~= "ESP" and referenceESP and referenceESP.clearSearch then
+        referenceESP.clearSearch()
+    end
     sliderDrag = nil -- Смена вкладки отменяет незавершённое перетаскивание.
     if referenceESP and referenceESP.cancelInteraction then
         referenceESP.cancelInteraction()
@@ -3969,12 +4074,12 @@ local function showPage(key)
     for name, page in pairs(pages) do
         local selected = name == key
         page.Visible = selected
-        tabButtons[name].BackgroundColor3 = selected and Color3.fromRGB(60, 61, 66)
-            or Color3.fromRGB(29, 30, 34)
+        tabButtons[name].BackgroundColor3 = selected and Color3.fromRGB(66, 37, 105)
+            or Color3.fromRGB(31, 27, 44)
         tabButtons[name].TextColor3 = selected and P.text or P.dim
         tabButtons[name].Font = selected and Enum.Font.GothamBold or Enum.Font.GothamMedium
         tabUnderline[name].Visible = selected
-        tabOutlines[name].Transparency = selected and 0.44 or 1
+        tabOutlines[name].Transparency = selected and 0.07 or 0.91
     end
 end
 for name, button in pairs(tabButtons) do
@@ -4246,25 +4351,30 @@ end
 local function addSection(page, title, subtitle)
     local info = pageColumns[page]
     if info then info.side = sectionSides[title] or info.side end
+    local hero = title == "VISUALS" or title == "TARGETING"
+        or title == "MOVEMENT" or title == "UTILITY"
     local container = mk("Frame", {
         Name = title .. "Heading", BackgroundTransparency = 1,
-        Size = UDim2.new(1, 0, 0, 39),
+        Size = UDim2.new(1, 0, 0, hero and 62 or 42),
     }, columnFor(page))
     registerWidget(page, container)
-    mk("Frame", {Name = "SectionAccent", BackgroundColor3 = P.accent,
-        BorderSizePixel = 0, Position = UDim2.fromOffset(4, 9),
-        Size = UDim2.fromOffset(14, 2)}, container)
+    local sectionBar = mk("Frame", {Name = "SectionAccent", BackgroundColor3 = P.accent,
+        BorderSizePixel = 0, Position = UDim2.fromOffset(4, hero and 11 or 14),
+        Size = UDim2.fromOffset(hero and 4 or 19, hero and 23 or 2)}, container)
+    round(sectionBar, 2)
     mk("TextLabel", {
         BackgroundTransparency = 1,
-        Position = UDim2.fromOffset(12, 3), Size = UDim2.new(1, -16, 0, 18),
-        Text = title, Font = Enum.Font.GothamBold, TextSize = 12,
+        Position = UDim2.fromOffset(hero and 18 or 8, hero and 5 or 3),
+        Size = UDim2.new(1, hero and -26 or -16, 0, hero and 29 or 19),
+        Text = title, Font = Enum.Font.GothamBold, TextSize = hero and 18 or 12,
         TextColor3 = P.text, TextXAlignment = Enum.TextXAlignment.Left,
     }, container)
     mk("TextLabel", {
         BackgroundTransparency = 1,
-        Position = UDim2.fromOffset(4, 23), Size = UDim2.new(1, -8, 0, 13),
+        Position = UDim2.fromOffset(hero and 19 or 8, hero and 39 or 24),
+        Size = UDim2.new(1, hero and -25 or -12, 0, 14),
         Text = subtitle, Font = Enum.Font.Gotham,
-        TextSize = 9, TextColor3 = P.dim,
+        TextSize = hero and 10 or 9, TextColor3 = P.dim,
         TextXAlignment = Enum.TextXAlignment.Left,
         TextTruncate = Enum.TextTruncate.AtEnd,
     }, container)
@@ -4272,46 +4382,54 @@ end
 
 local function addToggle(page, title, description, key, onChanged)
     local row = mk("TextButton", {
-        Name = key, Size = UDim2.new(1, 0, 0, 47),
-        BackgroundColor3 = Color3.fromRGB(29, 30, 34), BorderSizePixel = 0,
+        Name = key, Size = UDim2.new(1, 0, 0, 54),
+        BackgroundColor3 = Color3.fromRGB(34, 29, 50), BorderSizePixel = 0,
         AutoButtonColor = false, Text = "",
     }, columnFor(page))
     registerWidget(page, row)
-    round(row, 6)
-    mk("UIStroke", {Color = P.border, Transparency = 0.67, Thickness = 1}, row)
+    round(row, 10)
+    local rowBorder = mk("UIStroke", {Color = P.border, Transparency = 0.59, Thickness = 1}, row)
+    mk("UIGradient", {Rotation = 0,
+        Color = ColorSequence.new(Color3.fromRGB(40, 33, 58),
+            Color3.fromRGB(26, 25, 39))}, row)
     mk("TextLabel", {
         BackgroundTransparency = 1,
-        Position = UDim2.fromOffset(11, 4), Size = UDim2.new(1, -60, 0, 19),
-        Text = title, TextSize = 12, Font = Enum.Font.GothamMedium,
+        Position = UDim2.fromOffset(13, 7), Size = UDim2.new(1, -72, 0, 20),
+        Text = title, TextSize = 12, Font = Enum.Font.GothamBold,
         TextColor3 = P.text, TextXAlignment = Enum.TextXAlignment.Left,
         TextTruncate = Enum.TextTruncate.AtEnd,
     }, row)
     mk("TextLabel", {
         BackgroundTransparency = 1,
-        Position = UDim2.fromOffset(11, 25), Size = UDim2.new(1, -60, 0, 15),
+        Position = UDim2.fromOffset(13, 30), Size = UDim2.new(1, -72, 0, 15),
         Text = description, TextSize = 9, Font = Enum.Font.Gotham,
         TextColor3 = P.dim, TextXAlignment = Enum.TextXAlignment.Left,
         TextTruncate = Enum.TextTruncate.AtEnd,
     }, row)
     local pill = mk("Frame", {
-        Name = "Switch", Position = UDim2.new(1, -44, 0.5, -8),
-        Size = UDim2.fromOffset(32, 16), BackgroundColor3 = P.off,
+        Name = "Switch", AnchorPoint = Vector2.new(1, 0.5),
+        Position = UDim2.new(1, -12, 0.5, 0),
+        Size = UDim2.fromOffset(34, 18), BackgroundColor3 = P.off,
         BorderSizePixel = 0,
     }, row)
-    round(pill, 8)
+    round(pill, 9)
+    local pillBorder = mk("UIStroke", {Color = P.border, Transparency = 0.62, Thickness = 1}, pill)
     local knob = mk("Frame", {
         Name = "Knob", Position = UDim2.fromOffset(2, 2),
-        Size = UDim2.fromOffset(12, 12),
+        Size = UDim2.fromOffset(14, 14),
         BackgroundColor3 = Color3.fromRGB(222, 223, 227), BorderSizePixel = 0,
     }, pill)
-    round(knob, 6)
+    round(knob, 7)
     local function update()
         if not row.Parent then return end
         local enabled = state[key] == true
-        pill.BackgroundColor3 = enabled and P.accent or P.off
+        pill.BackgroundColor3 = enabled and Color3.fromRGB(117, 62, 183) or P.off
         knob.Position = UDim2.fromOffset(enabled and 18 or 2, 2)
-        knob.BackgroundColor3 = enabled and Color3.fromRGB(255, 250, 251)
-            or Color3.fromRGB(203, 204, 212)
+        knob.BackgroundColor3 = enabled and Color3.fromRGB(255, 251, 255)
+            or Color3.fromRGB(222, 219, 235)
+        pillBorder.Color = enabled and P.accent or P.border
+        pillBorder.Transparency = enabled and 0.17 or 0.64
+        rowBorder.Transparency = enabled and 0.29 or 0.63
     end
     refreshToggles[key] = update
     local lastMouseActivation = -1e8
@@ -4357,8 +4475,11 @@ local function addButton(page, text, description, handler)
         Text = "", AutoButtonColor = true, BorderSizePixel = 0,
     }, columnFor(page))
     registerWidget(page, button)
-    round(button, 6)
-    mk("UIStroke", {Color = P.border, Transparency = 0.48, Thickness = 1}, button)
+    round(button, 10)
+    mk("UIStroke", {Color = P.border, Transparency = 0.54, Thickness = 1}, button)
+    mk("UIGradient", {Rotation = 0,
+        Color = ColorSequence.new(Color3.fromRGB(42, 35, 61),
+            Color3.fromRGB(29, 26, 43))}, button)
     mk("TextLabel", {
         BackgroundTransparency = 1,
         Position = UDim2.fromOffset(11, 5), Size = UDim2.new(1, -39, 0, 21),
@@ -4390,11 +4511,11 @@ end
 local function addSlider(page, title, description, key, minValue, maxValue, step, formatter, onChanged)
     local container = mk("Frame", {
         Name = key .. "Slider", Size = UDim2.new(1, 0, 0, 74),
-        BackgroundColor3 = CONFIG.Surface, BorderSizePixel = 0,
+        BackgroundColor3 = P.tile, BorderSizePixel = 0,
     }, columnFor(page))
     registerWidget(page, container)
-    round(container, 3)
-    mk("UIStroke", {Color = P.border, Transparency = 0.48, Thickness = 1}, container)
+    round(container, 9)
+    mk("UIStroke", {Color = P.border, Transparency = 0.54, Thickness = 1}, container)
     mk("TextLabel", {
         BackgroundTransparency = 1, Position = UDim2.fromOffset(10, 5),
         Size = UDim2.new(1, -103, 0, 18), Text = title,
@@ -4405,13 +4526,13 @@ local function addSlider(page, title, description, key, minValue, maxValue, step
     local valueLabel = mk("TextLabel", {
         BackgroundTransparency = 1, Position = UDim2.new(1, -105, 0, 5),
         Size = UDim2.fromOffset(95, 18),
-        TextColor3 = CONFIG.Accent, Font = Enum.Font.Code,
+        TextColor3 = P.accent, Font = Enum.Font.Code,
         TextSize = 12, TextXAlignment = Enum.TextXAlignment.Right,
     }, container)
     mk("TextLabel", {
         BackgroundTransparency = 1, Position = UDim2.fromOffset(10, 24),
         Size = UDim2.new(1, -20, 0, 13), Text = description,
-        TextColor3 = CONFIG.Muted, Font = Enum.Font.Gotham,
+        TextColor3 = P.dim, Font = Enum.Font.Gotham,
         TextSize = 9, TextXAlignment = Enum.TextXAlignment.Left,
     }, container)
     local touchArea = mk("TextButton", {
@@ -4421,20 +4542,20 @@ local function addSlider(page, title, description, key, minValue, maxValue, step
     }, container)
     local track = mk("Frame", {
         Name = "Track", BorderSizePixel = 0,
-        BackgroundColor3 = Color3.fromRGB(84, 86, 83),
+        BackgroundColor3 = Color3.fromRGB(70, 63, 88),
         Position = UDim2.new(0, 6, 0.5, -2),
         Size = UDim2.new(1, -12, 0, 4),
     }, touchArea)
     round(track, 2)
     local fill = mk("Frame", {
         Name = "Fill", BorderSizePixel = 0,
-        BackgroundColor3 = CONFIG.Accent, Size = UDim2.fromScale(0, 1),
+        BackgroundColor3 = P.accent, Size = UDim2.fromScale(0, 1),
     }, track)
     round(fill, 2)
     local thumb = mk("Frame", {
         Name = "Thumb", AnchorPoint = Vector2.new(0.5, 0.5),
         Position = UDim2.fromScale(0, 0.5), Size = UDim2.fromOffset(12, 12),
-        BackgroundColor3 = Color3.fromRGB(251, 239, 241), BorderSizePixel = 0,
+        BackgroundColor3 = Color3.fromRGB(248, 239, 255), BorderSizePixel = 0,
     }, track)
     round(thumb, 6)
 
@@ -4490,7 +4611,7 @@ end
 local function addAimModeSelector(page)
     local container = mk("Frame", {
         Name = "AimModeSelector", Size = UDim2.new(1, 0, 0, 63),
-        BackgroundColor3 = CONFIG.Surface, BorderSizePixel = 0,
+        BackgroundColor3 = P.tile, BorderSizePixel = 0,
     }, columnFor(page))
     registerWidget(page, container)
     round(container, 3)
@@ -4517,8 +4638,9 @@ local function addAimModeSelector(page)
             local button = buttons[mode.value]
             if button and button.Parent then
                 local selected = state.aimMode == mode.value
-                button.BackgroundColor3 = selected and CONFIG.Accent or Color3.fromRGB(42, 43, 51)
-                button.TextColor3 = selected and CONFIG.Window or Color3.fromRGB(187, 190, 185)
+                button.BackgroundColor3 = selected and Color3.fromRGB(111, 61, 170)
+                    or Color3.fromRGB(42, 35, 57)
+                button.TextColor3 = selected and P.text or P.dim
             end
         end
     end
@@ -4720,6 +4842,14 @@ addToggle(pages.ESP, "Имена", "DisplayName над персонажами", 
 addToggle(pages.ESP, "Здоровье", "HP над персонажами", "health")
 addToggle(pages.ESP, "Дистанция", "Расстояние в метрах (≈)", "distance")
 addToggle(pages.ESP, "Цвет команд", "Расцветка согласно TeamColor", "teamColors")
+-- Local crosshair was previously reachable only in the hidden 403VIP preview.
+-- Route it through the same native toggle UI without modifying ESP behavior.
+addToggle(pages.ESP, "Локальный прицел", "Небольшой маркер в центре экрана", "crosshairLocal",
+    function(enabled)
+        if boosterPro.setLocalCrosshair then
+            boosterPro.setLocalCrosshair(enabled)
+        end
+    end)
 
 addSection(pages.AIM, "TARGETING", "Точка наведения и управление")
 addToggle(pages.AIM, "Aimbot", "Кнопка и горячая клавиша включают наведение одинаково", "aimbot", function(enabled)
@@ -5977,11 +6107,11 @@ end
 -- existing state, refresh, and save handlers; no changes to ESP targeting.
 local function buildReferenceMenu()
     local bg = P.background
-    local surface = Color3.fromRGB(29, 30, 34)
-    local raised = Color3.fromRGB(39, 40, 46)
-    local border = Color3.fromRGB(46, 47, 52)
-    local light = Color3.fromRGB(240, 241, 244)
-    local muted = Color3.fromRGB(164, 165, 171)
+    local surface = P.panel
+    local raised = P.tile
+    local border = P.border
+    local light = P.text
+    local muted = P.dim
     local function corners(obj, radius)
         mk("UICorner", {CornerRadius = UDim.new(0, radius)}, obj)
         return obj
@@ -6003,7 +6133,7 @@ local function buildReferenceMenu()
     -- Vector Roblox mark: tilted square with the distinctive square cutout.
     -- No remote image and no fragile undocumented Roblox asset ID.
     mk("Frame", {Name = "SidebarEdge", Position = UDim2.new(1, -1, 0, 0),
-        Size = UDim2.new(0, 1, 1, 0), BackgroundColor3 = border,
+        Size = UDim2.new(0, 1, 1, 0), BackgroundColor3 = P.accent,
         BorderSizePixel = 0, BackgroundTransparency = 0.24}, tabs)
     local robloxMark = corners(mk("Frame", {
         Name = "RobloxMark", Position = UDim2.new(0.5, -20, 1, -95),
@@ -6398,31 +6528,55 @@ local function buildReferenceMenu()
             Size = UDim2.fromOffset(rect[3], rect[4]), BorderSizePixel = 0,
             BackgroundColor3 = light, ZIndex = 200}, crosshair)
     end
-    local crosshairEnabled = false
+    local crosshairEnabled = state.crosshairLocal == true
+    boosterPro.setLocalCrosshair = function(enabled)
+        crosshairEnabled = enabled == true
+        crosshair.Visible = crosshairEnabled
+    end
+    boosterPro.setLocalCrosshair(crosshairEnabled)
     local cross = miniSwitch(visual, "EnableCrosshair", "Enable Crosshair",
         UDim2.fromOffset(15, 36), function() return crosshairEnabled end,
         function()
             crosshairEnabled = not crosshairEnabled
+            state.crosshairLocal = crosshairEnabled
             crosshair.Visible = crosshairEnabled
+            if refreshToggles.crosshairLocal then
+                pcall(refreshToggles.crosshairLocal)
+            end
         end)
     cross.row.Size = UDim2.new(1, -30, 0, 26)
     makeSlider(visual, "FOV Circle", "aimFovPixels", CONFIG.AimFovMinPixels,
         CONFIG.AimFovMaxPixels, 5, function(value) return tostring(value) .. "px" end,
         72, refreshFovRing)
 
+    -- Search now filters the ACTUAL ESP cards, not the disabled preview.
+    -- Only runs after a TextBox change; there is no polling or frame hook.
     connect(search:GetPropertyChangedSignal("Text"), function()
         if not alive then return end
-        local query = string.lower(search.Text)
+        local query = string.lower(search.Text):match("^%s*(.-)%s*$")
         local matches = 0
-        for _, item in ipairs(rows) do
-            local found = query == "" or string.find(string.lower(item.label),
-                query, 1, true) ~= nil
-            item.row.Visible = found
-            if found then matches = matches + 1 end
+        local info = pageColumns[pages.ESP]
+        if info then
+            for _, item in ipairs(info.widgets) do
+                local widget = item.object
+                if widget and widget.Parent then
+                    local caption = widget:FindFirstChildWhichIsA("TextLabel", true)
+                    local content = string.lower(widget.Name .. " "
+                        .. (caption and caption.Text or ""))
+                    local found = query == "" or content:find(query, 1, true) ~= nil
+                    widget.Visible = found
+                    if found then matches = matches + 1 end
+                end
+            end
         end
-        emptySearch.Visible = matches == 0
-        if query ~= "" then showPage("ESP") end
+        if query ~= "" then
+            showPage("ESP")
+            if matches == 0 then tell("Поиск: совпадений не найдено") end
+        end
     end)
+    local function clearSearch()
+        if search.Text ~= "" then search.Text = "" end
+    end
     local started = os.clock()
     local function tick()
         local elapsed = math.max(0, math.floor(os.clock() - started))
@@ -6430,28 +6584,38 @@ local function buildReferenceMenu()
             math.floor(elapsed / 3600), math.floor(elapsed / 60) % 60, elapsed % 60)
     end
     local function layout(wide)
-        -- Keep branding in the fixed left rail in both orientations.
-        brand.Visible, version.Visible = true, true
-        brand.Text = wide and "124 Visuals" or "124"
-        brand.Position = UDim2.fromOffset(wide and 19 or 15, wide and 18 or 18)
-        brand.Size = UDim2.fromOffset(wide and 168 or 70, 35)
-        brand.TextSize = wide and 23 or 21
-        version.Position = UDim2.fromOffset(wide and 86 or 15, wide and 50 or 51)
-        version.Size = UDim2.fromOffset(wide and 78 or 74, 17)
-        version.TextSize = wide and 10 or 9
-        -- Never cover the fourth tab with a decorative Roblox mark.
-        robloxMark.Visible = wide or panel.Size.Y.Offset >= 300
-        robloxName.Visible = wide
-        robloxMark.Position = wide and UDim2.new(0.5, -20, 1, -95)
-            or UDim2.new(0.5, -15, 1, -43)
-        robloxMark.Size = wide and UDim2.fromOffset(40, 40)
-            or UDim2.fromOffset(30, 30)
+        -- Reference logo now sits ABOVE the left-hand navigation.
+        -- On short screens it scales down instead of covering any tabs.
+        local tiny = not wide and panel.Size.Y.Offset < 320
+        brand.Visible, version.Visible = true, not tiny
+        brand.Text = wide and "124 VISUALS" or "124"
+        brand.Position = wide and UDim2.fromOffset(60, 16)
+            or UDim2.fromOffset(5, 30)
+        brand.Size = wide and UDim2.fromOffset(128, 31)
+            or UDim2.fromOffset(82, 19)
+        brand.TextSize = wide and 16 or 14
+        brand.TextXAlignment = wide and Enum.TextXAlignment.Left
+            or Enum.TextXAlignment.Center
+        version.Position = wide and UDim2.fromOffset(62, 49)
+            or UDim2.fromOffset(7, 50)
+        version.Size = wide and UDim2.fromOffset(115, 17)
+            or UDim2.fromOffset(80, 14)
+        version.TextSize = 9
+        version.TextXAlignment = wide and Enum.TextXAlignment.Left
+            or Enum.TextXAlignment.Center
+        robloxMark.Visible = true
+        robloxName.Visible = false
+        robloxMark.Position = wide and UDim2.fromOffset(17, 18)
+            or UDim2.fromOffset(34, 5)
+        robloxMark.Size = wide and UDim2.fromOffset(32, 32)
+            or UDim2.fromOffset(24, 24)
+        robloxMark.BackgroundColor3 = P.accent
         local markHole = robloxMark:FindFirstChild("RobloxCutout")
         if markHole then
-            markHole.Position = wide and UDim2.fromOffset(13, 13)
-                or UDim2.fromOffset(10, 10)
-            markHole.Size = wide and UDim2.fromOffset(14, 14)
-                or UDim2.fromOffset(10, 10)
+            markHole.Position = wide and UDim2.fromOffset(10, 10)
+                or UDim2.fromOffset(8, 8)
+            markHole.Size = wide and UDim2.fromOffset(12, 12)
+                or UDim2.fromOffset(8, 8)
         end
         search.Visible, safe.Visible, clock.Visible, active.Visible = wide, wide, wide, wide
         local title = bar:FindFirstChild("BrandTitle")
@@ -6469,7 +6633,7 @@ local function buildReferenceMenu()
     end
     tick()
     return {root = root, layout = layout, tick = tick,
-        cancelInteraction = cancelPointer}
+        clearSearch = clearSearch, cancelInteraction = cancelPointer}
 end
 referenceESP = buildReferenceMenu()
 applyResponsiveLayout()
