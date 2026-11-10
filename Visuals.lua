@@ -1,11 +1,11 @@
--- 124 Visuals v1.1.57 | full audit: safe parameter restore, recoil profile, audio diagnostics
+-- 124 Visuals v1.1.58 | full audit: safe parameter restore, recoil profile, audio diagnostics
 -- Первый плейс: 18537079992. Запуск поддерживает все игровые PlaceId.
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.1.57",
+    Version = "1.1.58",
     OriginalPlaceId = 18537079992,
     EspRefreshSeconds = 0.35, -- Быстрый поиск персонажей, без обновления UI каждый кадр.
     EspEventMinSeconds = 0.18, -- Коалесцированные события не запускают 16 полных сканов/сек.
@@ -303,6 +303,7 @@ local boosterPro = {
     changedProperties = 0, phase = "OFF", lastError = nil,
     recoveryFailures = 0, recoveryNextAt = 0,
     restoreRetryAt = 0, restoreRetryRunning = false,
+    terrainRestoreRetryAt = 0, -- Backoff on inaccessible Terrain: no recurring 1s spikes.
     bootRoots = {}, -- Единственные ScreenGui, созданные данной копией Hub.
 }
 -- Только для исполнителей, умеющих читать/писать Terrain.Decoration.
@@ -1480,6 +1481,7 @@ end
 -- временных таблиц и Color3.fromRGB на каждом объекте.
 local graphicsWhite = Color3.new(1, 1, 1)
 local graphicsPlain = {CastShadow = false}
+local graphicsNoProperties = {} -- Shared immutable map avoids downgrade allocations.
 local graphicsWhitePart = {CastShadow = false, Material = Enum.Material.SmoothPlastic,
     MaterialVariant = "", Color = graphicsWhite}
 local graphicsUltraPart = {CastShadow = false, Material = Enum.Material.SmoothPlastic,
@@ -1542,7 +1544,7 @@ local function optimizeObject(obj, alreadyScreened)
     -- Не проверяем цепочку родителей и не создаём таблицу для нерелевантных объектов.
     if not desired and not snap then return end
     if not alreadyScreened and boosterPro.isProtected(obj) then return end
-    desired = desired or {}
+    desired = desired or graphicsNoProperties
     if snap then
         for key, original in pairs(snap) do
             if desired[key] == nil then
@@ -1768,6 +1770,7 @@ local function setBooster(enabled, keepBaseline)
     -- Любая новая ревизия отменяет ожидающий фоновый откат старой.
     boosterPro.restoreRetryAt = 0
     boosterPro.restoreRetryRunning = false
+    boosterPro.terrainRestoreRetryAt = 0
     boosterPro.complete = false
     boosterPro.readyAt = nil
     boosterPro.restoreFailures = 0
@@ -1891,6 +1894,7 @@ local function setBooster(enabled, keepBaseline)
                 local terrainPending = savedTerrainDecoration ~= nil
                     or savedTerrainColors ~= nil
                 local restorePending = remaining > 0 or terrainPending
+                    or savedLighting ~= nil
                 boosterPro.phase = restorePending and "RESTORE PENDING"
                     or (boosterPro.lastError and "FAILED" or "OFF")
                 if restorePending or boosterPro.restoreFailures > 0 then
@@ -7068,6 +7072,19 @@ connect(bar.InputBegan, function(input)
     if not panel.Visible or input.Position.X >= bar.AbsolutePosition.X + bar.AbsoluteSize.X - 100 then
         return
     end
+    -- The header contains a searchable TextBox and clickable status controls.
+    -- Do not start a window drag on top of any of those interactive elements.
+    for _, control in ipairs(bar:GetChildren()) do
+        if control:IsA("TextBox") or control:IsA("TextButton") then
+            if control.Visible then
+                local at, size = control.AbsolutePosition, control.AbsoluteSize
+                if input.Position.X >= at.X and input.Position.X <= at.X + size.X
+                    and input.Position.Y >= at.Y and input.Position.Y <= at.Y + size.Y then
+                    return
+                end
+            end
+        end
+    end
     dragging = true
     dragTouch = input.UserInputType == Enum.UserInputType.Touch and input or nil
     dragOrigin = input.Position
@@ -7374,7 +7391,8 @@ end
 function boosterPro.retryPendingGraphics()
     if not alive or state.booster or boosterPro.phase ~= "RESTORE PENDING" then return end
     local noObjects = next(savedGraphics) == nil
-    if noObjects and savedTerrainDecoration == nil and savedTerrainColors == nil then
+    if noObjects and savedTerrainDecoration == nil and savedTerrainColors == nil
+        and savedLighting == nil then
         boosterPro.phase = boosterPro.lastError and "FAILED" or "OFF"
         return
     end
@@ -7740,8 +7758,16 @@ task.spawn(function()
             applyLighting()
         end
         if not state.booster or state.boosterMode == "BALANCED" then
-            if savedTerrainDecoration then restoreTerrainGrass() end
-            if savedTerrainColors then restoreTerrainColors() end
+            -- NotScriptable Terrain setters can fail repeatedly in some clients.
+            -- Retry only after backoff instead of hammering up to 20 materials
+            -- every HUD refresh (a source of off-state microstutters).
+            local now = os.clock()
+            if now >= boosterPro.terrainRestoreRetryAt then
+                local grassOk = not savedTerrainDecoration or restoreTerrainGrass()
+                local colorsOk = not savedTerrainColors or restoreTerrainColors()
+                boosterPro.terrainRestoreRetryAt =
+                    now + ((grassOk and colorsOk) and 1.5 or 12)
+            end
         end
         if not state.booster then boosterPro.retryPendingGraphics() end
         stats.Visible = state.hud
