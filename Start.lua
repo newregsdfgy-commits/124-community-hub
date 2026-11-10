@@ -43,6 +43,11 @@ local ok, runError = xpcall(chunk, function(err)
     return message
 end)
 if not ok then return failure("RUNTIME", runError) end
+-- Закрытие окна ключа — обычный отказ от запуска, не runtime-ошибка.
+if env.ARMY124_BOOT_PHASE == "key_denied"
+    and env.ARMY124_BOOT_ERROR == "Ключ не введён" then
+    return false
+end
 if env.ARMY124_BOOT_PHASE ~= "ready" then
     return failure(env.ARMY124_BOOT_PHASE or "UNKNOWN",
         env.ARMY124_BOOT_ERROR or "GUI не подтвердил запуск. Проверь PlayerGui и Output.")
