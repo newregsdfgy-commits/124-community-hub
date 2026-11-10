@@ -1,11 +1,11 @@
--- 124 Visuals v1.1.58 | full audit: safe parameter restore, recoil profile, audio diagnostics
+-- 124 Visuals v1.1.59 | full audit: safe parameter restore, recoil profile, audio diagnostics
 -- Первый плейс: 18537079992. Запуск поддерживает все игровые PlaceId.
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.1.58",
+    Version = "1.1.59",
     OriginalPlaceId = 18537079992,
     EspRefreshSeconds = 0.35, -- Быстрый поиск персонажей, без обновления UI каждый кадр.
     EspEventMinSeconds = 0.18, -- Коалесцированные события не запускают 16 полных сканов/сек.
@@ -287,6 +287,9 @@ local connections = {}
 local renderData = {}
 local savedLighting = nil
 local savedGraphics = setmetatable({}, { __mode = "k" })
+-- Last property values actually written by Booster; separate weak ownership
+-- map prevents overwriting game-side changes during restore/mode downgrade.
+local graphicsWritten = setmetatable({}, { __mode = "k" })
 local boosterRevision = 0
 -- Один объект состояния, чтобы избежать избытка локальных переменных в Luau.
 local boosterPro = {
@@ -1556,31 +1559,47 @@ local function graphicsProperty(obj)
     return nil
 end
 
--- Не перезаписываем исходный снимок при переходе BALANCED -> WHITE -> ULTRA.
--- При возврате на менее жёсткий режим ненужные изменения сразу откатываются.
+-- Restore only a Booster-owned value. If the game or another script
+-- changed this property after we wrote it, keep that new value intact.
+local function restoreBoosterProperty(obj, snapshot, key, original)
+    local written = graphicsWritten[obj]
+    local lastWritten = written and written[key] or nil
+    local ok = pcall(function()
+        if not obj.Parent then return end
+        local current = obj[key]
+        if current == original then return end
+        if lastWritten ~= nil and current == lastWritten then
+            obj[key] = original
+            if obj[key] ~= original then error("Booster property restore mismatch") end
+        end
+        -- If current differs from lastWritten, the game owns the newer value.
+    end)
+    if ok or not obj.Parent then
+        snapshot[key] = nil
+        if written then
+            written[key] = nil
+            if not next(written) then graphicsWritten[obj] = nil end
+        end
+        return true
+    end
+    return false
+end
+
+-- Original snapshots survive BALANCED -> WHITE -> ULTRA changes.
 local function optimizeObject(obj, alreadyScreened)
     if not alive or not state.booster then return end
     local desired = graphicsProperty(obj)
     local snap = savedGraphics[obj]
-    -- Не проверяем цепочку родителей и не создаём таблицу для нерелевантных объектов.
     if not desired and not snap then return end
     if not alreadyScreened and boosterPro.isProtected(obj) then return end
     desired = desired or graphicsNoProperties
     if snap then
         for key, original in pairs(snap) do
             if desired[key] == nil then
-                -- A write can succeed without the original value being retained.
-                -- A failed mode downgrade must keep its snapshot for a retry.
-                local ok = pcall(function()
-                    if obj[key] ~= original then obj[key] = original end
-                    if obj[key] ~= original then error("mode restore mismatch") end
-                end)
-                if ok or not obj.Parent then
-                    snap[key] = nil
-                else
+                if not restoreBoosterProperty(obj, snap, key, original) then
                     boosterPro.restoreFailures = boosterPro.restoreFailures + 1
                     if boosterPro.restoreFailures <= 3 then
-                        warn("[124 Community Visuals] Booster: ошибка смены режима, свойство " .. tostring(key))
+                        warn("[124 Visuals] Booster mode downgrade failed for " .. tostring(key))
                     end
                 end
             end
@@ -1589,12 +1608,20 @@ local function optimizeObject(obj, alreadyScreened)
     for key, target in pairs(desired) do
         local read, current = pcall(function() return obj[key] end)
         if read and current ~= target then
+            local previousWrite = graphicsWritten[obj]
+            if snap and snap[key] ~= nil and previousWrite
+                and previousWrite[key] ~= nil and current ~= previousWrite[key] then
+                -- The game changed this property while Booster was active:
+                -- remember the newer baseline before applying the new mode.
+                snap[key] = current
+            end
             local wrote = pcall(function() obj[key] = target end)
             if wrote then
-                -- Save the original for every successful setter call, including
-                -- APIs whose read-back is delayed; never silently lose rollback.
                 if not snap then snap = {}; savedGraphics[obj] = snap end
                 if snap[key] == nil then snap[key] = current end
+                local written = graphicsWritten[obj]
+                if not written then written = {}; graphicsWritten[obj] = written end
+                written[key] = target
                 local checked, applied = pcall(function() return obj[key] end)
                 if checked and applied == target then
                     boosterPro.changedProperties = boosterPro.changedProperties + 1
@@ -1602,7 +1629,10 @@ local function optimizeObject(obj, alreadyScreened)
             end
         end
     end
-    if snap and not next(snap) then savedGraphics[obj] = nil end
+    if snap and not next(snap) then
+        savedGraphics[obj] = nil
+        graphicsWritten[obj] = nil
+    end
 end
 
 -- Проходим дерево без GetDescendants(): контролируем число объектов и CPU-миллисекунды.
@@ -1696,24 +1726,19 @@ end
 function boosterPro.restoreObject(obj, snapshot)
     local left = false
     for key, original in pairs(snapshot) do
-        -- A successful assignment is not proof that the engine retained it.
-        -- Only forget the snapshot after verifying the original value.
-        local ok = pcall(function()
-            if obj[key] ~= original then obj[key] = original end
-            if obj[key] ~= original then error("restore mismatch") end
-        end)
-        if ok or not obj.Parent then
-            snapshot[key] = nil
-        else
+        if not restoreBoosterProperty(obj, snapshot, key, original) then
             left = true
             boosterPro.restoreFailures = boosterPro.restoreFailures + 1
             if boosterPro.restoreFailures <= 3 then
-                warn("[124 Community Visuals] Booster: не удалось восстановить " .. tostring(key)
-                    .. " у " .. tostring(obj.Name))
+                warn("[124 Visuals] Booster: failed to restore " .. tostring(key)
+                    .. " for " .. tostring(obj.Name))
             end
         end
     end
-    if not left then savedGraphics[obj] = nil end
+    if not left then
+        savedGraphics[obj] = nil
+        graphicsWritten[obj] = nil
+    end
 end
 
 -- Снимки могли появиться раньше, чем Roblox объявил Model персонажем.
@@ -1915,8 +1940,10 @@ local function setBooster(enabled, keepBaseline)
                 end
                 local terrainPending = savedTerrainDecoration ~= nil
                     or savedTerrainColors ~= nil
+                -- Lighting kept intentionally by FullBright is not a pending
+                -- Booster rollback: only unowned Lighting needs restoring.
                 local restorePending = remaining > 0 or terrainPending
-                    or savedLighting ~= nil
+                    or (savedLighting ~= nil and not state.fullbright)
                 boosterPro.phase = restorePending and "RESTORE PENDING"
                     or (boosterPro.lastError and "FAILED" or "OFF")
                 if restorePending or boosterPro.restoreFailures > 0 then
@@ -3188,6 +3215,11 @@ local function applySettings(incoming, autoLoad)
     else pcall(recoil.restoreSpread) end
     if boosterPro.privateMusic and boosterPro.privateMusic.refresh then
         pcall(boosterPro.privateMusic.refresh)
+    end
+    -- The crosshair GUI is built before the saved CUSTOM profile is applied.
+    -- Repaint its actual visibility, not only the toggle label.
+    if boosterPro.setLocalCrosshair then
+        boosterPro.setLocalCrosshair(state.crosshairLocal == true)
     end
     aimTarget = nil
     aimNextScan = 0
@@ -7421,7 +7453,7 @@ function boosterPro.retryPendingGraphics()
     if not alive or state.booster or boosterPro.phase ~= "RESTORE PENDING" then return end
     local noObjects = next(savedGraphics) == nil
     if noObjects and savedTerrainDecoration == nil and savedTerrainColors == nil
-        and savedLighting == nil then
+        and (savedLighting == nil or state.fullbright) then
         boosterPro.phase = boosterPro.lastError and "FAILED" or "OFF"
         return
     end
@@ -7442,7 +7474,8 @@ function boosterPro.retryPendingGraphics()
             warn("[124 Community Visuals] Booster restore retry: " .. tostring(complete))
         end
         if ok and complete and savedTerrainDecoration == nil
-            and savedTerrainColors == nil and savedLighting == nil then
+            and savedTerrainColors == nil
+            and (savedLighting == nil or state.fullbright) then
             boosterPro.phase = boosterPro.lastError and "FAILED" or "OFF"
         end
     end)
