@@ -294,7 +294,7 @@ do
         create("UICorner", {CornerRadius = UDim.new(0, 16)}, panel)
         -- На компактном экране элементы остаются в пределах видимой области.
         local viewport = Workspace.CurrentCamera and Workspace.CurrentCamera.ViewportSize
-        local height = viewport and viewport.Y or 600
+        local height = viewport and viewport.Y or (UserInputService.TouchEnabled and 420 or 600)
         local scale = height < 340 and 0.70 or height < 460 and 0.84 or 1
         if scale < 1 then
             create("UIScale", {Scale = scale}, panel)
