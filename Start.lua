@@ -1,5 +1,5 @@
--- 124 Visuals / v1.1.60 stability-test launcher
-local url = "https://raw.githubusercontent.com/newregsdfgy-commits/124-community-hub/v1.1.60-recoil-spread-stability-test/Visuals.lua"
+-- 124 Visuals / v1.1.61 key-gated launcher
+local url = "https://raw.githubusercontent.com/newregsdfgy-commits/124-community-hub/v1.1.61-shared-key-gate-test/Visuals.lua"
 local function failure(stage, reason)
     local text = "[124 START / " .. tostring(stage) .. "] " .. tostring(reason)
     warn(text)
@@ -15,8 +15,8 @@ if not fetched then return failure("NETWORK", source) end
 if type(source) ~= "string" or #source < 100000 then
     return failure("DOWNLOAD", "Неполный Lua: " .. tostring(type(source) == "string" and #source or type(source)))
 end
-if not source:find('Version = "1.1.60"', 1, true) then
-    return failure("VERSION", "Вместо v1.1.60 GitHub вернул другую версию")
+if not source:find('Version = "1.1.61"', 1, true) then
+    return failure("VERSION", "Вместо v1.1.61 GitHub вернул другую версию")
 end
 if type(loadstring) ~= "function" then
     return failure("EXECUTOR", "loadstring отсутствует")
@@ -47,5 +47,5 @@ if env.ARMY124_BOOT_PHASE ~= "ready" then
     return failure(env.ARMY124_BOOT_PHASE or "UNKNOWN",
         env.ARMY124_BOOT_ERROR or "GUI не подтвердил запуск. Проверь PlayerGui и Output.")
 end
-print("[124 START] v1.1.60 GUI ready")
+print("[124 START] v1.1.61 GUI ready")
 return true
