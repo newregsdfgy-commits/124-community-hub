@@ -4674,10 +4674,10 @@ end
 local function addAimKeybind(page)
     local container = mk("Frame", {
         Name = "AimKeybind", Size = UDim2.new(1, 0, 0, 78),
-        BackgroundColor3 = CONFIG.Surface, BorderSizePixel = 0,
+        BackgroundColor3 = P.tile, BorderSizePixel = 0,
     }, columnFor(page))
     registerWidget(page, container)
-    round(container, 3)
+    round(container, 10)
     mk("UIStroke", {Color = P.border, Transparency = 0.48, Thickness = 1}, container)
     mk("TextLabel", {
         BackgroundTransparency = 1, Position = UDim2.fromOffset(10, 4),
@@ -4690,7 +4690,7 @@ local function addAimKeybind(page)
         BackgroundTransparency = 1, Position = UDim2.fromOffset(10, 23),
         Size = UDim2.new(1, -20, 0, 15),
         Text = "Нажать клавишу: AIM ON/OFF; ПКМ тоже работает",
-        Font = Enum.Font.Gotham, TextSize = 9, TextColor3 = CONFIG.Muted,
+        Font = Enum.Font.Gotham, TextSize = 9, TextColor3 = P.dim,
         TextXAlignment = Enum.TextXAlignment.Left,
         TextTruncate = Enum.TextTruncate.AtEnd,
     }, container)
@@ -4698,7 +4698,7 @@ local function addAimKeybind(page)
         Name = "AssignAimKey", Position = UDim2.fromOffset(10, 43),
         Size = UDim2.new(1, -83, 0, 27),
         BackgroundColor3 = Color3.fromRGB(42, 43, 51),
-        TextColor3 = CONFIG.Accent, Font = Enum.Font.GothamBold,
+        TextColor3 = P.accent, Font = Enum.Font.GothamBold,
         TextSize = 11, AutoButtonColor = true, Text = "",
     }, container)
     round(keybindButton, 3)
@@ -4741,9 +4741,9 @@ end
 
 local function addChoice(page, label, choices, key, callback)
     local row = mk("Frame", {Name = key .. "Choices", Size = UDim2.new(1, 0, 0, 64),
-        BackgroundColor3 = CONFIG.Surface, BorderSizePixel = 0}, columnFor(page))
+        BackgroundColor3 = P.tile, BorderSizePixel = 0}, columnFor(page))
     registerWidget(page, row)
-    round(row, 7)
+    round(row, 10)
     mk("UIStroke", {Color = P.border, Transparency = 0.48, Thickness = 1}, row)
     mk("TextLabel", {Text = label, BackgroundTransparency = 1, Font = Enum.Font.GothamMedium,
         TextSize = 11, TextColor3 = P.text,
@@ -4755,18 +4755,19 @@ local function addChoice(page, label, choices, key, callback)
             local button = buttons[option.value]
             if button and button.Parent then
                 local enabled = state[key] == option.value
-                button.BackgroundColor3 = enabled and CONFIG.Accent or Color3.fromRGB(42, 43, 51)
-                button.TextColor3 = enabled and CONFIG.Window or CONFIG.Muted
+                button.BackgroundColor3 = enabled and Color3.fromRGB(110, 60, 170)
+                    or Color3.fromRGB(42, 35, 57)
+                button.TextColor3 = enabled and P.text or P.dim
             end
         end
     end
     for i, option in ipairs(choices) do
-        local button = mk("TextButton", {Text = option.label, BackgroundColor3 = CONFIG.Surface,
-            TextColor3 = CONFIG.Muted, BorderSizePixel = 0, AutoButtonColor = true,
+        local button = mk("TextButton", {Text = option.label, BackgroundColor3 = P.tile,
+            TextColor3 = P.dim, BorderSizePixel = 0, AutoButtonColor = true,
             TextSize = 9, Font = Enum.Font.GothamBold,
             Position = UDim2.new((i - 1) / #choices, 7, 0, 30),
             Size = UDim2.new(1 / #choices, -14 / #choices, 0, 27)}, row)
-        round(button, 3)
+        round(button, 6)
         buttons[option.value] = button
         safeActivate(button, function()
             if not alive then return end
