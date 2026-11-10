@@ -1,3 +1,21 @@
+# 124 Visuals — RV_STATE
+
+## v1.1.61 / shared key gate (2026-11-11)
+
+- Base: `v1.1.60-recoil-spread-stability-test`
+- Branch: `v1.1.61-shared-key-gate-test`
+- Shared local access key: `124HUB`. Case-sensitive; trims leading/trailing whitespace.
+- Every run opens a centered purple key entry panel inside PlayerGui, after previous-session cleanup and pending recovery, before creation of `state`, module controllers, GUI and render callbacks.
+- `Hub.lua` and `Visuals.lua` contain the same gate; direct loading of either current-branch file also requires the key.
+- Mouse/touch button and Enter key submit. Wrong key clears input and retains the gate. Cancel or GUI destruction exits without creating modules.
+- No key saving across sessions. Existing function state is not initialized until authorization.
+- File blob: Hub.lua / Visuals.lua `dbd62506d52c962ce9386f2a702e9619b6adc565`; Start.lua `ef6ab06623d4590f4e8a4319cd29afb0859b0b3e`.
+- Validation: 22 / 22 **static** assertions passed; both source files identical; only Hub.lua / Visuals.lua / Start.lua changed versus v1.1.60.
+- **Unverified:** Luau compile in real executor, interactive GUI input, gameplay tests in Roblox, mobile keyboard visibility and screen-size fit.
+- **Security model:** local shared-key gate, not remote authentication. The key is visible in client source, and anyone loading previous branches or modifying source can circumvent it; do not claim server-side secure licensing.
+
+## Prior state
+
 # RV_STATE.md
 
 ## Состояние
