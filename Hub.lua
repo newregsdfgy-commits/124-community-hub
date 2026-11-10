@@ -2240,9 +2240,9 @@ end
 
 local recoil = (function()
 local controller = {bound = false, shots = 0, bindingName = "Army124CommunityRecoil_" .. tostring(LocalPlayer.UserId)}
--- RECOIL CONTROL v1.0.2 — локальная компенсация подброса камеры.
+-- RECOIL CONTROL v1.1.60 — наблюдение камеры и локального ввода стрельбы.
 -- Не обращается к RemoteEvent, не меняет параметры оружия и не даёт гарантий
--- против серверного разброса или custom gun scripts без Tool.Activated.
+-- против серверного разброса или нестандартных систем с другим camera pipeline.
 -- Критический инвариант: без активного Tool + факта выстрела CFrame НЕ меняется.
 local recoilTool = nil
 local recoilToolConnections = {}
@@ -2253,6 +2253,8 @@ local recoilLastCorrection = 0
 local recoilFireUntil = 0
 local recoilHolding = false
 local recoilHoldStarted = 0
+local recoilLastPulseAt = -math.huge
+local recoilFireInput = nil
 
 -- Клиентский No Spread: только явные параметры NumberValue/IntValue/
 -- числовые атрибуты текущего Tool. ModuleScript и серверные траектории не меняем.
@@ -2481,6 +2483,8 @@ end
 
 local function resetRecoilTracking()
     stopRecoilFire()
+    recoilLastPulseAt = -math.huge
+    recoilFireInput = nil
     recoilLastCamera = nil
     recoilLastPitch = nil
     recoilLastCorrection = 0
@@ -2507,7 +2511,11 @@ local function markRecoilShot()
         end)
     end
     if not (state.controlRecoil or state.noRecoil) then return end
-    controller.shots = controller.shots + 1
+    -- Tool.Activated и физическое нажатие часто приходят одним пакетом.
+    if now - recoilLastPulseAt >= CONFIG.RecoilInputDedupSeconds then
+        controller.shots = controller.shots + 1
+        recoilLastPulseAt = now
+    end
     -- Первый выстрел после включения: до первого RenderStep ещё нет эталонного
     -- pitch. Берём его при Tool.Activated, чтобы не пропускать начальный подброс.
     if recoilLastPitch == nil then
@@ -2523,6 +2531,55 @@ local function markRecoilShot()
     recoilHolding = true
     recoilFireUntil = now + CONFIG.RecoilFireWindowSeconds
 end
+
+-- Дополнительный сигнал для оружия без Tool.Activated.
+-- На телефоне обычные касания камеры не считаются стрельбой.
+local function isTouchFireButton(position)
+    local playerGui = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+    if not playerGui then return false end
+    local ok, objects = pcall(function()
+        return playerGui:GetGuiObjectsAtPosition(position.X, position.Y)
+    end)
+    if not ok then return false end
+    for _, object in ipairs(objects) do
+        local current = object
+        for _ = 1, 4 do
+            if not current or current == playerGui then break end
+            if current:IsA("GuiButton") then
+                local name = string.lower(current.Name):gsub("[^%w]", "")
+                if string.find(name, "fire", 1, true)
+                    or string.find(name, "shoot", 1, true)
+                    or string.find(name, "attack", 1, true)
+                    or string.find(name, "trigger", 1, true) then
+                    return true
+                end
+            end
+            current = current.Parent
+        end
+    end
+    return false
+end
+connect(UserInputService.InputBegan, function(input, processed)
+    if not alive or not recoilTool or recoilTool.Parent ~= LocalPlayer.Character
+        or not (state.controlRecoil or state.noRecoil) then return end
+    if isRobloxMenuOpen() or UserInputService:GetFocusedTextBox() ~= nil then return end
+    local kind = input.UserInputType
+    local fire = (kind == Enum.UserInputType.MouseButton1 and not processed)
+        or (kind == Enum.UserInputType.Gamepad1
+            and input.KeyCode == Enum.KeyCode.ButtonR2 and not processed)
+        or (kind == Enum.UserInputType.Touch and isTouchFireButton(input.Position))
+    if fire then
+        recoilFireInput = input
+        markRecoilShot()
+    end
+end)
+connect(UserInputService.InputEnded, function(input)
+    if input ~= recoilFireInput then return end
+    recoilFireInput = nil
+    recoilHolding = false
+    recoilFireUntil = math.max(recoilFireUntil,
+        os.clock() + CONFIG.RecoilShotGraceSeconds)
+end)
 
 local function equipRecoilTool(tool)
     if recoilTool == tool then return end
@@ -2641,7 +2698,7 @@ local function recoilFrame(dt)
     recoilLastCorrection = math.deg(correction)
 end
 
--- END RECOIL CONTROL v1.0.2
+-- END RECOIL CONTROL v1.1.60
 controller.reset = resetRecoilTracking
 controller.shutdown = shutdownRecoilControl
 controller.frame = recoilFrame
@@ -5733,7 +5790,7 @@ function privateMusic.shutdown()
 end
 
 addSection(pages.MISC, "WEAPON CONTROL", "Локальные свойства текущего Tool — не серверное оружие")
-addToggle(pages.MISC, "No Recoil", "Полная компенсация обнаруженного подброса камеры при Tool.Activated",
+addToggle(pages.MISC, "No Recoil", "Компенсация камеры: Tool.Activated и локальный ввод стрельбы",
     "noRecoil", function(enabled)
         if enabled and state.controlRecoil then
             state.controlRecoil = false
