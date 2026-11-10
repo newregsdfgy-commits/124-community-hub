@@ -1,3 +1,20 @@
+# RV_STATE — v1.1.62
+
+## Current
+- Branch: `v1.1.62-audit-fixes-test`
+- Gate code: `124HUB` (client-local, every run).
+- Hub / Visuals Git blob: `37e05e9bd9941cd5b688985779060fd3ebf703eb`.
+- Start Git blob: `81db382ddf0f14edddfd7e40f110a9db43b62a5e`.
+- Audit: `AUDIT_v1.1.62.md`. 114/114 static checks; lexical scanner zero issues in 8,344-line file.
+- Runtime / true Luau compilation: **not performed**.
+- Key UI: transactional widgets, mobile fallback and cleanup, silent cancel.
+- Recoil: orphan watchdog prevents extended ghost compensation.
+- Spread: per-instance watcher cleanup, deferred-safe DescendantRemoving and slower fallback verification.
+- Existing main branch untouched. Baseline `v1.1.61-shared-key-gate-test` preserved.
+- Open work: live device / weapon compatibility, actual mobile keyboard UX, FPS benchmark.
+
+## Previous state
+
 # 124 Visuals — RV_STATE
 
 ## v1.1.61 / shared key gate (2026-11-11)
