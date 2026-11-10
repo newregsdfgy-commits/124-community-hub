@@ -3999,29 +3999,34 @@ local function applyResponsiveLayout()
         page.ClipsDescendants = true
         local info = pageColumns[page]
         if info then
-            if wide then
+            -- The ESP page matches the reference image: one full-width
+            -- scrolling stack of violet cards instead of an old split preview.
+            local singleColumn = (not wide) or page == pages.ESP
+            if singleColumn then
+                info.left.Position = UDim2.fromScale(0, 0)
+                info.left.Size = UDim2.fromScale(1, 1)
+                info.right.Visible = false
+            else
                 info.left.Position = UDim2.fromOffset(0, 0)
                 info.left.Size = UDim2.new(0.5, -5, 1, 0)
                 info.right.Position = UDim2.new(0.5, 5, 0, 0)
                 info.right.Size = UDim2.new(0.5, -5, 1, 0)
                 info.right.Visible = true
-            else
-                info.left.Position = UDim2.fromScale(0, 0)
-                info.left.Size = UDim2.fromScale(1, 1)
-                info.right.Visible = false
             end
             for _, item in ipairs(info.widgets) do
-                local desired = wide and info[item.side] or info.left
+                local desired = singleColumn and info.left or info[item.side]
                 if item.object.Parent ~= desired then item.object.Parent = desired end
             end
         end
     end
     if referenceESP then
         if referenceESP.cancelInteraction then referenceESP.cancelInteraction() end
-        referenceESP.root.Visible = wide
+        -- Keep legacy reference widgets allocated for compatibility but hidden.
+        -- Native ESP cards are the only active / visible ESP controls.
+        referenceESP.root.Visible = false
         local espColumns = pageColumns[pages.ESP]
         if espColumns then
-            espColumns.left.Visible = not wide
+            espColumns.left.Visible = true
             espColumns.right.Visible = false
         end
         referenceESP.layout(wide)
@@ -6091,11 +6096,11 @@ end
 -- existing state, refresh, and save handlers; no changes to ESP targeting.
 local function buildReferenceMenu()
     local bg = P.background
-    local surface = Color3.fromRGB(29, 30, 34)
-    local raised = Color3.fromRGB(39, 40, 46)
-    local border = Color3.fromRGB(46, 47, 52)
-    local light = Color3.fromRGB(240, 241, 244)
-    local muted = Color3.fromRGB(164, 165, 171)
+    local surface = P.panel
+    local raised = P.tile
+    local border = P.border
+    local light = P.text
+    local muted = P.dim
     local function corners(obj, radius)
         mk("UICorner", {CornerRadius = UDim.new(0, radius)}, obj)
         return obj
@@ -6117,7 +6122,7 @@ local function buildReferenceMenu()
     -- Vector Roblox mark: tilted square with the distinctive square cutout.
     -- No remote image and no fragile undocumented Roblox asset ID.
     mk("Frame", {Name = "SidebarEdge", Position = UDim2.new(1, -1, 0, 0),
-        Size = UDim2.new(0, 1, 1, 0), BackgroundColor3 = border,
+        Size = UDim2.new(0, 1, 1, 0), BackgroundColor3 = P.accent,
         BorderSizePixel = 0, BackgroundTransparency = 0.24}, tabs)
     local robloxMark = corners(mk("Frame", {
         Name = "RobloxMark", Position = UDim2.new(0.5, -20, 1, -95),
@@ -6544,28 +6549,38 @@ local function buildReferenceMenu()
             math.floor(elapsed / 3600), math.floor(elapsed / 60) % 60, elapsed % 60)
     end
     local function layout(wide)
-        -- Keep branding in the fixed left rail in both orientations.
-        brand.Visible, version.Visible = true, true
-        brand.Text = wide and "124 Visuals" or "124"
-        brand.Position = UDim2.fromOffset(wide and 19 or 15, wide and 18 or 18)
-        brand.Size = UDim2.fromOffset(wide and 168 or 70, 35)
-        brand.TextSize = wide and 23 or 21
-        version.Position = UDim2.fromOffset(wide and 86 or 15, wide and 50 or 51)
-        version.Size = UDim2.fromOffset(wide and 78 or 74, 17)
-        version.TextSize = wide and 10 or 9
-        -- Never cover the fourth tab with a decorative Roblox mark.
-        robloxMark.Visible = wide or panel.Size.Y.Offset >= 300
-        robloxName.Visible = wide
-        robloxMark.Position = wide and UDim2.new(0.5, -20, 1, -95)
-            or UDim2.new(0.5, -15, 1, -43)
-        robloxMark.Size = wide and UDim2.fromOffset(40, 40)
-            or UDim2.fromOffset(30, 30)
+        -- Reference logo now sits ABOVE the left-hand navigation.
+        -- On short screens it scales down instead of covering any tabs.
+        local tiny = not wide and panel.Size.Y.Offset < 320
+        brand.Visible, version.Visible = true, not tiny
+        brand.Text = wide and "124 VISUALS" or "124"
+        brand.Position = wide and UDim2.fromOffset(60, 16)
+            or UDim2.fromOffset(5, 30)
+        brand.Size = wide and UDim2.fromOffset(128, 31)
+            or UDim2.fromOffset(82, 19)
+        brand.TextSize = wide and 16 or 14
+        brand.TextXAlignment = wide and Enum.TextXAlignment.Left
+            or Enum.TextXAlignment.Center
+        version.Position = wide and UDim2.fromOffset(62, 49)
+            or UDim2.fromOffset(7, 50)
+        version.Size = wide and UDim2.fromOffset(115, 17)
+            or UDim2.fromOffset(80, 14)
+        version.TextSize = 9
+        version.TextXAlignment = wide and Enum.TextXAlignment.Left
+            or Enum.TextXAlignment.Center
+        robloxMark.Visible = true
+        robloxName.Visible = false
+        robloxMark.Position = wide and UDim2.fromOffset(17, 18)
+            or UDim2.fromOffset(34, 5)
+        robloxMark.Size = wide and UDim2.fromOffset(32, 32)
+            or UDim2.fromOffset(24, 24)
+        robloxMark.BackgroundColor3 = P.accent
         local markHole = robloxMark:FindFirstChild("RobloxCutout")
         if markHole then
-            markHole.Position = wide and UDim2.fromOffset(13, 13)
-                or UDim2.fromOffset(10, 10)
-            markHole.Size = wide and UDim2.fromOffset(14, 14)
-                or UDim2.fromOffset(10, 10)
+            markHole.Position = wide and UDim2.fromOffset(10, 10)
+                or UDim2.fromOffset(8, 8)
+            markHole.Size = wide and UDim2.fromOffset(12, 12)
+                or UDim2.fromOffset(8, 8)
         end
         search.Visible, safe.Visible, clock.Visible, active.Visible = wide, wide, wide, wide
         local title = bar:FindFirstChild("BrandTitle")
