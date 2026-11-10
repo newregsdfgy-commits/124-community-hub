@@ -1888,6 +1888,7 @@ local function setBooster(enabled, keepBaseline)
         -- Отключение тоже не должно выполнять Terrain/Lighting-перезаписи
         -- внутри обработчика кнопки: всё выполняет контролируемый worker.
         task.spawn(function()
+            local ok, err = pcall(function()
             if revision ~= boosterRevision or state.booster then return end
             restoreTerrainGrass()
             restoreTerrainColors()
@@ -1925,6 +1926,13 @@ local function setBooster(enabled, keepBaseline)
                 else
                     tell("FPS Booster Pro: исходные свойства восстановлены")
                 end
+            end
+            end)
+            if not ok and alive and revision == boosterRevision and not state.booster then
+                boosterPro.phase = "RESTORE PENDING"
+                boosterPro.lastError = "restore worker: " .. tostring(err)
+                boosterPro.restoreRetryAt = 0
+                warn("[124 Visuals] Booster rollback worker: " .. tostring(err))
             end
         end)
     end
@@ -7434,7 +7442,7 @@ function boosterPro.retryPendingGraphics()
             warn("[124 Community Visuals] Booster restore retry: " .. tostring(complete))
         end
         if ok and complete and savedTerrainDecoration == nil
-            and savedTerrainColors == nil then
+            and savedTerrainColors == nil and savedLighting == nil then
             boosterPro.phase = boosterPro.lastError and "FAILED" or "OFF"
         end
     end)
