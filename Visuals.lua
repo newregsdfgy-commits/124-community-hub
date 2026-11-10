@@ -1,11 +1,11 @@
--- 124 Visuals v1.1.62 | gate resilience, recoil watchdog and spread watcher cleanup
+-- 124 Visuals v1.1.63 | key event correctness, spread event pacing, recoil hold
 -- Первый плейс: 18537079992. Запуск поддерживает все игровые PlaceId.
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.1.62",
+    Version = "1.1.63",
     OriginalPlaceId = 18537079992,
     EspRefreshSeconds = 0.35, -- Быстрый поиск персонажей, без обновления UI каждый кадр.
     EspEventMinSeconds = 0.18, -- Коалесцированные события не запускают 16 полных сканов/сек.
@@ -64,7 +64,8 @@ local CONFIG = {
     RecoilMaxHoldSeconds = 8.0, -- Только при реальном удержании кнопки стрельбы.
     RecoilOrphanHoldSeconds = 0.55, -- Если Tool не прислал Deactivated, без ввода не держим 8 сек.
     RecoilInputDedupSeconds = 0.04,
-    SpreadVerificationSeconds = 0.50, -- Отслеживаемые значения обновляют наблюдатели; контроль без лишних микрофризов.
+    SpreadVerificationSeconds = 0.50, -- Резервная периодическая проверка.
+    SpreadEventMinSeconds = 0.08, -- Не чаще 12.5 реактивных проверок в секунду.
     SpreadShotRecheckSeconds = 0.18,
     SpreadPostShotSeconds = 0.06,
     RecoilMaxCorrectionPerSecond = 120, -- Единая плавность при 60/120+ FPS.
@@ -418,10 +419,13 @@ do
         end
         submit.Activated:Connect(tryUnlock)
         input.FocusLost:Connect(function(enterPressed)
-            -- На некоторых мобильных клавиатурах Done не выставляет enterPressed.
-            if enterPressed or (UserInputService.TouchEnabled and input.Text ~= "") then
-                tryUnlock()
-            end
+            -- Обычное касание вне поля не является отправкой ключа.
+            if enterPressed then tryUnlock() end
+        end)
+        -- Явная кнопка Return мобильной клавиатуры. Старые клиенты могут
+        -- не иметь этого события; обычная кнопка АКТИВИРОВАТЬ остаётся доступна.
+        pcall(function()
+            input.ReturnPressedFromOnScreenKeyboard:Connect(tryUnlock)
         end)
         cancel.Activated:Connect(function() resolve(false) end)
         screen.Destroying:Connect(function() resolve(false) end)
@@ -2465,7 +2469,7 @@ end
 
 local recoil = (function()
 local controller = {bound = false, shots = 0, bindingName = "Army124CommunityRecoil_" .. tostring(LocalPlayer.UserId)}
--- RECOIL CONTROL v1.1.60 — наблюдение камеры и локального ввода стрельбы.
+-- RECOIL CONTROL v1.1.63 — наблюдение камеры и локального ввода стрельбы.
 -- Не обращается к RemoteEvent, не меняет параметры оружия и не даёт гарантий
 -- против серверного разброса или нестандартных систем с другим camera pipeline.
 -- Критический инвариант: без активного Tool + факта выстрела CFrame НЕ меняется.
@@ -2500,6 +2504,7 @@ controller.spread = {
     nextCheckAt = 0, currentTool = nil, candidates = {}, lastErrorAt = 0,
     candidateSet = setmetatable({}, {__mode = "k"}),
     watchers = {}, generation = 0, queued = false, applying = false,
+    lastReactiveAt = -math.huge,
 }
 local function isSpreadParameter(name)
     return type(name) == "string"
@@ -2510,6 +2515,7 @@ local function clearSpreadIndex()
     local spread = controller.spread
     spread.generation = spread.generation + 1
     spread.queued = false
+    spread.lastReactiveAt = -math.huge
     for _, group in pairs(spread.watchers) do
         for _, connection in ipairs(group) do
             pcall(function() connection:Disconnect() end)
@@ -2525,10 +2531,16 @@ local function queueSpreadRefresh()
     if not alive or not state.noSpread or spread.queued or spread.applying then return end
     spread.queued = true
     local generation = spread.generation
-    task.defer(function()
+    -- Один отложенный проход для множества Value/AttributeChanged за кадр.
+    -- После короткой паузы система проверяет актуальное состояние Tool.
+    local now = os.clock()
+    local waitSeconds = math.max(0,
+        CONFIG.SpreadEventMinSeconds - (now - spread.lastReactiveAt))
+    task.delay(waitSeconds, function()
         if spread.generation ~= generation then return end
         spread.queued = false
         if alive and state.noSpread and recoilTool == spread.currentTool then
+            spread.lastReactiveAt = os.clock()
             pcall(controller.applySpread)
         end
     end)
@@ -2937,9 +2949,18 @@ local function recoilFrame(dt)
     -- just lost. Avoid alternating camera writers on intermittent LOS loss.
     if state.aimbot and (aimHeldMouse or aimHeldTouch or aimHeldKey) then return end
     local now = os.clock()
+    local fireInputHeld = recoilFireInput ~= nil
+    -- Tool.Activated бывает без InputBegan (обработанный ввод в gun framework).
+    -- Реально зажатую кнопку мыши проверяем независимо от processed.
+    if not fireInputHeld and recoilHolding and UserInputService.MouseEnabled then
+        local ok, pressed = pcall(function()
+            return UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1)
+        end)
+        fireInputHeld = ok and pressed == true
+    end
     local firing = now <= recoilFireUntil
         or (recoilHolding and now - recoilHoldStarted
-            <= (recoilFireInput and CONFIG.RecoilMaxHoldSeconds
+            <= (fireInputHeld and CONFIG.RecoilMaxHoldSeconds
                 or CONFIG.RecoilOrphanHoldSeconds))
     if not firing or dt <= 0 or dt > CONFIG.RecoilMaxFrameSeconds then return end
     local pitchUp = signedAngle(previousPitch, currentPitch)
@@ -2962,7 +2983,7 @@ local function recoilFrame(dt)
     recoilLastCorrection = math.deg(correction)
 end
 
--- END RECOIL CONTROL v1.1.60
+-- END RECOIL CONTROL v1.1.63
 controller.reset = resetRecoilTracking
 controller.shutdown = shutdownRecoilControl
 controller.frame = recoilFrame
