@@ -2856,9 +2856,15 @@ local function equipRecoilTool(tool)
             end
         end)
         recoilToolConnections[#recoilToolConnections + 1] = tool.DescendantRemoving:Connect(function(obj)
-            if controller.spread.candidateSet[obj] then
-                unregisterSpreadCandidate(obj)
-            end
+            -- Immediate/Deferred: проверяем Parent на следующем цикле.
+            -- Быстро пересозданный/возвращённый объект нельзя забывать.
+            task.defer(function()
+                if recoilTool ~= tool or not alive then return end
+                local ok, stillInside = pcall(function() return obj:IsDescendantOf(tool) end)
+                if (not ok or not stillInside) and controller.spread.candidateSet[obj] then
+                    unregisterSpreadCandidate(obj)
+                end
+            end)
         end)
     end
     -- Без Tool в руках AIM перестаёт управлять камерой и сбрасывает захват.
