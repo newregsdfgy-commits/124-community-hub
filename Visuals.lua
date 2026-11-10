@@ -1,11 +1,11 @@
--- 124 Visuals v1.1.55 | full audit: safe parameter restore, recoil profile, audio diagnostics
+-- 124 Visuals v1.1.56 | full audit: safe parameter restore, recoil profile, audio diagnostics
 -- Первый плейс: 18537079992. Запуск поддерживает все игровые PlaceId.
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.1.55",
+    Version = "1.1.56",
     OriginalPlaceId = 18537079992,
     EspRefreshSeconds = 0.35, -- Быстрый поиск персонажей, без обновления UI каждый кадр.
     EspEventMinSeconds = 0.18, -- Коалесцированные события не запускают 16 полных сканов/сек.
@@ -3206,17 +3206,17 @@ local function uiSafeView(raw)
     return raw
 end
 local TweenService = game:GetService("TweenService")
--- Neutral graphite palette matched to the supplied reference screenshot.
--- UI-only: gameplay and ESP graphics retain their existing configuration.
+-- Premium violet palette. UI-only: gameplay and ESP colors are unchanged.
+-- Static gradients and borders are cheap; no blur, particles or RenderStepped FX.
 local P = {
-    background = Color3.fromRGB(16, 17, 19),
-    panel = Color3.fromRGB(21, 22, 25),
-    tile = Color3.fromRGB(34, 35, 39),
-    border = Color3.fromRGB(47, 48, 53),
-    text = Color3.fromRGB(242, 243, 245),
-    dim = Color3.fromRGB(163, 165, 171),
-    accent = Color3.fromRGB(225, 226, 230),
-    off = Color3.fromRGB(74, 75, 80),
+    background = Color3.fromRGB(14, 12, 23),
+    panel = Color3.fromRGB(22, 19, 34),
+    tile = Color3.fromRGB(33, 29, 48),
+    border = Color3.fromRGB(75, 60, 99),
+    text = Color3.fromRGB(245, 242, 255),
+    dim = Color3.fromRGB(170, 160, 193),
+    accent = Color3.fromRGB(176, 115, 255),
+    off = Color3.fromRGB(67, 65, 84),
 }
 -- На телефоне даже альбомный экран остаётся одноколоночным: элементы
 -- управления не должны уменьшаться до нечитабельного размера.
@@ -3248,6 +3248,27 @@ local function windowMetrics(view)
 end
 local winWidth, winHeight, _, initialScale = windowMetrics(viewport)
 local uiBaseScale = initialScale
+-- Separate behind-the-panel aura: no UI-only painting over world geometry.
+local aura = mk("Frame", {
+    Name = "VioletAura", AnchorPoint = Vector2.new(0.5, 0.5),
+    Position = UDim2.fromScale(0.5, 0.5),
+    Size = UDim2.fromOffset(winWidth + 8, winHeight + 8),
+    BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 1,
+}, gui)
+round(aura, 18)
+mk("UIStroke", {
+    Color = Color3.fromRGB(133, 64, 241),
+    Thickness = 10, Transparency = 0.82,
+}, aura)
+local auraInner = mk("Frame", {
+    Name = "VioletAuraCore", Size = UDim2.fromScale(1, 1),
+    BackgroundTransparency = 1, BorderSizePixel = 0,
+}, aura)
+round(auraInner, 18)
+mk("UIStroke", {
+    Color = P.accent, Thickness = 3, Transparency = 0.53,
+}, auraInner)
+local auraScale = mk("UIScale", {Scale = uiBaseScale}, aura)
 local panel = mk("Frame", {
     Name = "CommunityVisualsPanel",
     AnchorPoint = Vector2.new(0.5, 0.5),
@@ -3255,11 +3276,24 @@ local panel = mk("Frame", {
     Size = UDim2.fromOffset(winWidth, winHeight),
     BackgroundColor3 = P.background,
     BorderSizePixel = 0,
-    Active = true, ClipsDescendants = true,
+    Active = true, ClipsDescendants = true, ZIndex = 2,
 }, gui)
-round(panel, 14)
-mk("UIStroke", {Color = P.border, Transparency = 0.04, Thickness = 1}, panel)
+round(panel, 18)
+mk("UIStroke", {Color = P.accent, Transparency = 0.31, Thickness = 1.5}, panel)
 local panelScale = mk("UIScale", {Scale = uiBaseScale}, panel)
+local function syncVioletAura()
+    if not panel.Parent or not aura.Parent then return end
+    aura.Position = panel.Position
+    aura.Size = UDim2.new(panel.Size.X.Scale, panel.Size.X.Offset + 8,
+        panel.Size.Y.Scale, panel.Size.Y.Offset + 8)
+    auraScale.Scale = panelScale.Scale
+    aura.Visible = panel.Visible
+end
+connect(panel:GetPropertyChangedSignal("Position"), syncVioletAura)
+connect(panel:GetPropertyChangedSignal("Size"), syncVioletAura)
+connect(panel:GetPropertyChangedSignal("Visible"), syncVioletAura)
+connect(panelScale:GetPropertyChangedSignal("Scale"), syncVioletAura)
+syncVioletAura()
 -- AnchorPoint-aware экранный clamp: возвращает панель / плавающую кнопку в кадр.
 -- GUI работает с IgnoreGuiInset=true, поэтому размеры берём из ViewportSize.
 function boosterPro.clampWindowPosition(position, size, anchor)
@@ -3297,21 +3331,35 @@ local function hidePanelAnimation()
     if panelTween then panelTween:Cancel(); panelTween = nil end
     panelScale.Scale = uiBaseScale
 end
--- The accent mark is inexpensive; no animated gradients, glow or overlays.
+-- Static violet inner corner wash (no postprocessing or animated objects).
+local cornerWash = mk("Frame", {
+    Name = "VioletCornerWash", AnchorPoint = Vector2.new(1, 1),
+    Position = UDim2.fromScale(1, 1), Size = UDim2.fromOffset(310, 190),
+    BackgroundColor3 = Color3.fromRGB(73, 29, 132),
+    BackgroundTransparency = 0.58, BorderSizePixel = 0, Active = false,
+}, panel)
+round(cornerWash, 110)
+mk("UIGradient", {
+    Rotation = 30,
+    Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 1),
+        NumberSequenceKeypoint.new(1, 0.24),
+    }),
+}, cornerWash)
 mk("Frame", {
-    Name = "TopAccent", Visible = false, BorderSizePixel = 0,
+    Name = "TopAccent", BorderSizePixel = 0,
     BackgroundColor3 = P.accent,
-    Position = UDim2.fromOffset(14, 0), Size = UDim2.fromOffset(83, 2),
+    Position = UDim2.fromOffset(17, 0), Size = UDim2.fromOffset(110, 2),
 }, panel)
 local bar = mk("Frame", {
-    Name = "DragBar", BackgroundColor3 = Color3.fromRGB(24, 25, 28),
+    Name = "DragBar", BackgroundColor3 = Color3.fromRGB(26, 20, 41),
     BackgroundTransparency = 0,
     Size = UDim2.new(1, 0, 0, 76), Active = true,
 }, panel)
 -- Static gradient only; no perpetual UI animation or extra frame hooks.
 mk("UIGradient", {Rotation = 0,
-    Color = ColorSequence.new(Color3.fromRGB(27, 28, 32),
-        Color3.fromRGB(18, 19, 22))}, bar)
+    Color = ColorSequence.new(Color3.fromRGB(33, 24, 53),
+        Color3.fromRGB(17, 15, 27))}, bar)
 local emblem = mk("Frame", {
     Name = "BrandMark", Visible = false, BackgroundColor3 = P.tile,
     BorderSizePixel = 0, Position = UDim2.fromOffset(16, 17),
@@ -3373,19 +3421,64 @@ mk("Frame", {
     Name = "HeaderDivider", BorderSizePixel = 0, BackgroundColor3 = P.border,
     Position = UDim2.fromOffset(0, 75), Size = UDim2.new(1, 0, 0, 1),
 }, panel)
+-- Continuous glass content plate lives BEHIND independently scrollable pages.
+local contentPlate = mk("Frame", {
+    Name = "PremiumContentPlate",
+    Position = UDim2.fromOffset(207, 81),
+    Size = UDim2.new(1, -220, 1, -121),
+    BackgroundColor3 = Color3.fromRGB(23, 19, 36),
+    BorderSizePixel = 0, ClipsDescendants = true,
+}, panel)
+round(contentPlate, 15)
+mk("UIStroke", {Color = P.accent, Transparency = 0.71, Thickness = 1}, contentPlate)
+mk("UIGradient", {
+    Rotation = 20,
+    Color = ColorSequence.new(Color3.fromRGB(31, 24, 49),
+        Color3.fromRGB(18, 16, 30)),
+}, contentPlate)
+local plateShine = mk("Frame", {
+    Name = "VioletHeaderSheen", AnchorPoint = Vector2.new(1, 0),
+    Position = UDim2.new(1, 0, 0, 0),
+    Size = UDim2.new(0.52, 0, 0, 125),
+    BackgroundColor3 = Color3.fromRGB(97, 38, 170),
+    BackgroundTransparency = 0.75, BorderSizePixel = 0, Active = false,
+}, contentPlate)
+round(plateShine, 68)
+mk("UIGradient", {
+    Rotation = 0,
+    Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 1),
+        NumberSequenceKeypoint.new(1, 0.39),
+    }),
+}, plateShine)
 
 -- Reference 403VIP: permanent LEFT navigation in desktop and portrait layouts.
 -- The narrow sidebar preserves a large invisible click region for each tab.
 local tabs = mk("Frame", {
-    Name = "VisualsNavigation", BackgroundColor3 = P.background, BorderSizePixel = 0,
+    Name = "VisualsNavigation", BackgroundColor3 = Color3.fromRGB(20, 16, 31),
+    BorderSizePixel = 0,
     Position = UDim2.fromOffset(0, 0), Size = UDim2.new(0, 196, 1, 0),
     ClipsDescendants = true,
 }, panel)
-round(tabs, 3)
+mk("UIGradient", {Rotation = 90,
+    Color = ColorSequence.new(Color3.fromRGB(28, 19, 47),
+        Color3.fromRGB(15, 13, 26))}, tabs)
+local sidebarAura = mk("Frame", {
+    Name = "SidebarVioletSheen", AnchorPoint = Vector2.new(0, 1),
+    Position = UDim2.new(0, 0, 1, 0), Size = UDim2.new(1, 0, 0, 150),
+    BackgroundColor3 = Color3.fromRGB(94, 35, 160),
+    BackgroundTransparency = 0.85, BorderSizePixel = 0, Active = false,
+}, tabs)
+mk("UIGradient", {Rotation = 90,
+    Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 1),
+        NumberSequenceKeypoint.new(1, 0.17),
+    })}, sidebarAura)
 -- Отделяем декоративную линию от горизонтального UIListLayout.
 -- В v1.0.0 линия занимала полный слот и выталкивала вкладки ЗА окно.
 mk("Frame", {
-    Name = "NavLine", BackgroundColor3 = P.border, BorderSizePixel = 0,
+    Name = "NavLine", BackgroundColor3 = Color3.fromRGB(98, 72, 142),
+    BorderSizePixel = 0, BackgroundTransparency = 0.48,
     Position = UDim2.new(1, -1, 0, 0), Size = UDim2.new(0, 1, 1, 0),
 }, tabs)
 local navSlots = mk("Frame", {
@@ -3488,7 +3581,8 @@ local navigation = {
 }
 local function makeColumn(parent, name)
     local scroll = mk("ScrollingFrame", {
-        Name = name, BackgroundColor3 = P.panel, BorderSizePixel = 0,
+        Name = name, BackgroundColor3 = P.panel, BackgroundTransparency = 1,
+        BorderSizePixel = 0,
         ScrollBarThickness = 3, ScrollBarImageColor3 = P.accent,
         ScrollingDirection = Enum.ScrollingDirection.Y,
         AutomaticCanvasSize = Enum.AutomaticSize.Y,
@@ -3496,7 +3590,8 @@ local function makeColumn(parent, name)
         Active = true, ClipsDescendants = true,
     }, parent)
     round(scroll, 3)
-    mk("UIStroke", {Color = P.border, Thickness = 1, Transparency = 0.54}, scroll)
+    -- No individual scroll frame border: content plate owns the outline.
+    mk("UIStroke", {Color = P.border, Thickness = 1, Transparency = 1}, scroll)
     scroll.ScrollingEnabled = true
     scroll.ElasticBehavior = Enum.ElasticBehavior.WhenScrollable
     table.insert(scrollFrames, scroll)
@@ -3507,11 +3602,11 @@ local function makeColumn(parent, name)
     end)
     mk("UIListLayout", {
         SortOrder = Enum.SortOrder.LayoutOrder,
-        Padding = UDim.new(0, 6),
+        Padding = UDim.new(0, 8),
     }, scroll)
     mk("UIPadding", {
-        PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 10),
-        PaddingTop = UDim.new(0, 7), PaddingBottom = UDim.new(0, 9),
+        PaddingLeft = UDim.new(0, 12), PaddingRight = UDim.new(0, 13),
+        PaddingTop = UDim.new(0, 11), PaddingBottom = UDim.new(0, 14),
     }, scroll)
     return scroll
 end
@@ -3528,8 +3623,8 @@ for idx, tab in ipairs(navigation) do
         TextXAlignment = Enum.TextXAlignment.Center,
         TextColor3 = P.dim, AutoButtonColor = false,
     }, navSlots)
-    round(button, 7)
-    tabOutlines[key] = mk("UIStroke", {Color = P.border, Transparency = 1, Thickness = 1}, button)
+    round(button, 10)
+    tabOutlines[key] = mk("UIStroke", {Color = P.accent, Transparency = 1, Thickness = 1.2}, button)
     tabButtons[key] = button
     tabUnderline[key] = mk("Frame", {
         Name = "ActiveLine", BackgroundColor3 = P.accent,
@@ -3858,6 +3953,8 @@ local function applyResponsiveLayout()
             boosterPro.floatingButton.Size, boosterPro.floatingButton.AnchorPoint)
     end
     wideLayout = wide
+    contentPlate.Position = UDim2.fromOffset(wide and 207 or 101, 81)
+    contentPlate.Size = UDim2.new(1, wide and -220 or -110, 1, wide and -121 or -120)
     pageHeader.Visible, pageSubHeader.Visible = false, false
     -- Four-tab measured layout: legacy navSlots used negative relative
     -- height and cut off Settings on short landscape viewports.
@@ -3969,12 +4066,12 @@ local function showPage(key)
     for name, page in pairs(pages) do
         local selected = name == key
         page.Visible = selected
-        tabButtons[name].BackgroundColor3 = selected and Color3.fromRGB(60, 61, 66)
-            or Color3.fromRGB(29, 30, 34)
+        tabButtons[name].BackgroundColor3 = selected and Color3.fromRGB(66, 37, 105)
+            or Color3.fromRGB(31, 27, 44)
         tabButtons[name].TextColor3 = selected and P.text or P.dim
         tabButtons[name].Font = selected and Enum.Font.GothamBold or Enum.Font.GothamMedium
         tabUnderline[name].Visible = selected
-        tabOutlines[name].Transparency = selected and 0.44 or 1
+        tabOutlines[name].Transparency = selected and 0.07 or 0.91
     end
 end
 for name, button in pairs(tabButtons) do
