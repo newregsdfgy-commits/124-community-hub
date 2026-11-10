@@ -1,11 +1,11 @@
--- 124 Visuals v1.1.61 | shared local access key + recoil/spread stability
+-- 124 Visuals v1.1.62 | gate resilience, recoil watchdog and spread watcher cleanup
 -- Первый плейс: 18537079992. Запуск поддерживает все игровые PlaceId.
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.1.61",
+    Version = "1.1.62",
     OriginalPlaceId = 18537079992,
     EspRefreshSeconds = 0.35, -- Быстрый поиск персонажей, без обновления UI каждый кадр.
     EspEventMinSeconds = 0.18, -- Коалесцированные события не запускают 16 полных сканов/сек.
@@ -61,7 +61,8 @@ local CONFIG = {
     AimLosQualitySeconds = 0.02,
     RecoilShotGraceSeconds = 0.20, -- Поздний откат камеры после отпускания спуска.
     RecoilFireWindowSeconds = 0.40, -- Короткий выстрел (в т.ч. на телефоне).
-    RecoilMaxHoldSeconds = 12.0, -- Длинные автоматические очереди.
+    RecoilMaxHoldSeconds = 8.0, -- Только при реальном удержании кнопки стрельбы.
+    RecoilOrphanHoldSeconds = 0.55, -- Если Tool не прислал Deactivated, без ввода не держим 8 сек.
     RecoilInputDedupSeconds = 0.04,
     SpreadVerificationSeconds = 0.30,
     SpreadShotRecheckSeconds = 0.18,
@@ -229,6 +230,7 @@ end
 do
     local ACCESS_KEY = "124HUB"
     local GATE_GUI_NAME = "Army124AccessGate"
+    local gateScreen = nil
 
     local function requireAccessKey()
         local old = PlayerGui:FindFirstChild(GATE_GUI_NAME)
@@ -236,10 +238,14 @@ do
 
         local function create(className, properties, parent)
             local instance = Instance.new(className)
-            for key, value in pairs(properties) do
-                instance[key] = value
+            local ok, err = pcall(function()
+                for key, value in pairs(properties) do instance[key] = value end
+                instance.Parent = parent
+            end)
+            if not ok then
+                pcall(function() instance:Destroy() end)
+                error(err, 2)
             end
-            instance.Parent = parent
             return instance
         end
 
@@ -250,6 +256,7 @@ do
             DisplayOrder = 9999,
             ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
         }, PlayerGui)
+        gateScreen = screen
 
         -- Фоновая подложка и центральная карточка.
         create("Frame", {
@@ -262,7 +269,7 @@ do
         local shadow = create("Frame", {
             Name = "VioletGlow",
             AnchorPoint = Vector2.new(0.5, 0.5),
-            Position = UDim2.fromScale(0.5, 0.5),
+            Position = UDim2.fromScale(0.5, UserInputService.TouchEnabled and 0.43 or 0.5),
             Size = UDim2.new(0.94, 8, 0, 302),
             BackgroundColor3 = Color3.fromRGB(113, 61, 210),
             BackgroundTransparency = 0.68,
@@ -276,7 +283,7 @@ do
         local panel = create("Frame", {
             Name = "AccessPanel",
             AnchorPoint = Vector2.new(0.5, 0.5),
-            Position = UDim2.fromScale(0.5, 0.5),
+            Position = UDim2.fromScale(0.5, UserInputService.TouchEnabled and 0.43 or 0.5),
             Size = UDim2.new(0.90, 0, 0, 286),
             BackgroundColor3 = Color3.fromRGB(19, 18, 31),
             BorderSizePixel = 0,
@@ -285,6 +292,14 @@ do
             MaxSize = Vector2.new(420, 286),
         }, panel)
         create("UICorner", {CornerRadius = UDim.new(0, 16)}, panel)
+        -- На компактном экране элементы остаются в пределах видимой области.
+        local viewport = Workspace.CurrentCamera and Workspace.CurrentCamera.ViewportSize
+        local height = viewport and viewport.Y or 600
+        local scale = height < 340 and 0.70 or height < 460 and 0.84 or 1
+        if scale < 1 then
+            create("UIScale", {Scale = scale}, panel)
+            create("UIScale", {Scale = scale}, shadow)
+        end
         create("UIStroke", {
             Color = Color3.fromRGB(128, 86, 210),
             Thickness = 1.4,
@@ -403,7 +418,10 @@ do
         end
         submit.Activated:Connect(tryUnlock)
         input.FocusLost:Connect(function(enterPressed)
-            if enterPressed then tryUnlock() end
+            -- На некоторых мобильных клавиатурах Done не выставляет enterPressed.
+            if enterPressed or (UserInputService.TouchEnabled and input.Text ~= "") then
+                tryUnlock()
+            end
         end)
         cancel.Activated:Connect(function() resolve(false) end)
         screen.Destroying:Connect(function() resolve(false) end)
@@ -416,6 +434,11 @@ do
 
     env.ARMY124_BOOT_PHASE = "key_required"
     local ok, accepted = pcall(requireAccessKey)
+    if gateScreen and gateScreen.Parent then
+        -- Если создание UI завершилось исключением, подложка не останется в PlayerGui.
+        pcall(function() gateScreen:Destroy() end)
+    end
+    gateScreen = nil
     if not ok or not accepted then
         env.ARMY124_BOOT_PHASE = "key_denied"
         env.ARMY124_BOOT_ERROR = ok and "Ключ не введён" or "Экран ключа: " .. tostring(accepted)
@@ -2487,8 +2510,10 @@ local function clearSpreadIndex()
     local spread = controller.spread
     spread.generation = spread.generation + 1
     spread.queued = false
-    for _, connection in ipairs(spread.watchers) do
-        pcall(function() connection:Disconnect() end)
+    for _, group in pairs(spread.watchers) do
+        for _, connection in ipairs(group) do
+            pcall(function() connection:Disconnect() end)
+        end
     end
     table.clear(spread.watchers)
     table.clear(spread.candidates)
@@ -2537,7 +2562,11 @@ local function registerSpreadCandidate(instance)
                 end
             end)
         end)
-        if ok then spread.watchers[#spread.watchers + 1] = conn end
+        if ok then
+            local group = spread.watchers[instance]
+            if not group then group = {}; spread.watchers[instance] = group end
+            group[#group + 1] = conn
+        end
     end
     if attrs then
         local ok, conn = pcall(function()
@@ -2550,7 +2579,30 @@ local function registerSpreadCandidate(instance)
                 end
             end)
         end)
-        if ok then spread.watchers[#spread.watchers + 1] = conn end
+        if ok then
+            local group = spread.watchers[instance]
+            if not group then group = {}; spread.watchers[instance] = group end
+            group[#group + 1] = conn
+        end
+    end
+end
+
+-- Удалённые дочерние объекты не должны удерживать старые подписки до смены Tool.
+local function unregisterSpreadCandidate(instance)
+    local spread = controller.spread
+    local group = spread.watchers[instance]
+    if group then
+        for _, connection in ipairs(group) do
+            pcall(function() connection:Disconnect() end)
+        end
+        spread.watchers[instance] = nil
+    end
+    spread.candidateSet[instance] = nil
+    for i = #spread.candidates, 1, -1 do
+        if spread.candidates[i] == instance then
+            table.remove(spread.candidates, i)
+            break
+        end
     end
 end
 
@@ -2657,8 +2709,7 @@ function controller.applySpread()
         local ok, err = pcall(function()
             if not instance.Parent
                 or (instance ~= tool and not instance:IsDescendantOf(tool)) then
-                spread.candidateSet[instance] = nil
-                table.remove(candidates, i)
+                unregisterSpreadCandidate(instance)
             else
                 patch(instance)
             end
@@ -2801,9 +2852,12 @@ local function equipRecoilTool(tool)
         recoilToolConnections[#recoilToolConnections + 1] = tool.DescendantAdded:Connect(function(obj)
             if alive and state.noSpread and recoilTool == tool then
                 registerSpreadCandidate(obj)
-                if controller.spread.candidateSet[obj] then
-                    queueSpreadRefresh()
-                end
+                if controller.spread.candidateSet[obj] then queueSpreadRefresh() end
+            end
+        end)
+        recoilToolConnections[#recoilToolConnections + 1] = tool.DescendantRemoving:Connect(function(obj)
+            if controller.spread.candidateSet[obj] then
+                unregisterSpreadCandidate(obj)
             end
         end)
     end
@@ -2878,7 +2932,9 @@ local function recoilFrame(dt)
     if state.aimbot and (aimHeldMouse or aimHeldTouch or aimHeldKey) then return end
     local now = os.clock()
     local firing = now <= recoilFireUntil
-        or (recoilHolding and now - recoilHoldStarted <= CONFIG.RecoilMaxHoldSeconds)
+        or (recoilHolding and now - recoilHoldStarted
+            <= (recoilFireInput and CONFIG.RecoilMaxHoldSeconds
+                or CONFIG.RecoilOrphanHoldSeconds))
     if not firing or dt <= 0 or dt > CONFIG.RecoilMaxFrameSeconds then return end
     local pitchUp = signedAngle(previousPitch, currentPitch)
     if pitchUp < math.rad(CONFIG.RecoilMinPitchDegrees)
