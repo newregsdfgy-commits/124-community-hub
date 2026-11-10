@@ -4467,8 +4467,11 @@ local function addButton(page, text, description, handler)
         Text = "", AutoButtonColor = true, BorderSizePixel = 0,
     }, columnFor(page))
     registerWidget(page, button)
-    round(button, 6)
-    mk("UIStroke", {Color = P.border, Transparency = 0.48, Thickness = 1}, button)
+    round(button, 10)
+    mk("UIStroke", {Color = P.border, Transparency = 0.54, Thickness = 1}, button)
+    mk("UIGradient", {Rotation = 0,
+        Color = ColorSequence.new(Color3.fromRGB(42, 35, 61),
+            Color3.fromRGB(29, 26, 43))}, button)
     mk("TextLabel", {
         BackgroundTransparency = 1,
         Position = UDim2.fromOffset(11, 5), Size = UDim2.new(1, -39, 0, 21),
@@ -4500,11 +4503,11 @@ end
 local function addSlider(page, title, description, key, minValue, maxValue, step, formatter, onChanged)
     local container = mk("Frame", {
         Name = key .. "Slider", Size = UDim2.new(1, 0, 0, 74),
-        BackgroundColor3 = CONFIG.Surface, BorderSizePixel = 0,
+        BackgroundColor3 = P.tile, BorderSizePixel = 0,
     }, columnFor(page))
     registerWidget(page, container)
-    round(container, 3)
-    mk("UIStroke", {Color = P.border, Transparency = 0.48, Thickness = 1}, container)
+    round(container, 9)
+    mk("UIStroke", {Color = P.border, Transparency = 0.54, Thickness = 1}, container)
     mk("TextLabel", {
         BackgroundTransparency = 1, Position = UDim2.fromOffset(10, 5),
         Size = UDim2.new(1, -103, 0, 18), Text = title,
@@ -4515,13 +4518,13 @@ local function addSlider(page, title, description, key, minValue, maxValue, step
     local valueLabel = mk("TextLabel", {
         BackgroundTransparency = 1, Position = UDim2.new(1, -105, 0, 5),
         Size = UDim2.fromOffset(95, 18),
-        TextColor3 = CONFIG.Accent, Font = Enum.Font.Code,
+        TextColor3 = P.accent, Font = Enum.Font.Code,
         TextSize = 12, TextXAlignment = Enum.TextXAlignment.Right,
     }, container)
     mk("TextLabel", {
         BackgroundTransparency = 1, Position = UDim2.fromOffset(10, 24),
         Size = UDim2.new(1, -20, 0, 13), Text = description,
-        TextColor3 = CONFIG.Muted, Font = Enum.Font.Gotham,
+        TextColor3 = P.dim, Font = Enum.Font.Gotham,
         TextSize = 9, TextXAlignment = Enum.TextXAlignment.Left,
     }, container)
     local touchArea = mk("TextButton", {
@@ -4531,20 +4534,20 @@ local function addSlider(page, title, description, key, minValue, maxValue, step
     }, container)
     local track = mk("Frame", {
         Name = "Track", BorderSizePixel = 0,
-        BackgroundColor3 = Color3.fromRGB(84, 86, 83),
+        BackgroundColor3 = Color3.fromRGB(70, 63, 88),
         Position = UDim2.new(0, 6, 0.5, -2),
         Size = UDim2.new(1, -12, 0, 4),
     }, touchArea)
     round(track, 2)
     local fill = mk("Frame", {
         Name = "Fill", BorderSizePixel = 0,
-        BackgroundColor3 = CONFIG.Accent, Size = UDim2.fromScale(0, 1),
+        BackgroundColor3 = P.accent, Size = UDim2.fromScale(0, 1),
     }, track)
     round(fill, 2)
     local thumb = mk("Frame", {
         Name = "Thumb", AnchorPoint = Vector2.new(0.5, 0.5),
         Position = UDim2.fromScale(0, 0.5), Size = UDim2.fromOffset(12, 12),
-        BackgroundColor3 = Color3.fromRGB(251, 239, 241), BorderSizePixel = 0,
+        BackgroundColor3 = Color3.fromRGB(248, 239, 255), BorderSizePixel = 0,
     }, track)
     round(thumb, 6)
 
@@ -4600,7 +4603,7 @@ end
 local function addAimModeSelector(page)
     local container = mk("Frame", {
         Name = "AimModeSelector", Size = UDim2.new(1, 0, 0, 63),
-        BackgroundColor3 = CONFIG.Surface, BorderSizePixel = 0,
+        BackgroundColor3 = P.tile, BorderSizePixel = 0,
     }, columnFor(page))
     registerWidget(page, container)
     round(container, 3)
@@ -4627,8 +4630,9 @@ local function addAimModeSelector(page)
             local button = buttons[mode.value]
             if button and button.Parent then
                 local selected = state.aimMode == mode.value
-                button.BackgroundColor3 = selected and CONFIG.Accent or Color3.fromRGB(42, 43, 51)
-                button.TextColor3 = selected and CONFIG.Window or Color3.fromRGB(187, 190, 185)
+                button.BackgroundColor3 = selected and Color3.fromRGB(111, 61, 170)
+                    or Color3.fromRGB(42, 35, 57)
+                button.TextColor3 = selected and P.text or P.dim
             end
         end
     end
