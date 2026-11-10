@@ -1,11 +1,11 @@
--- 124 Visuals v1.1.59 | full audit: safe parameter restore, recoil profile, audio diagnostics
+-- 124 Visuals v1.1.60 | stable recoil and spread monitoring
 -- Первый плейс: 18537079992. Запуск поддерживает все игровые PlaceId.
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.1.59",
+    Version = "1.1.60",
     OriginalPlaceId = 18537079992,
     EspRefreshSeconds = 0.35, -- Быстрый поиск персонажей, без обновления UI каждый кадр.
     EspEventMinSeconds = 0.18, -- Коалесцированные события не запускают 16 полных сканов/сек.
@@ -61,7 +61,11 @@ local CONFIG = {
     AimLosQualitySeconds = 0.02,
     RecoilShotGraceSeconds = 0.20, -- Поздний откат камеры после отпускания спуска.
     RecoilFireWindowSeconds = 0.40, -- Короткий выстрел (в т.ч. на телефоне).
-    RecoilMaxHoldSeconds = 6.0, -- Ограничение удержания при отсутствии Deactivated.
+    RecoilMaxHoldSeconds = 12.0, -- Длинные автоматические очереди.
+    RecoilInputDedupSeconds = 0.04,
+    SpreadVerificationSeconds = 0.30,
+    SpreadShotRecheckSeconds = 0.18,
+    SpreadPostShotSeconds = 0.06,
     RecoilMaxCorrectionPerSecond = 120, -- Единая плавность при 60/120+ FPS.
     RecoilMaxFrameSeconds = 0.16, -- Не компенсируем скачок камеры после лагов.
     RecoilMinPitchDegrees = 0.045, -- Не реагируем на микродрожание камеры.
@@ -2258,31 +2262,98 @@ local spreadParameterNames = {
     minspread = true, maxspread = true, initialspread = true,
     spreadangle = true, spreaddegrees = true, spreadmultiplier = true,
     inaccuracy = true, bloom = true, bulletbloom = true,
+    basespread = true, hipfirespread = true, adsspread = true,
+    aimingspread = true, weaponspread = true, projectilespread = true,
+    bloompershot = true, bloomperbullet = true, spreadpershot = true,
+    spreadperbullet = true, accuracypenalty = true,
+    coneangle = true, conespread = true,
 }
 controller.spread = {
     originals = setmetatable({}, {__mode = "k"}), modified = 0,
     nextCheckAt = 0, currentTool = nil, candidates = {}, lastErrorAt = 0,
     candidateSet = setmetatable({}, {__mode = "k"}),
+    watchers = {}, generation = 0, queued = false, applying = false,
 }
 local function isSpreadParameter(name)
     return type(name) == "string"
         and spreadParameterNames[string.lower(name):gsub("[^%w]", "")] == true
 end
--- Кандидаты индексируются при смене Tool, а не пересканируются при стрельбе.
+-- Индекс и наблюдатели удаляются при смене оружия или отключении функции.
+local function clearSpreadIndex()
+    local spread = controller.spread
+    spread.generation = spread.generation + 1
+    spread.queued = false
+    for _, connection in ipairs(spread.watchers) do
+        pcall(function() connection:Disconnect() end)
+    end
+    table.clear(spread.watchers)
+    table.clear(spread.candidates)
+    table.clear(spread.candidateSet)
+    spread.currentTool = nil
+end
+local function queueSpreadRefresh()
+    local spread = controller.spread
+    if not alive or not state.noSpread or spread.queued or spread.applying then return end
+    spread.queued = true
+    local generation = spread.generation
+    task.defer(function()
+        if spread.generation ~= generation then return end
+        spread.queued = false
+        if alive and state.noSpread and recoilTool == spread.currentTool then
+            pcall(controller.applySpread)
+        end
+    end)
+end
+local function hasSpreadAttribute(instance)
+    local ok, attrs = pcall(function() return instance:GetAttributes() end)
+    if not ok then return false end
+    for name in pairs(attrs) do
+        if isSpreadParameter(name) then return true end
+    end
+    return false
+end
 local function registerSpreadCandidate(instance)
-    if not instance or controller.spread.candidateSet[instance] then return end
-    if instance == recoilTool or instance:IsA("Configuration")
-        or ((instance:IsA("NumberValue") or instance:IsA("IntValue"))
-            and isSpreadParameter(instance.Name))
-        or (instance:IsA("Folder") and string.find(
-            string.lower(instance.Name), "config", 1, true)) then
-        controller.spread.candidateSet[instance] = true
-        local candidates = controller.spread.candidates
-        candidates[#candidates + 1] = instance
+    local spread = controller.spread
+    if not instance or spread.candidateSet[instance] then return end
+    local numeric = (instance:IsA("NumberValue") or instance:IsA("IntValue"))
+        and isSpreadParameter(instance.Name)
+    local attrs = instance == recoilTool or instance:IsA("Configuration")
+        or instance:IsA("Folder") or instance:IsA("ModuleScript")
+        or hasSpreadAttribute(instance)
+    if not numeric and not attrs then return end
+    spread.candidateSet[instance] = true
+    spread.candidates[#spread.candidates + 1] = instance
+    if numeric then
+        local ok, conn = pcall(function()
+            return instance:GetPropertyChangedSignal("Value"):Connect(function()
+                if not state.noSpread or spread.applying then return end
+                local good, value = pcall(function() return instance.Value end)
+                if good and type(value) == "number" and value > 0 then
+                    queueSpreadRefresh()
+                end
+            end)
+        end)
+        if ok then spread.watchers[#spread.watchers + 1] = conn end
+    end
+    if attrs then
+        local ok, conn = pcall(function()
+            return instance.AttributeChanged:Connect(function(name)
+                if not state.noSpread or spread.applying
+                    or not isSpreadParameter(name) then return end
+                local good, value = pcall(function() return instance:GetAttribute(name) end)
+                if good and type(value) == "number" and value > 0 then
+                    queueSpreadRefresh()
+                end
+            end)
+        end)
+        if ok then spread.watchers[#spread.watchers + 1] = conn end
     end
 end
 
 function controller.restoreSpread()
+    -- Отмена подписок до восстановления не даёт возвращённым значениям
+    -- вызвать повторное зануление.
+    clearSpreadIndex()
     local originals = controller.spread.originals
     local allRestored = true
     for instance, saved in pairs(originals) do
@@ -2334,9 +2405,8 @@ function controller.applySpread()
     local originals = controller.spread.originals
     local spread = controller.spread
     if spread.currentTool ~= tool then
+        clearSpreadIndex()
         spread.currentTool = tool
-        table.clear(spread.candidates)
-        table.clear(spread.candidateSet)
         registerSpreadCandidate(tool)
         local ok, descendants = pcall(function() return tool:GetDescendants() end)
         if not ok then
@@ -2362,9 +2432,7 @@ function controller.applySpread()
         end
         -- Атрибуты отслеживаем только у Tool и конфигурационных контейнеров,
         -- чтобы не обходить избыточные Attributes каждой геометрической детали.
-        if instance == tool or instance:IsA("Configuration")
-            or (instance:IsA("Folder") and string.find(string.lower(instance.Name),
-                "config", 1, true)) then
+        if spread.candidateSet[instance] then
             for name, value in pairs(instance:GetAttributes()) do
                 if isSpreadParameter(name) and type(value) == "number"
                     and value > 0 and value < 1000000 then
@@ -2379,6 +2447,7 @@ function controller.applySpread()
     end
     local errors, firstError = 0, nil
     local candidates = spread.candidates
+    spread.applying = true
     for i = #candidates, 1, -1 do
         local instance = candidates[i]
         local ok, err = pcall(function()
@@ -2395,6 +2464,7 @@ function controller.applySpread()
             if not firstError then firstError = err end
         end
     end
+    spread.applying = false
     if errors > 0 and os.clock() - spread.lastErrorAt >= 4 then
         spread.lastErrorAt = os.clock()
         warn("[124 Visuals] No Spread local: " .. tostring(firstError)
@@ -2426,13 +2496,11 @@ end
 local function markRecoilShot()
     if not alive or not recoilTool then return end
     local now = os.clock()
-    -- Некоторые Tool пересоздают значения spread в обработчике Activated.
-    -- Проверяем клиентские параметры максимум два раза в секунду, не каждый
-    -- кадр и не до обработки остальных обработчиков того же события.
+    -- Отложенная проверка после того, как оружие обновило локальные параметры.
     if state.noSpread and now >= controller.spread.nextCheckAt then
-        controller.spread.nextCheckAt = now + 0.5
+        controller.spread.nextCheckAt = now + CONFIG.SpreadShotRecheckSeconds
         local firedTool = recoilTool
-        task.delay(0.08, function()
+        task.delay(CONFIG.SpreadPostShotSeconds, function()
             if alive and state.noSpread and recoilTool == firedTool then
                 pcall(controller.applySpread)
             end
@@ -2460,9 +2528,6 @@ local function equipRecoilTool(tool)
     if recoilTool == tool then return end
     controller.restoreSpread()
     controller.spread.nextCheckAt = 0
-    controller.spread.currentTool = nil
-    table.clear(controller.spread.candidates)
-    table.clear(controller.spread.candidateSet)
     disconnectRecoilConnections(recoilToolConnections)
     recoilTool = nil
     resetRecoilTracking()
@@ -2475,16 +2540,11 @@ local function equipRecoilTool(tool)
         end)
         if state.noSpread then controller.applySpread() end
         recoilToolConnections[#recoilToolConnections + 1] = tool.DescendantAdded:Connect(function(obj)
-            if alive and state.noSpread and (isSpreadParameter(obj.Name)
-                or obj:IsA("Configuration")
-                or (obj:IsA("Folder") and string.find(
-                    string.lower(obj.Name), "config", 1, true))) then
+            if alive and state.noSpread and recoilTool == tool then
                 registerSpreadCandidate(obj)
-                task.defer(function()
-                    if alive and state.noSpread and recoilTool == tool then
-                        controller.applySpread()
-                    end
-                end)
+                if controller.spread.candidateSet[obj] then
+                    queueSpreadRefresh()
+                end
             end
         end)
     end
@@ -2522,6 +2582,15 @@ end)
 bindRecoilCharacter(LocalPlayer.Character)
 
 local function recoilFrame(dt)
+    -- No Spread не зависит от состояния компенсации камеры.
+    if alive and state.noSpread and recoilTool
+        and recoilTool.Parent == LocalPlayer.Character then
+        local now = os.clock()
+        if now >= controller.spread.nextCheckAt then
+            controller.spread.nextCheckAt = now + CONFIG.SpreadVerificationSeconds
+            pcall(controller.applySpread)
+        end
+    end
     -- OFF: нулевые вычисления углов камеры.
     -- После включения первый кадр записывает базу, не компенсируя
     -- несуществующий скачок на границе состояний.
@@ -5672,7 +5741,7 @@ addToggle(pages.MISC, "No Recoil", "Полная компенсация обна
         end
         recoil.reset()
 end)
-addToggle(pages.MISC, "No Spread", "Только доступные числовые параметры Tool; серверный разброс не меняет",
+addToggle(pages.MISC, "No Spread", "Отслеживает локальные параметры Tool; серверный разброс не меняет",
     "noSpread", function(enabled)
         if enabled then
             local touched = recoil.applySpread()
