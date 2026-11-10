@@ -1,3 +1,28 @@
+# RV_STATE — 124 Visuals v1.1.63
+
+Current branch: `v1.1.63-independent-reaudit-test`  
+Base: `v1.1.62-audit-fixes-test`  
+User requested repeated audit and bug fixes. Existing functions preserved.
+
+## Changes
+- G-04: explicitly use mobile `TextBox.ReturnPressedFromOnScreenKeyboard`; no accidental submit on blur.
+- S-04: spread change events coalesced with bounded 0.05-second reactive interval.
+- R-02: mouse held state checked when Tool.Activated occurs without InputBegan callback.
+
+## Verification
+- Static asserts: **83/83**.
+- Lexer/balanced Luau-like structure: 8,365 lines, 39,214 tokens, zero structural issues.
+- Sources identical blob `02c2e68c861f8ed249d5dc7880324402c06d17a8`.
+- Launcher blob `8199616e431766480dae89823228497c4394939d`.
+- Detail: `AUDIT_v1.1.63.md`.
+- Actual Luau compile / Roblox runtime / key UI / executor compatibility / FPS tests: NOT performed.
+- Plaintext gate key remains `124HUB`, not server-authorized.
+
+## Next
+Test key input and weapon compatibility in Roblox. Preserve prior branch and avoid claiming live behavior before logs/screenshots.
+
+## Previous entries
+
 # RV_STATE — v1.1.62
 
 ## Current
