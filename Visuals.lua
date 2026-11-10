@@ -6551,8 +6551,17 @@ local function buildReferenceMenu()
         CONFIG.AimFovMaxPixels, 5, function(value) return tostring(value) .. "px" end,
         72, refreshFovRing)
 
-    -- Search now filters the ACTUAL ESP cards, not the disabled preview.
-    -- Only runs after a TextBox change; there is no polling or frame hook.
+    -- Search the ACTUAL ESP cards: title, subtitle, and section headings.
+    -- No polling; only reacts to TextBox edits. Avoid repeated toast spam.
+    local searchEmpty = mk("TextLabel", {
+        Name = "PremiumSearchEmpty", BackgroundTransparency = 1,
+        Position = UDim2.new(0, 8, 0.5, -16),
+        Size = UDim2.new(1, -16, 0, 32),
+        Text = "Ничего не найдено", TextSize = 12,
+        Font = Enum.Font.GothamMedium, TextColor3 = P.dim,
+        Visible = false, TextXAlignment = Enum.TextXAlignment.Center,
+        ZIndex = 8,
+    }, pages.ESP)
     connect(search:GetPropertyChangedSignal("Text"), function()
         if not alive then return end
         local query = string.lower(search.Text):match("^%s*(.-)%s*$")
@@ -6562,19 +6571,23 @@ local function buildReferenceMenu()
             for _, item in ipairs(info.widgets) do
                 local widget = item.object
                 if widget and widget.Parent then
-                    local caption = widget:FindFirstChildWhichIsA("TextLabel", true)
-                    local content = string.lower(widget.Name .. " "
-                        .. (caption and caption.Text or ""))
-                    local found = query == "" or content:find(query, 1, true) ~= nil
+                    local found = true
+                    if query ~= "" then
+                        local fields = {widget.Name}
+                        for _, label in ipairs(widget:GetDescendants()) do
+                            if label:IsA("TextLabel") and label.Text ~= "" then
+                                fields[#fields + 1] = label.Text
+                            end
+                        end
+                        found = string.lower(table.concat(fields, " ")):find(query, 1, true) ~= nil
+                    end
                     widget.Visible = found
                     if found then matches = matches + 1 end
                 end
             end
         end
-        if query ~= "" then
-            showPage("ESP")
-            if matches == 0 then tell("Поиск: совпадений не найдено") end
-        end
+        searchEmpty.Visible = query ~= "" and matches == 0
+        if query ~= "" then showPage("ESP") end
     end)
     local function clearSearch()
         if search.Text ~= "" then search.Text = "" end
