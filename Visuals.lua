@@ -1208,10 +1208,12 @@ connect(Players.PlayerRemoving, function(player)
     deleteRender(player)
 end)
 
--- FullBright и FPS Booster имеют общую исходную копию освещения.
+-- Shared Lighting ownership: only properties actually written by this
+-- script are restored. Dynamic day/night changes stay with the game.
 local lightingProperties = {
     "Brightness", "Ambient", "OutdoorAmbient", "ExposureCompensation", "GlobalShadows"
 }
+local lightingOwned = {} -- key -> last value this script imposed (false is valid).
 
 local function captureLighting()
     if savedLighting then return end
@@ -1236,15 +1238,43 @@ local function wantedLightingValue(key)
     return nil
 end
 
--- При смене игрового времени ClockTime НЕ трогаем: это устраняет дневные вспышки.
--- Настройки удерживаются по событию, а не только раз в 2 секунды.
+local function restoreOwnedLighting(key)
+    local imposed = lightingOwned[key]
+    if imposed == nil then return true end
+    local original = savedLighting and savedLighting[key]
+    local ok = pcall(function()
+        local current = Lighting[key]
+        -- Another owner/game changed this property: never overwrite it.
+        if original ~= nil and current == imposed and current ~= original then
+            Lighting[key] = original
+            if Lighting[key] ~= original then error("Lighting restore mismatch") end
+        end
+    end)
+    if ok then
+        lightingOwned[key] = nil
+    else
+        boosterPro.restoreFailures = boosterPro.restoreFailures + 1
+        if boosterPro.restoreFailures <= 3 then
+            warn("[124 Visuals] Lighting: восстановление " .. tostring(key) .. " будет повторено")
+        end
+    end
+    return ok
+end
+
 local function enforceLightingProperty(key)
     if not alive or lightingApplying or not savedLighting then return end
     local wanted = wantedLightingValue(key)
     if wanted == nil then return end
     lightingApplying = true
     pcall(function()
-        if Lighting[key] ~= wanted then Lighting[key] = wanted end
+        local current = Lighting[key]
+        if current ~= wanted then
+            -- Preserve the latest dynamic value from the game, not an old
+            -- snapshot taken several day/night transitions ago.
+            savedLighting[key] = current
+            lightingOwned[key] = wanted
+            Lighting[key] = wanted
+        end
     end)
     lightingApplying = false
 end
@@ -1254,21 +1284,9 @@ local function applyLighting()
     if not state.fullbright and not state.booster then
         if savedLighting then
             lightingApplying = true
-            -- Сохраняем ПОЛНЫЙ снимок до полного отката: если пользователь снова
-            -- включит FullBright после частичного отказа, оригиналы не потеряются.
             local complete = true
-            for key, original in pairs(savedLighting) do
-                local ok = pcall(function()
-                    if Lighting[key] ~= original then Lighting[key] = original end
-                    if Lighting[key] ~= original then error("Lighting restore mismatch") end
-                end)
-                if not ok then
-                    complete = false
-                    boosterPro.restoreFailures = boosterPro.restoreFailures + 1
-                    if boosterPro.restoreFailures <= 3 then
-                        warn("[124 Community Visuals] Lighting: откат " .. tostring(key) .. " не выполнен; повторим")
-                    end
-                end
+            for _, key in ipairs(lightingProperties) do
+                if not restoreOwnedLighting(key) then complete = false end
             end
             lightingApplying = false
             if complete then savedLighting = nil end
@@ -1281,14 +1299,17 @@ local function applyLighting()
         local wanted = wantedLightingValue(key)
         if wanted ~= nil then
             pcall(function()
-                if Lighting[key] ~= wanted then Lighting[key] = wanted end
+                local current = Lighting[key]
+                if current ~= wanted then
+                    savedLighting[key] = current
+                    lightingOwned[key] = wanted
+                    Lighting[key] = wanted
+                end
             end)
-        elseif savedLighting[key] ~= nil then
-            -- Когда FullBright отключён, но Booster работает, возвращаем
-            -- остальные параметры освещения, оставляя тени выключенными.
-            pcall(function()
-                if Lighting[key] ~= savedLighting[key] then Lighting[key] = savedLighting[key] end
-            end)
+        else
+            -- Example: FullBright OFF while Booster is still ON. Restore
+            -- FullBright-owned colors, but leave unowned game lighting alone.
+            restoreOwnedLighting(key)
         end
     end
     lightingApplying = false
