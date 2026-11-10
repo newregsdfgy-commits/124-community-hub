@@ -4343,25 +4343,30 @@ end
 local function addSection(page, title, subtitle)
     local info = pageColumns[page]
     if info then info.side = sectionSides[title] or info.side end
+    local hero = title == "VISUALS" or title == "TARGETING"
+        or title == "MOVEMENT" or title == "UTILITY"
     local container = mk("Frame", {
         Name = title .. "Heading", BackgroundTransparency = 1,
-        Size = UDim2.new(1, 0, 0, 39),
+        Size = UDim2.new(1, 0, 0, hero and 62 or 42),
     }, columnFor(page))
     registerWidget(page, container)
-    mk("Frame", {Name = "SectionAccent", BackgroundColor3 = P.accent,
-        BorderSizePixel = 0, Position = UDim2.fromOffset(4, 9),
-        Size = UDim2.fromOffset(14, 2)}, container)
+    local sectionBar = mk("Frame", {Name = "SectionAccent", BackgroundColor3 = P.accent,
+        BorderSizePixel = 0, Position = UDim2.fromOffset(4, hero and 11 or 14),
+        Size = UDim2.fromOffset(hero and 4 or 19, hero and 23 or 2)}, container)
+    round(sectionBar, 2)
     mk("TextLabel", {
         BackgroundTransparency = 1,
-        Position = UDim2.fromOffset(12, 3), Size = UDim2.new(1, -16, 0, 18),
-        Text = title, Font = Enum.Font.GothamBold, TextSize = 12,
+        Position = UDim2.fromOffset(hero and 18 or 8, hero and 5 or 3),
+        Size = UDim2.new(1, hero and -26 or -16, 0, hero and 29 or 19),
+        Text = title, Font = Enum.Font.GothamBold, TextSize = hero and 18 or 12,
         TextColor3 = P.text, TextXAlignment = Enum.TextXAlignment.Left,
     }, container)
     mk("TextLabel", {
         BackgroundTransparency = 1,
-        Position = UDim2.fromOffset(4, 23), Size = UDim2.new(1, -8, 0, 13),
+        Position = UDim2.fromOffset(hero and 19 or 8, hero and 39 or 24),
+        Size = UDim2.new(1, hero and -25 or -12, 0, 14),
         Text = subtitle, Font = Enum.Font.Gotham,
-        TextSize = 9, TextColor3 = P.dim,
+        TextSize = hero and 10 or 9, TextColor3 = P.dim,
         TextXAlignment = Enum.TextXAlignment.Left,
         TextTruncate = Enum.TextTruncate.AtEnd,
     }, container)
@@ -4369,46 +4374,54 @@ end
 
 local function addToggle(page, title, description, key, onChanged)
     local row = mk("TextButton", {
-        Name = key, Size = UDim2.new(1, 0, 0, 47),
-        BackgroundColor3 = Color3.fromRGB(29, 30, 34), BorderSizePixel = 0,
+        Name = key, Size = UDim2.new(1, 0, 0, 54),
+        BackgroundColor3 = Color3.fromRGB(34, 29, 50), BorderSizePixel = 0,
         AutoButtonColor = false, Text = "",
     }, columnFor(page))
     registerWidget(page, row)
-    round(row, 6)
-    mk("UIStroke", {Color = P.border, Transparency = 0.67, Thickness = 1}, row)
+    round(row, 10)
+    local rowBorder = mk("UIStroke", {Color = P.border, Transparency = 0.59, Thickness = 1}, row)
+    mk("UIGradient", {Rotation = 0,
+        Color = ColorSequence.new(Color3.fromRGB(40, 33, 58),
+            Color3.fromRGB(26, 25, 39))}, row)
     mk("TextLabel", {
         BackgroundTransparency = 1,
-        Position = UDim2.fromOffset(11, 4), Size = UDim2.new(1, -60, 0, 19),
-        Text = title, TextSize = 12, Font = Enum.Font.GothamMedium,
+        Position = UDim2.fromOffset(13, 7), Size = UDim2.new(1, -72, 0, 20),
+        Text = title, TextSize = 12, Font = Enum.Font.GothamBold,
         TextColor3 = P.text, TextXAlignment = Enum.TextXAlignment.Left,
         TextTruncate = Enum.TextTruncate.AtEnd,
     }, row)
     mk("TextLabel", {
         BackgroundTransparency = 1,
-        Position = UDim2.fromOffset(11, 25), Size = UDim2.new(1, -60, 0, 15),
+        Position = UDim2.fromOffset(13, 30), Size = UDim2.new(1, -72, 0, 15),
         Text = description, TextSize = 9, Font = Enum.Font.Gotham,
         TextColor3 = P.dim, TextXAlignment = Enum.TextXAlignment.Left,
         TextTruncate = Enum.TextTruncate.AtEnd,
     }, row)
     local pill = mk("Frame", {
-        Name = "Switch", Position = UDim2.new(1, -44, 0.5, -8),
-        Size = UDim2.fromOffset(32, 16), BackgroundColor3 = P.off,
+        Name = "Switch", AnchorPoint = Vector2.new(1, 0.5),
+        Position = UDim2.new(1, -12, 0.5, 0),
+        Size = UDim2.fromOffset(34, 18), BackgroundColor3 = P.off,
         BorderSizePixel = 0,
     }, row)
-    round(pill, 8)
+    round(pill, 9)
+    local pillBorder = mk("UIStroke", {Color = P.border, Transparency = 0.62, Thickness = 1}, pill)
     local knob = mk("Frame", {
         Name = "Knob", Position = UDim2.fromOffset(2, 2),
-        Size = UDim2.fromOffset(12, 12),
+        Size = UDim2.fromOffset(14, 14),
         BackgroundColor3 = Color3.fromRGB(222, 223, 227), BorderSizePixel = 0,
     }, pill)
-    round(knob, 6)
+    round(knob, 7)
     local function update()
         if not row.Parent then return end
         local enabled = state[key] == true
-        pill.BackgroundColor3 = enabled and P.accent or P.off
+        pill.BackgroundColor3 = enabled and Color3.fromRGB(117, 62, 183) or P.off
         knob.Position = UDim2.fromOffset(enabled and 18 or 2, 2)
-        knob.BackgroundColor3 = enabled and Color3.fromRGB(255, 250, 251)
-            or Color3.fromRGB(203, 204, 212)
+        knob.BackgroundColor3 = enabled and Color3.fromRGB(255, 251, 255)
+            or Color3.fromRGB(222, 219, 235)
+        pillBorder.Color = enabled and P.accent or P.border
+        pillBorder.Transparency = enabled and 0.17 or 0.64
+        rowBorder.Transparency = enabled and 0.29 or 0.63
     end
     refreshToggles[key] = update
     local lastMouseActivation = -1e8
