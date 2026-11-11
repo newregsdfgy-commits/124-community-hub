@@ -1287,3 +1287,66 @@ function privateMusic.shutdown()
     privateMusic.stop()
 end
 
+
+-- PLAYER TAB: avatar-only particles / glow + camera-local weather and color grading.
+addSection(pages.PLAYER, "PLAYER AURA", "Мягкие частицы вокруг собственного персонажа")
+addToggle(pages.PLAYER, "Аура тела", "Локальное сияние без изменения персонажа на сервере",
+    "playerAuraEnabled", function() playerFX.syncAvatar() end)
+addSlider(pages.PLAYER, "Интенсивность ауры", "Частицы и яркость свечения · 1–5",
+    "playerGlowPower", 1, 5, 1, function(v) return tostring(v) .. " / 5" end,
+    function() playerFX.syncAvatar() end)
+addChoice(pages.PLAYER, "Цвет ауры и свечения", {
+    {value = "PURPLE", label = "PURPLE"},
+    {value = "CYAN", label = "CYAN"},
+    {value = "GOLD", label = "GOLD"},
+    {value = "GREEN", label = "GREEN"},
+}, "playerAuraColor", function() playerFX.syncAvatar() end)
+
+addSection(pages.PLAYER, "PLAYER GLOW", "Контур и PointLight только у своего тела")
+addToggle(pages.PLAYER, "Свечение тела", "Контур + мягкий локальный свет, без замены материалов",
+    "playerGlowEnabled", function() playerFX.syncAvatar() end)
+
+addSection(pages.PLAYER, "LOCAL WEATHER", "Клиентская погода · туман, дождь, ночной фильтр")
+addToggle(pages.PLAYER, "Изменить погоду", "Локальный Fog и цветокоррекция, без изменения сервера",
+    "playerWeatherEnabled", function() playerFX.syncWeather() end)
+addChoice(pages.PLAYER, "Пресет погоды", {
+    {value = "CLEAR", label = "CLEAR"},
+    {value = "FOG", label = "FOG"},
+    {value = "RAIN", label = "RAIN"},
+    {value = "NIGHT", label = "NIGHT"},
+}, "playerWeatherMode", function() playerFX.syncWeather() end)
+
+addSection(pages.PLAYER, "ENVIRONMENT COLOR", "Тон окружения, не меняет детали карты")
+addToggle(pages.PLAYER, "Цвет окружения", "Собственный ColorCorrectionEffect без репликации",
+    "playerEnvironmentEnabled", function() playerFX.syncEnvironment() end)
+addChoice(pages.PLAYER, "Оттенок мира", {
+    {value = "VIOLET", label = "VIOLET"},
+    {value = "CYAN", label = "CYAN"},
+    {value = "WARM", label = "WARM"},
+    {value = "GREEN", label = "GREEN"},
+}, "playerEnvironmentColor", function() playerFX.syncEnvironment() end)
+addSlider(pages.PLAYER, "Насыщенность оттенка", "От нейтрального до выбранного цвета, 0–100%",
+    "playerEnvironmentStrength", 0, 100, 5,
+    function(v) return tostring(v) .. "%" end,
+    function() playerFX.syncEnvironment() end)
+addButton(pages.PLAYER, "Выключить эффекты Player",
+    "Отключить ауру, свечение, погоду и вернуть исходные значения Fog", function()
+        state.playerAuraEnabled = false
+        state.playerGlowEnabled = false
+        state.playerWeatherEnabled = false
+        state.playerEnvironmentEnabled = false
+        playerFX.sync()
+        for _, key in ipairs({
+            "playerAuraEnabled", "playerGlowEnabled",
+            "playerWeatherEnabled", "playerEnvironmentEnabled",
+        }) do
+            if refreshToggles[key] then refreshToggles[key]() end
+        end
+        requestSave()
+        tell("Player: локальные эффекты отключены")
+    end)
+addButton(pages.PLAYER, "Диагностика Player FX",
+    "Только локальные объекты, режим погоды и состояние отката", function()
+        tell("Player 1.0 | " .. playerFX.diagnostics())
+    end)
+
