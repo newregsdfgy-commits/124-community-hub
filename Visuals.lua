@@ -4429,8 +4429,13 @@ local function applyResponsiveLayout()
             boosterPro.floatingButton.Size, boosterPro.floatingButton.AnchorPoint)
     end
     wideLayout = wide
-    contentPlate.Position = UDim2.fromOffset(wide and 207 or 101, 81)
-    contentPlate.Size = UDim2.new(1, wide and -220 or -110, 1, wide and -121 or -120)
+    -- Узкому телефону возвращаем 14px пространства контенту.
+    -- Геометрию всех связанных панелей вычисляем из одного sidebarWidth.
+    local sidebarWidth = wide and 196 or (width < 340 and 78 or 92)
+    local contentX = sidebarWidth + (wide and 11 or 9)
+    local contentRight = wide and 13 or 9
+    contentPlate.Position = UDim2.fromOffset(contentX, 81)
+    contentPlate.Size = UDim2.new(1, -contentX - contentRight, 1, wide and -121 or -120)
     pageHeader.Visible, pageSubHeader.Visible = wide, wide
     -- Единая шапка 76px не перекрывается навигацией.
     local sidebarHeader = 76
@@ -4439,7 +4444,7 @@ local function applyResponsiveLayout()
     local bottomReserve = wide and 90 or (height < 300 and 9 or 53)
     local buttonHeight = wide and 55 or (compactShort and 31 or 39)
     tabs.Position = UDim2.fromOffset(0, sidebarHeader)
-    tabs.Size = UDim2.new(0, wide and 196 or 92, 1, -sidebarHeader)
+    tabs.Size = UDim2.new(0, sidebarWidth, 1, -sidebarHeader)
     navSlots.Position = UDim2.fromOffset(0, navTop)
     navSlots.Size = UDim2.new(1, 0, 0,
         math.max(0, height - sidebarHeader - navTop - bottomReserve))
@@ -4467,11 +4472,11 @@ local function applyResponsiveLayout()
     end
     for _, page in pairs(pages) do
         if wide then
-            page.Position = UDim2.fromOffset(207, 81)
-            page.Size = UDim2.new(1, -220, 1, -121)
+            page.Position = UDim2.fromOffset(contentX, 81)
+            page.Size = UDim2.new(1, -contentX - contentRight, 1, -121)
         else
-            page.Position = UDim2.fromOffset(101, 81)
-            page.Size = UDim2.new(1, -110, 1, -120)
+            page.Position = UDim2.fromOffset(contentX, 81)
+            page.Size = UDim2.new(1, -contentX - contentRight, 1, -120)
         end
         page.ClipsDescendants = true
         local info = pageColumns[page]
@@ -4510,8 +4515,8 @@ local function applyResponsiveLayout()
     end
     if boosterPro.dashboard then boosterPro.dashboard.layout(wide) end
     if boosterPro.uiFooter and boosterPro.uiFooter.Parent then
-        boosterPro.uiFooter.Position = UDim2.new(0, wide and 207 or 101, 1, -29)
-        boosterPro.uiFooter.Size = UDim2.new(1, wide and -220 or -110, 0, 22)
+        boosterPro.uiFooter.Position = UDim2.new(0, contentX, 1, -29)
+        boosterPro.uiFooter.Size = UDim2.new(1, -contentX - contentRight, 0, 22)
     end
     local brandTitle = bar:FindFirstChild("BrandTitle")
     local brandCaption = bar:FindFirstChild("BrandCaption")
