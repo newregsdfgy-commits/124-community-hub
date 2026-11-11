@@ -1,11 +1,11 @@
--- 124 Visuals v1.2.0 | Stability & Performance Update: diagnostics, cleanup and Booster worker ownership
+-- 124 Visuals v1.2.1 | Purple Neon UI 2.0: responsive polish and touch accessibility
 -- Первый плейс: 18537079992. Запуск поддерживает все игровые PlaceId.
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.2.0",
+    Version = "1.2.1",
     OriginalPlaceId = 18537079992,
     EspRefreshSeconds = 0.35, -- Быстрый поиск персонажей, без обновления UI каждый кадр.
     EspEventMinSeconds = 0.18, -- Коалесцированные события не запускают 16 полных сканов/сек.
@@ -3799,24 +3799,25 @@ local TweenService = game:GetService("TweenService")
 -- Premium violet palette. UI-only: gameplay and ESP colors are unchanged.
 -- Static gradients and borders are cheap; no blur, particles or RenderStepped FX.
 local P = {
-    background = Color3.fromRGB(17, 15, 29),
-    panel = Color3.fromRGB(24, 21, 39),
-    tile = Color3.fromRGB(38, 33, 55),
-    border = Color3.fromRGB(85, 65, 119),
-    text = Color3.fromRGB(244, 239, 255),
-    dim = Color3.fromRGB(171, 160, 199),
-    accent = Color3.fromRGB(184, 139, 255),
-    off = Color3.fromRGB(66, 59, 83),
+    background = Color3.fromRGB(14, 12, 26),
+    panel = Color3.fromRGB(23, 18, 39),
+    tile = Color3.fromRGB(36, 28, 57),
+    border = Color3.fromRGB(108, 72, 157),
+    text = Color3.fromRGB(249, 245, 255),
+    dim = Color3.fromRGB(195, 178, 220),
+    accent = Color3.fromRGB(189, 139, 255),
+    off = Color3.fromRGB(68, 55, 91),
 }
 -- На телефоне даже альбомный экран остаётся одноколоночным: элементы
 -- управления не должны уменьшаться до нечитабельного размера.
 local function isReferenceLandscape(view)
+    -- Avoid shrinking tap targets on short landscape touch displays.
     return UserInputService.TouchEnabled and view.X >= 760
-        and view.Y >= 350 and view.X >= view.Y * 1.35
+        and view.Y >= 460 and view.X >= view.Y * 1.35
 end
 -- Mobile landscape uses the same full reference layout, with a single
 -- uniform scale. Portrait and undersized desktop keep readable legacy lists.
-local wideLayout = isReferenceLandscape(viewport)
+local wideLayout = isReferenceLandscape(uiSafeView(viewport))
     or ((not UserInputService.TouchEnabled) and viewport.X >= 770 and viewport.Y >= 560)
 local function windowMetrics(view)
     view = uiSafeView(view)
@@ -3830,7 +3831,7 @@ local function windowMetrics(view)
     end
     local landscape = view.X > view.Y
     local availableWidth = math.max(160, view.X - (mobile and 22 or 32))
-    local preferredWidth = wide and 950 or (mobile and landscape and 520 or 410)
+    local preferredWidth = wide and 950 or (mobile and landscape and 610 or 460)
     local width = math.min(availableWidth, preferredWidth)
     local availableHeight = math.max(120, view.Y - (mobile and 22 or 38))
     local height = math.min(wide and 520 or 610, availableHeight)
@@ -3869,7 +3870,10 @@ local panel = mk("Frame", {
     Active = true, ClipsDescendants = true, ZIndex = 2,
 }, gui)
 round(panel, 18)
-mk("UIStroke", {Color = P.accent, Transparency = 0.31, Thickness = 1.5}, panel)
+mk("UIStroke", {Color = P.accent, Transparency = 0.24, Thickness = 1.5}, panel)
+mk("UIGradient", {Rotation = 110,
+    Color = ColorSequence.new(Color3.fromRGB(22, 17, 41),
+        Color3.fromRGB(11, 10, 23))}, panel)
 local panelScale = mk("UIScale", {Scale = uiBaseScale}, panel)
 local function syncVioletAura()
     if not panel.Parent or not aura.Parent then return end
@@ -3972,7 +3976,7 @@ mk("TextLabel", {
 mk("TextLabel", {
     Name = "BrandCaption", BackgroundTransparency = 1,
     Position = UDim2.fromOffset(21, 39), Size = UDim2.new(1, -183, 0, 16),
-    Text = "PURPLE NEON  •  v" .. CONFIG.Version,
+    Text = "PURPLE NEON 2.0  •  v" .. CONFIG.Version,
     TextColor3 = P.dim, Font = Enum.Font.Code,
     TextSize = 10, TextXAlignment = Enum.TextXAlignment.Left,
     TextTruncate = Enum.TextTruncate.AtEnd,
@@ -3994,15 +3998,15 @@ local pageSubHeader = mk("TextLabel", {
 }, bar)
 local cleanup -- Обработчик выгрузки определяется ниже.
 local hide = mk("TextButton", {
-    Name = "Minimize", Position = UDim2.new(1, -82, 0, 21),
-    Size = UDim2.fromOffset(28, 28), BackgroundColor3 = P.tile,
+    Name = "Minimize", Position = UDim2.new(1, -91, 0, 18),
+    Size = UDim2.fromOffset(34, 34), BackgroundColor3 = P.tile,
     Text = "—", TextColor3 = P.dim, TextSize = 16,
     Font = Enum.Font.GothamMedium, AutoButtonColor = true,
 }, bar)
 round(hide, 6)
 local close = mk("TextButton", {
-    Name = "CloseHub", Position = UDim2.new(1, -47, 0, 21),
-    Size = UDim2.fromOffset(28, 28), BackgroundColor3 = P.tile,
+    Name = "CloseHub", Position = UDim2.new(1, -49, 0, 18),
+    Size = UDim2.fromOffset(34, 34), BackgroundColor3 = P.tile,
     Text = "×", TextColor3 = Color3.fromRGB(242, 146, 154),
     Font = Enum.Font.GothamMedium, TextSize = 16, AutoButtonColor = true,
 }, bar)
@@ -4205,7 +4209,7 @@ local function makeColumn(parent, name)
         Padding = UDim.new(0, 8),
     }, scroll)
     mk("UIPadding", {
-        PaddingLeft = UDim.new(0, 12), PaddingRight = UDim.new(0, 13),
+        PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 9),
         PaddingTop = UDim.new(0, 11), PaddingBottom = UDim.new(0, 14),
     }, scroll)
     return scroll
@@ -4553,20 +4557,22 @@ local function applyResponsiveLayout()
             boosterPro.floatingButton.Size, boosterPro.floatingButton.AnchorPoint)
     end
     wideLayout = wide
-    -- Узкому телефону возвращаем 14px пространства контенту.
-    -- Геометрию всех связанных панелей вычисляем из одного sidebarWidth.
-    local sidebarWidth = wide and 196 or (width < 340 and 78 or 92)
+    -- Compact touch sidebar: prioritize readable content and actual tap areas.
+    -- No global scale on small phones; navigation remains scrollable.
+    local sidebarWidth = wide and 196 or (width < 340 and 68 or width < 430 and 78 or 94)
     local contentX = sidebarWidth + (wide and 11 or 9)
     local contentRight = wide and 13 or 9
     contentPlate.Position = UDim2.fromOffset(contentX, 81)
     contentPlate.Size = UDim2.new(1, -contentX - contentRight, 1, wide and -121 or -120)
+    -- On very short displays, keep the footer outside the scrollable content.
+    contentPlate.ClipsDescendants = true
     pageHeader.Visible, pageSubHeader.Visible = wide, wide
     -- Единая шапка 76px не перекрывается навигацией.
     local sidebarHeader = 76
     local compactShort = not wide and height < 320
     local navTop = wide and 20 or (compactShort and 5 or 11)
     local bottomReserve = wide and 90 or (height < 300 and 9 or 53)
-    local buttonHeight = wide and 55 or (compactShort and 31 or 39)
+    local buttonHeight = wide and 55 or (compactShort and 35 or 44)
     tabs.Position = UDim2.fromOffset(0, sidebarHeader)
     tabs.Size = UDim2.new(0, sidebarWidth, 1, -sidebarHeader)
     navSlots.Position = UDim2.fromOffset(0, navTop)
@@ -4588,7 +4594,7 @@ local function applyResponsiveLayout()
             local short = nav.key == "MEMORY" and "MEM"
                 or nav.key == "MISC" and "SET" or nav.key
             button.Text = nav.symbol .. "  " .. short
-            button.TextSize = compactShort and 9 or 10
+            button.TextSize = compactShort and 9 or 11
             button.TextXAlignment = Enum.TextXAlignment.Center
         end
         tabUnderline[nav.key].Position = UDim2.fromOffset(0, 5)
@@ -4680,12 +4686,12 @@ local function showPage(key)
     for name, page in pairs(pages) do
         local selected = name == key
         page.Visible = selected
-        tabButtons[name].BackgroundColor3 = selected and Color3.fromRGB(78, 46, 127)
-            or Color3.fromRGB(32, 27, 49)
+        tabButtons[name].BackgroundColor3 = selected and Color3.fromRGB(96, 52, 153)
+            or Color3.fromRGB(31, 25, 48)
         tabButtons[name].TextColor3 = selected and P.text or P.dim
         tabButtons[name].Font = selected and Enum.Font.GothamBold or Enum.Font.GothamMedium
         tabUnderline[name].Visible = selected
-        tabOutlines[name].Transparency = selected and 0.07 or 0.91
+        tabOutlines[name].Transparency = selected and 0.02 or 0.87
     end
 end
 for name, button in pairs(tabButtons) do
