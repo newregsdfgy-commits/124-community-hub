@@ -6,7 +6,7 @@ Current test branch: `v1.3.0-esp2-key2-modular-test`; base: `v1.2.2-weapons-2-co
 - `src/` split into 11 compile-time modules, byte exact concat to `Hub.lua` / `Visuals.lua`. Builder: `python3 tools/build_visuals.py --check|--write`. Not runtime ModuleScripts.
 - `Start.lua` repointed and version checked v1.3.0. Old cleanup/boot ownership remains.
 - New `tests/EspKeyArchitecture130.test.cjs` (17 focused checks), previous Weapons2 suite adapted to v1.3.0, CI `.github/workflows/v130-ci.yml` builds and parses Luau.
-- Report `AUDIT_v1.3.0.md`. Actual Roblox/Android/rendering/FPS QA is pending; CI result must be verified from Actions.
+- Report `AUDIT_v1.3.0.md`. GitHub Actions run `43049389991` SUCCESS: modular bundle matches exactly; 55/55 static release assertions, 26/26 focused Node regression tests, real Luau parse/compile of Hub.lua, Visuals.lua and Start.lua. Real Roblox/Android/rendering/FPS QA remains pending.
 
 ---
 
