@@ -1,0 +1,24 @@
+name: 124 Visuals release integrity
+on:
+  push:
+    branches:
+      - "v1.2.0-*"
+  pull_request:
+    paths:
+      - "Hub.lua"
+      - "Visuals.lua"
+      - "Start.lua"
+      - "tools/verify_release.py"
+      - ".github/workflows/visuals-static-checks.yml"
+  workflow_dispatch:
+jobs:
+  static-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Run static release checks
+        run: python3 tools/verify_release.py
