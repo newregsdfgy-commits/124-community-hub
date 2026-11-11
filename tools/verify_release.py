@@ -11,8 +11,8 @@ import re
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = "1.3.1"
-BRANCH = "v1.3.1-deep-audit-stability-test"
+VERSION = "1.4.0"
+BRANCH = "v1.4.0-player-visuals-test"
 CHECK_COUNT = [0]
 
 
@@ -229,11 +229,11 @@ def main() -> int:
     check("Android keyboard location adjustment",
           "input.Focused:Connect(function() moveForKeyboard(true) end)" in hub,
           failures)
-    check("Same source bundle as 11 source modules",
+    check("Same source bundle as 12 source modules",
           hub == b"".join((ROOT / "src" / name).read_bytes() for name in (
               "00_config.lua", "01_access_gate.lua", "02_state_and_services.lua",
               "03_esp_tracker.lua", "04_lighting_and_booster.lua",
-              "05_weapons_and_recoil.lua", "06_gui_runtime.lua",
+              "05_weapons_and_recoil.lua", "05_player_visuals.lua", "06_gui_runtime.lua",
               "07_esp_overlays.lua", "08_ui_controls.lua",
               "09_misc_and_diagnostics.lua", "10_run_and_cleanup.lua"
           )).decode("utf-8"), failures)
