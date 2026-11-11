@@ -11,8 +11,8 @@ import re
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = "1.2.1"
-BRANCH = "v1.2.1-purple-neon-ui-2-test"
+VERSION = "1.2.2"
+BRANCH = "v1.2.2-weapons-2-compatibility-test"
 CHECK_COUNT = [0]
 
 
@@ -175,6 +175,21 @@ def main() -> int:
     check("Recoil and Spread restore remain",
           "function controller.restoreSpread()" in hub and
           "pcall(recoil.shutdown)" in hub, failures)
+    check("Weapons 2.0 diagnostics and menu",
+          "controller.diagnostics = function()" in hub and
+          '"Диагностика Weapons 2.0"' in hub, failures)
+    check("Safe spread guard and latest external baseline",
+          "safeApplySpread = function()" in hub and
+          "rememberSpreadBaseline(instance, nil, value)" in hub and
+          "rememberSpreadBaseline(instance, name, value)" in hub, failures)
+    check("Queued post-shot update is generation guarded",
+          "controller.spread.generation == generation" in hub, failures)
+    check("No Spread-only shot signals counted",
+          hub.find("controller.shots = controller.shots + 1") <
+          hub.find("if not (state.controlRecoil or state.noRecoil) then return end"),
+          failures)
+    check("No Spread diagnostic status avoids runtime claims",
+          "влияние на траекторию не подтверждено" in hub, failures)
     check("Render and UI controllers retained",
           all(token in hub for token in (
               "local function aimFrame(dt)",
