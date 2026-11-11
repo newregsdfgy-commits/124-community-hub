@@ -1,11 +1,11 @@
--- 124 Visuals v1.1.66 | deep audit, concurrent boots and spread rediscovery
+-- 124 Visuals v1.2.0 | Stability & Performance Update: diagnostics, cleanup and Booster worker ownership
 -- Первый плейс: 18537079992. Запуск поддерживает все игровые PlaceId.
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.1.66",
+    Version = "1.2.0",
     OriginalPlaceId = 18537079992,
     EspRefreshSeconds = 0.35, -- Быстрый поиск персонажей, без обновления UI каждый кадр.
     EspEventMinSeconds = 0.18, -- Коалесцированные события не запускают 16 полных сканов/сек.
@@ -75,12 +75,12 @@ local CONFIG = {
     RecoilMinPitchDegrees = 0.045, -- Не реагируем на микродрожание камеры.
     RecoilMaxPitchDegrees = 5.0, -- Не воспринимаем резкий разворот как отдачу.
     RecoilMaxCorrectionDegrees = 1.60, -- Ограничение коррекции за кадр.
-    BoosterBatch = 96, -- Лимит объектов за один периодический проход.
-    BoosterSliceMs = 0.90, -- Верхняя цель CPU-среза при нормальном FPS.
-    BoosterLowFpsSliceMs = 0.45, -- Более короткий срез при низком FPS.
+    BoosterBatch = 64, -- Меньше объектов за проход: плавнее, но дольше первичный скан.
+    BoosterSliceMs = 0.75, -- Мягкий бюджет основной обработки (не гарантия hard real-time).
+    BoosterLowFpsSliceMs = 0.35, -- При низком FPS чаще отдаём кадр.
     BoosterInitialDelay = 0, BoosterLowFpsDelay = 0, -- Yield без искусственного ожидания.
-    BoosterQueueBatch = 32, -- StreamingEnabled: меньше свойств за раз.
-    BoosterQueueSliceMs = 0.45,
+    BoosterQueueBatch = 24, -- StreamingEnabled: короче проходы при массовой подгрузке.
+    BoosterQueueSliceMs = 0.35,
     BoosterQueueDelay = 0.040, BoosterQueueLowFpsDelay = 0.075,
     BoosterRepairCooldown = 45, -- Нет повторного обхода каждые 12 секунд.
     BoosterRepairIdleSeconds = 3, -- Сначала даём стримингу завершиться.
@@ -555,6 +555,8 @@ local boosterPro = {
     recoveryFailures = 0, recoveryNextAt = 0,
     restoreRetryAt = 0, restoreRetryRunning = false,
     terrainRestoreRetryAt = 0, -- Backoff on inaccessible Terrain: no recurring 1s spikes.
+    workers = {scan = 0, restore = 0, repair = 0, avatar = 0},
+    lastRestoredAt = 0, lastRestoredComplete = nil,
     bootRoots = {}, -- Единственные ScreenGui, созданные данной копией Hub.
 }
 -- Только для исполнителей, умеющих читать/писать Terrain.Decoration.
@@ -859,6 +861,10 @@ end
 restoreAimKey()
 
 local function connect(signal, fn)
+    -- Старый UI/модуль после hot reload не должен создавать новые подписки.
+    if not alive or env.ARMY124_BOOT_TOKEN ~= CONFIG.BootToken then
+        error("124 Visuals: stale signal registration", 2)
+    end
     local c = signal:Connect(fn)
     table.insert(connections, c)
     return c
@@ -889,6 +895,10 @@ connect(Players.PlayerRemoving, function(player)
 end)
 
 local function mk(class, properties, parent)
+    -- Предотвращает создание UI старой корутиной после нового запуска.
+    if not alive or env.ARMY124_BOOT_TOKEN ~= CONFIG.BootToken then
+        error("124 Visuals: stale GUI construction", 2)
+    end
     local instance = Instance.new(class)
     -- Transactional construction: a failed property or Parent assignment
     -- must not leave an untracked, half-initialized Instance in memory.
@@ -1907,7 +1917,7 @@ local function optimizeHierarchy(root, revision)
             end
             boosterPro.scanned = boosterPro.scanned + 1
             count = count + 1
-            if count >= CONFIG.BoosterBatch or (count % 8 == 0 and
+            if count >= CONFIG.BoosterBatch or (count % 4 == 0 and
                 (os.clock() - sliceStarted) * 1000 >=
                     (measuredFps < 35 and CONFIG.BoosterLowFpsSliceMs or CONFIG.BoosterSliceMs)) then
                 boosterPro.slicePeakMs = math.max(boosterPro.slicePeakMs,
@@ -1949,6 +1959,58 @@ function boosterPro.measure(value)
         -- The rollback function is installed after the UI and config handlers exist.
         if boosterPro.autoRollback then boosterPro.autoRollback() end
     end
+end
+-- Централизованный учёт ресурсов: вызывается по кнопке, не в RenderStepped.
+-- Лимит исключает долгий диагностический обход на очень большой карте.
+function boosterPro.snapshotStatus(limit)
+    local maxObjects = math.max(1, math.floor(tonumber(limit) or 2048))
+    local objects, properties, capped = 0, 0, false
+    for _, snap in pairs(savedGraphics) do
+        objects = objects + 1
+        for _ in pairs(snap) do properties = properties + 1 end
+        if objects >= maxObjects then capped = true; break end
+    end
+    return {
+        objects = objects, properties = properties, capped = capped,
+        terrain = savedTerrainDecoration ~= nil or savedTerrainColors ~= nil,
+        lighting = savedLighting ~= nil and not state.fullbright,
+        work = boosterPro.workers,
+    }
+end
+function boosterPro.selfCheck()
+    -- Только чтение. Не запускает Booster и не меняет мир.
+    local checks = {
+        {"живой экземпляр", alive == true},
+        {"токен запуска", env.ARMY124_BOOT_TOKEN == CONFIG.BootToken},
+        {"функция выгрузки", type(env.ARMY124_CLEANUP) == "function"},
+        {"границы очереди", boosterPro.queueCount >= 0
+            and boosterPro.queueCount <= boosterPro.queueCap},
+        {"состояние рабочих задач", boosterPro.workers.scan >= 0
+            and boosterPro.workers.restore >= 0 and boosterPro.workers.repair >= 0
+            and boosterPro.workers.avatar >= 0},
+        {"основная GUI", PlayerGui:FindFirstChild("Army124CommunityVisualsGUI") ~= nil},
+        {"ревизия Booster", boosterPro.revision == boosterRevision},
+    }
+    local failures, passed = {}, 0
+    for _, entry in ipairs(checks) do
+        if entry[2] then passed = passed + 1
+        else failures[#failures + 1] = entry[1] end
+    end
+    return passed, #checks, failures
+end
+function boosterPro.diagnosticStatus()
+    local snap = boosterPro.snapshotStatus()
+    local work = snap.work
+    return string.format(
+        "v%s | FPS %d | %s/%s | GPU snapshots %d%s (%d props) | Terrain %s | Lighting %s | Queue %d/%d (drop %d) | Workers scan:%d restore:%d repair:%d avatar:%d | errors:%d | hooks:%d",
+        CONFIG.Version, measuredFps, tostring(boosterPro.phase),
+        tostring(state.boosterMode), snap.objects, snap.capped and "+" or "",
+        snap.properties, snap.terrain and "pending" or "ok",
+        snap.lighting and "pending" or "ok",
+        boosterPro.queueCount, boosterPro.queueCap, boosterPro.queueDropped,
+        work.scan, work.restore, work.repair, work.avatar,
+        boosterPro.restoreFailures, #connections
+    )
 end
 function boosterPro.readout()
     local before = boosterPro.baseline and tostring(boosterPro.baseline) or "н/д"
@@ -2020,6 +2082,7 @@ function boosterPro.restoreProtectedTree(character)
     if boosterPro.protectedRestoreRunning then return end
     boosterPro.protectedRestoreRunning = true
     task.spawn(function()
+        boosterPro.workers.avatar = boosterPro.workers.avatar + 1
         local ok, err = pcall(function()
             while alive and #queue > 0 do
                 local current = table.remove(queue, 1)
@@ -2051,6 +2114,7 @@ function boosterPro.restoreProtectedTree(character)
         table.clear(queue)
         table.clear(boosterPro.protectedRestoreSeen)
         boosterPro.protectedRestoreRunning = false
+        boosterPro.workers.avatar = math.max(0, boosterPro.workers.avatar - 1)
         if not ok and alive then
             warn("[124 Community Visuals] Protected restore: " .. tostring(err))
         end
@@ -2094,6 +2158,7 @@ local function setBooster(enabled, keepBaseline)
         -- Кнопка возвращает управление сразу. Тяжёлые операции Terrain/карты
         -- начинаются вне обработчика UI; каждая ревизия проверяет актуальность.
         task.spawn(function()
+            boosterPro.workers.scan = boosterPro.workers.scan + 1
             local ok, err = pcall(function()
             if not alive or revision ~= boosterRevision or not state.booster then return end
             applyLighting()
@@ -2141,6 +2206,7 @@ local function setBooster(enabled, keepBaseline)
                 .. (state.boosterMode == "BALANCED" and " объектов; карта без изменений; измеряем FPS"
                     or " объектов; измеряем FPS"))
             end)
+            boosterPro.workers.scan = math.max(0, boosterPro.workers.scan - 1)
             if not ok and alive and revision == boosterRevision and state.booster then
                 boosterPro.complete = false
                 boosterPro.phase = "FAILED"
@@ -2161,6 +2227,7 @@ local function setBooster(enabled, keepBaseline)
         -- Отключение тоже не должно выполнять Terrain/Lighting-перезаписи
         -- внутри обработчика кнопки: всё выполняет контролируемый worker.
         task.spawn(function()
+            boosterPro.workers.restore = boosterPro.workers.restore + 1
             local ok, err = pcall(function()
             if revision ~= boosterRevision or state.booster then return end
             restoreTerrainGrass()
@@ -2203,6 +2270,7 @@ local function setBooster(enabled, keepBaseline)
                 end
             end
             end)
+            boosterPro.workers.restore = math.max(0, boosterPro.workers.restore - 1)
             if not ok and alive and revision == boosterRevision and not state.booster then
                 boosterPro.phase = "RESTORE PENDING"
                 boosterPro.lastError = "restore worker: " .. tostring(err)
@@ -5960,6 +6028,17 @@ addButton(pages.MEMORY, "Диагностика Booster", "Режим, прог�
         .. " | Переполнение: " .. tostring(boosterPro.queueDropped)
         .. " | Ошибка: " .. errorText)
 end)
+addButton(pages.MEMORY, "Аудит ресурсов / восстановления",
+    "Снимки графики, рабочие задачи, подписки и возможный незавершённый откат", function()
+        tell(boosterPro.diagnosticStatus())
+    end)
+addButton(pages.MEMORY, "Самопроверка стабильности",
+    "7 проверок текущего запущенного экземпляра, только чтение", function()
+        local passed, total, failures = boosterPro.selfCheck()
+        tell("STABILITY " .. tostring(passed) .. "/" .. tostring(total)
+            .. (#failures > 0 and " | Ошибки: " .. table.concat(failures, ", ")
+                or " | локальные инварианты в норме"))
+    end)
 addToggle(pages.MEMORY, "Часы / FPS / Ping", "Информационный блок экрана", "hud")
 addToggle(pages.MEMORY, "HUD активных функций", "Состояние AIM, ESP, Booster", "activeHud")
 addSection(pages.MEMORY, "PERFORMANCE", "Режимы и диагностика")
@@ -7869,11 +7948,13 @@ task.spawn(function()
             local repairRevision = boosterRevision
             local coveredDrops = boosterPro.queueDropped
             task.spawn(function()
+                boosterPro.workers.repair = boosterPro.workers.repair + 1
                 local ok, result = pcall(function()
                     return (state.boosterMode == "BALANCED"
                         or optimizeHierarchy(Workspace, repairRevision))
                         and optimizeHierarchy(Lighting, repairRevision)
                 end)
+                boosterPro.workers.repair = math.max(0, boosterPro.workers.repair - 1)
                 if not alive or not state.booster or repairRevision ~= boosterRevision then
                     return -- Новая ревизия владеет собственным состоянием.
                 end
@@ -7926,7 +8007,10 @@ function boosterPro.restoreGraphicsSliced(expectedRevision)
             started = os.clock()
         end
     end
-    return next(savedGraphics) == nil
+    local complete = next(savedGraphics) == nil
+    boosterPro.lastRestoredAt = os.clock()
+    boosterPro.lastRestoredComplete = complete
+    return complete
 end
 
 -- Failed property restores get a bounded, generation-safe retry while Booster
@@ -7991,6 +8075,8 @@ cleanup = function(safeStop)
     pcall(flushConfig)
     -- Stop new work *before* any yield, Terrain writes or graphics rollback.
     alive = false
+    -- Отключаем старый экземпляр до каких-либо ожидающих task.wait().
+    boosterPro.cleanupStartedAt = os.clock()
     state.esp = false
     state.aimbot = false
     state.controlRecoil = false
