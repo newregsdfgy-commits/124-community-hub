@@ -196,7 +196,7 @@ perfCounters.espVisual = {bound = false, bindingName = "Army124CommunityESP_" ..
     errorAt = 0, scanErrorAt = 0, active = {}, projected = {}, ordered = {}, candidatePool = {},
     eligible = 0, missing = 0, omitted = 0, lastScanAt = 0,
     localReady = false, renderFailures = 0, watcherFailures = 0,
-    urgentEvents = 0, urgentScans = 0, motionCamera = nil,
+    urgentEvents = 0, urgentScans = 0, urgentSkipped = 0, motionCamera = nil,
     motionFrame = nil, motionUntil = 0}
 -- Логи отключены без подписки. Игровые события могут приходить сотнями/сек.
 -- Подписка создаётся только после явного включения пользователем.
