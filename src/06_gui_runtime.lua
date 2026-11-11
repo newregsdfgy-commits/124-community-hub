@@ -8,6 +8,10 @@ local function abortPartialHub()
     state.controlRecoil, state.antiAim, state.fullbright = false, false, false
     state.noRecoil, state.noSpread = false, false
     state.speedEnabled, state.noclip, state.fly = false, false, false
+    state.playerAuraEnabled, state.playerGlowEnabled = false, false
+    state.playerWeatherEnabled, state.playerEnvironmentEnabled = false, false
+    -- No scene-owned FX can survive an abort during UI initialization.
+    pcall(playerFX.shutdown)
     if boosterPro.privateMusic and boosterPro.privateMusic.shutdown then
         pcall(boosterPro.privateMusic.shutdown)
     end
@@ -46,8 +50,10 @@ local function abortPartialHub()
         pcall(restoreTerrainGrass)
         pcall(restoreTerrainColors)
         pcall(applyLighting)
+        local weatherOk, weatherRestored = pcall(playerFX.restoreWeather)
         local uiOk, uiRestored = pcall(emergencyUIRollback)
         return graphicsOk and graphicsRestored == true
+            and weatherOk and weatherRestored == true and not playerFX.pending()
             and savedLighting == nil and savedTerrainDecoration == nil
             and savedTerrainColors == nil
             and uiOk and uiRestored == true
