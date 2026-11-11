@@ -31,7 +31,8 @@ These are source-observed flaws and their code fixes. Severity indicates expecte
 - `python3 tools/verify_release.py`: release, launcher, integrity, ESP/Key guards, 18 viewport models.
 - `node --test tests/EspKeyArchitecture130.test.cjs tests/Weapons2Compatibility.test.cjs tests/FullAudit131.test.cjs`: 36 version-matched structural regressions.
 - `python3 tests/build-131-runtime-audit.py`: extracts **actual production Luau callback bodies** (ESP urgent scheduler; Key submit/resolve) into temporary executable harness. Assertions cover burst coalescing, post-periodic dedup, new dirty events, old generation, OFF state, wrong/empty keys, fast re-entry, five failed attempts, local cooldown, and idempotent successful resolution.
-- Workflow `.github/workflows/v131-audit-ci.yml`: static checks, Luau parse and binary compilation for all entrypoints, plus running extracted callbacks with the Luau runtime.
+- **Verified CI PASS**: [GitHub Actions run #43053577977](https://github.com/newregsdfgy-commits/124-community-hub/actions/runs/43053577977): 11-part bundle exact; 60/60 release/integrity assertions; 36/36 focused Node regression tests; real Luau parse + binary compile for Hub.lua, Visuals.lua, Start.lua; both extracted production callbacks executed successfully in Luau (ESP 5 fault-injection scenarios + Key wrong/duplicate/cooldown/resolve scenarios). C++ warnings from building upstream Luau did not fail the build. This still does not test real Roblox engine behavior.
+- Workflow `.github/workflows/v131-audit-ci.yml` contains all checks and remains reproducible.
 - Earlier workflows on historical v1.1.x branches contain fixed expectations for old UI/version layouts; they are not treated as current production certification.
 
 ## Unverified and next manual QA
