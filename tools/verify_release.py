@@ -11,8 +11,8 @@ import re
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = "1.2.0"
-BRANCH = "v1.2.0-stability-performance-test"
+VERSION = "1.2.1"
+BRANCH = "v1.2.1-purple-neon-ui-2-test"
 
 
 def check(label: str, passed: bool, failures: list[str]) -> None:
