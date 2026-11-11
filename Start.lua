@@ -11,6 +11,13 @@ if launchEnv.ARMY124_START_RUNNING == true then
 end
 launchEnv.ARMY124_START_RUNNING = true
 local function runLauncher()
+-- Ошибка прошлой попытки не должна перекрывать окно ключа.
+pcall(function()
+    local player = game:GetService("Players").LocalPlayer
+    local playerGui = player and player:FindFirstChildOfClass("PlayerGui")
+    local old = playerGui and playerGui:FindFirstChild("Army124StartupError")
+    if old then old:Destroy() end
+end)
 -- 124 Visuals / v1.1.63 audited key-gated launcher
 local url = "https://raw.githubusercontent.com/newregsdfgy-commits/124-community-hub/v1.1.63-independent-reaudit-test/Visuals.lua"
 local function failure(stage, reason)
@@ -30,6 +37,11 @@ if type(source) ~= "string" or #source < 100000 then
 end
 if not source:find('Version = "1.1.63"', 1, true) then
     return failure("VERSION", "Вместо v1.1.63 GitHub вернул другую версию")
+end
+-- Проверяем наличие основного экрана допуска до исполнения Lua.
+-- Это проверка целостности сборки, не серверная защита от редактирования.
+if not source:find('local ACCESS_KEY = "124HUB"', 1, true) then
+    return failure("KEY-GATE", "В загруженном исходнике отсутствует ключевая система")
 end
 if type(loadstring) ~= "function" then
     return failure("EXECUTOR", "loadstring отсутствует")
