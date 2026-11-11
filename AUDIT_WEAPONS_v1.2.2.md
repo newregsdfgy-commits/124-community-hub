@@ -27,6 +27,7 @@ Base: `v1.2.1-purple-neon-ui-2-test`
 - Статические инварианты: оба entrypoint исходника идентичны; ключ и UI на месте; автоактивация No Recoil/No Spread из профилей запрещена; input и генерации событий сохранились.
 - Девять сфокусированных Node.js тестов в `tests/Weapons2Compatibility.test.cjs`: исходники, отдельный No Spread режим, исходные значения, async generation, очистка watchers, fault isolation, camera/AIM, UI статус, автозагрузка.
 - `tools/verify_release.py` расширен условиями Weapons 2.0, сохранив исходные viewport/lifecycle проверки.
+- **CI подтверждён:** [GitHub Actions run 43045644213](https://github.com/newregsdfgy-commits/124-community-hub/actions/runs/43045644213) завершился SUCCESS: 49/49 статических release-assertions; 9/9 специализированных Node.js тестов; синтаксический разбор и бинарная компиляция Luau всех трёх файлов `Hub.lua`, `Visuals.lua`, `Start.lua` прошли.
 - Отдельный workflow `.github/workflows/weapons-2-ci.yml` проверяет тесты и компиляцию Luau. Старый общий набор `node --test tests/*.test.cjs` содержит около 50 версионно-зависимых проверок от v1.1.x; его падение на v1.2.x не означает, что оружейный блок не компилируется. Старый CI оставлен в прежней области.
 - Для реального теста: экипировать/снять два Tool; проверить одиночный/автоматический огонь; Mouse/Touch/Gamepad; AIM одновременно; сброс при респавне и повторном запуске; меняющийся Spread; включение/выключение No Spread; блокировки API; проверить `Output` после кнопки «Диагностика Weapons 2.0».
 
