@@ -31,9 +31,9 @@ test("module bundle is byte-equivalent and 11 fragments appear in order", () => 
     assert.equal(modules.length, 11);
 });
 test("entrypoint version and launcher point to isolated test branch", () => {
-    assert.match(hub, /Version = "1\.3\.0"/);
-    assert.match(launcher, /v1\.3\.0-esp2-key2-modular-test\/Visuals\.lua/);
-    assert.match(launcher, /Version = "1\.3\.0"/);
+    assert.match(hub, /Version = "1\.3\.1"/);
+    assert.match(launcher, /v1\.3\.1-deep-audit-stability-test\/Visuals\.lua/);
+    assert.match(launcher, /Version = "1\.3\.1"/);
     assert.match(launcher, /ARMY124_START_RUNNING = true/);
     assert.match(launcher, /ARMY124_START_RUNNING = nil/);
 });
