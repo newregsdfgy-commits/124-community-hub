@@ -6,7 +6,7 @@
 - Roblox documentation confirms Fog* may be hidden/ignored when Atmosphere exists. Code uses existing Atmosphere with last-written ownership/restore in that case, Fog otherwise; watches Atmosphere changes and protects player-owned effects from Booster.
 - Toggles default OFF and autoload OFF; selected modes/colors saved using existing validation. No game/server changes and no server authentication.
 - Compiled source `Hub.lua` and `Visuals.lua` identical after latest rebuild. Detailed report `AUDIT_PLAYER_v1.4.0.md`.
-- CI `.github/workflows/v140-ci.yml` contains 60 release checks, 50 targeted Node tests and official Luau runtime simulation for Player FX, ESP and Key. Do not claim all succeeded until observing actual run.
+- **Verified GitHub Actions #43118103219 SUCCESS:** 60/60 static checks, 50/50 Node regressions, 12-part bundle check, full Luau parse + compile of Hub.lua/Visuals.lua/Start.lua; real Luau isolated behavior tests passed for Player FX (including Atmosphere insertion/external baseline), ESP and Key. Live Roblox/Android FPS/visual appearance is still untested.
 - Real Android/Roblox gameplay and FPS measurement still pending.
 
 ---
