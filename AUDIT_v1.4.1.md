@@ -27,7 +27,8 @@ Reviewed all twelve compile-time Luau source modules and key file boundaries, la
 - `tests/build-131-runtime-audit.py`: extract and execute actual ESP and Key handlers in official Luau with deterministic fake signals and time.
 - `tests/build-player140-runtime.py`: execute current Player FX in official Luau with R6/R15-like character mock, Root removal, sessioned rain callbacks, Fog/Atmosphere restoration, external edits and live owner bookkeeping.
 - `tests/build-booster141-runtime.py`: extract actual Booster restore, handoff and owner-check functions; test Booster ON → Player weather → Player OFF → Booster OFF as well as external property changes and a denied engine write.
-- CI: `.github/workflows/v141-ci.yml` builds official Luau CLI and compiles all three entrypoints. Results must be observed in GitHub Actions, not inferred.
+- **Verified successful CI:** [GitHub Actions run #43120099593](https://github.com/newregsdfgy-commits/124-community-hub/actions/runs/43120099593): 60/60 static release checks, 64/64 focused regression tests, exact 12-module bundle, real official Luau parse+compile for Hub.lua, Visuals.lua, Start.lua, executable Player FX + Booster handoff and ESP + Key isolated Luau tests. All steps passed. This certifies source/test behavior only, not actual device FPS or all games.
+- Workflow: `.github/workflows/v141-ci.yml` is reproducible on this branch.
 
 ## Compatibility and limitations
 - Existing Purple Neon UI, Player tab, Weapons 2.0, ESP 2.0, Key 2.0, AIM, FPS Booster, profiles, movement and music remain in the bundled source. No changes to server/other-player state.
