@@ -35,7 +35,7 @@ if not fetched then return failure("NETWORK", source) end
 if type(source) ~= "string" or #source < 100000 then
     return failure("DOWNLOAD", "Неполный Lua: " .. tostring(type(source) == "string" and #source or type(source)))
 end
-if not source:find('Version = "1.4.0"', 1, true) then
+if not source:find('Version = "1.4.1"', 1, true) then
     return failure("VERSION", "Вместо v1.4.1 GitHub вернул другую версию")
 end
 -- Проверяем наличие основного экрана допуска до исполнения Lua.
