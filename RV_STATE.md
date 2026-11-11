@@ -1,3 +1,15 @@
+# RV_STATE — Deep Audit v1.3.1 (2026-11-11)
+
+- Test branch: `v1.3.1-deep-audit-stability-test`, base: `v1.3.0-esp2-key2-modular-test`, main unchanged.
+- ESP: preserve highlight/labels/tracers during local respawn, dedup superseded urgent scans using latest event timestamp, skip no-op watcher teardown and camera CFrame sampling when no 2D ESP visuals.
+- Key: preserve feedback during duplicate empty Android submission; hold one-shot accepted result before BindableEvent.Wait; AncestryChanged failure is fail-closed.
+- Byte-identical `Hub.lua` and `Visuals.lua` generated from 11 fragments; `Start.lua` points to this branch and checks v1.3.1.
+- Added `tests/FullAudit131.test.cjs` and `tests/build-131-runtime-audit.py`, workflow `.github/workflows/v131-audit-ci.yml` uses real Luau compiler AND runtime on extracted production ESP/Key callbacks.
+- Static release CI observed 60/60 pass, focused Node tests 36/36 pass on current test branch (first attempt 35/36 due obsolete `response:Fire(accepted)` assertion, updated for latched result).
+- Detailed findings `AUDIT_v1.3.1.md`. Full Luau runtime CI result must be checked before release claims. Real Roblox/Android game QA is pending.
+
+---
+
 # RV_STATE — v1.3.0 ESP 2.0 / Key System 2.0 / modular build (2026-11-11)
 
 Current test branch: `v1.3.0-esp2-key2-modular-test`; base: `v1.2.2-weapons-2-compatibility-test`; main untouched.
