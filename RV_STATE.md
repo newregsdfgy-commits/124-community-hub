@@ -1,3 +1,17 @@
+# RV_STATE — Weapons 2.0 / 124 Visuals v1.2.2 (2026-11-11)
+
+- Current test branch: `v1.2.2-weapons-2-compatibility-test`, base: `v1.2.1-purple-neon-ui-2-test`, no changes to main.
+- Hub.lua and Visuals.lua identical blob SHA `02c5ff462491fc846231f6d2c9e87b670a336308`.
+- Fixed source-level issues W2-01..W2-07: No Spread-only shot counting, most recently observed positive baseline for rollback, generation-safe post-shot refresh, subtree watcher cleanup, remaining Tool handoff, safe apply with diagnostics, explicit compatibility language.
+- On-demand button `Диагностика Weapons 2.0` in MISC prints separate sources (Tool/Mouse/Touch/Gamepad), candidate parameters/attributes, correction frames, errors, pending restores and reason strings to Roblox Output.
+- Inputs remain off by default, No Recoil and Control Recoil mutually exclusive. Purple Neon UI 2.0, AIM, ESP, FPS Booster, movement, music, startup key and cleanup preserved.
+- `Start.lua` points at this branch and verifies `Version = "1.2.2"`. `tools/verify_release.py` has focused invariants; `tests/Weapons2Compatibility.test.cjs` contains nine static tests; `.github/workflows/weapons-2-ci.yml` adds Luau compile checks.
+- Source patch preflight: 28 exact patches applied + subsequent dual-file multi-Tool fix; no live Roblox tests. Some previous obsolete v1.1.x regression checks cannot be used as a pass/fail signal on 1.2.x.
+- Detailed report: `AUDIT_WEAPONS_v1.2.2.md`. CI result should be read from GitHub Actions; do not infer Luau compilation or device compatibility until confirmed.
+- Follow-up: actual weapon QA, then decide whether to merge into main.
+
+---
+
 # RV_STATE — Purple Neon UI 2.0 / 124 Visuals v1.2.1
 
 Date: 2026-11-11. Current test branch: `v1.2.1-purple-neon-ui-2-test`. Based on v1.2.0; previous stable/test branches unchanged.
