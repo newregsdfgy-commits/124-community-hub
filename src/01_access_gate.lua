@@ -172,28 +172,32 @@ do
 
         local response = Instance.new("BindableEvent")
         local completed, wrongCount = false, 0
+        local resolvedValue = false
         local blockedUntil, lastSubmitAt = 0, -math.huge
         local cancelArmedAt = -math.huge
         local function resolve(accepted)
             if completed then return end
+            resolvedValue = accepted == true
             completed = true
-            response:Fire(accepted)
+            response:Fire(resolvedValue)
         end
         local function tryUnlock()
             if completed then return end
             local now = os.clock()
-            -- Return и FocusLost могут срабатывать одновременно на Android.
-            if now - lastSubmitAt < CONFIG.KeySubmitDedupSeconds then return end
-            lastSubmitAt = now
             if now < blockedUntil then
                 message.Text = "Повтори через " .. tostring(math.ceil(blockedUntil - now)) .. " сек."
                 return
             end
             local candidate = input.Text:gsub("^%s+", ""):gsub("%s+$", "")
             if candidate == "" then
+                -- Второе Return/FocusLost не должно перетирать результат
+                -- предыдущего ввода, если TextBox уже очищен обработчиком.
+                if now - lastSubmitAt < CONFIG.KeySubmitDedupSeconds then return end
                 message.Text = "Введи ключ перед проверкой"
                 return
             end
+            -- Не блокируем НОВОЕ значение из-за предыдущего пустого Enter.
+            lastSubmitAt = now
             input.Text = ""
             if candidate == ACCESS_KEY then resolve(true); return end
             wrongCount = wrongCount + 1
@@ -243,8 +247,18 @@ do
         end)
         -- Внешнее уничтожение GUI завершает ожидание, но НЕ открывает доступ.
         screen.Destroying:Connect(function() resolve(false) end)
+        screen.AncestryChanged:Connect(function(_, parent)
+            if parent == nil then resolve(false) end
+        end)
 
-        local accepted = response.Event:Wait()
+        -- Если экран был уничтожен до Event:Wait(), BindableEvent не хранит
+        -- ранее отправленное событие. Возвращаем зафиксированное решение.
+        local accepted
+        if completed then
+            accepted = resolvedValue
+        else
+            accepted = response.Event:Wait()
+        end
         if screen.Parent then screen:Destroy() end
         response:Destroy()
         return accepted == true
