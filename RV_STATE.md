@@ -1,3 +1,18 @@
+# RV_STATE — 124 Visuals / launcher-only audit fixes (11 Nov 2026)
+
+Current test branch: `v1.1.64-lifecycle-key-race-audit-test`.
+- Working core version is **v1.1.63**, NOT v1.1.64. `Hub.lua` / `Visuals.lua` unchanged, same blob: `02c2e68c861f8ed249d5dc7880324402c06d17a8`.
+- `Start.lua` was modified and is ready for *unverified* test: mutex `ARMY124_START_RUNNING` avoids overlapping launcher invocations; removes stale error overlay; validates `124HUB` gate is present in fetched source. New blob `7626b1d3da65abae097da798b9276fadcc4d3d99`.
+- One attempt to update both full Lua core files in this branch was blocked. No source-code fixes to core were applied.
+- Static checks: 18/18 focused launcher/source consistency checks, 99-line Start.lua lexical scan zero issues.
+- Detailed findings: `AUDIT_v1.1.64_pending.md`.
+- Pending core fix: per-invocation boot token to prevent races for direct loads; bounded candidate rediscovery in No Spread.
+- No Roblox, executor, weapon or FPS live tests. Do not claim all bugs fixed or production readiness.
+- The key remains `124HUB` and is validated locally only.
+- Old `v1.1.63-independent-reaudit-test` branch untouched.
+
+## Older history
+
 # RV_STATE — 124 Visuals v1.1.63
 
 Current branch: `v1.1.63-independent-reaudit-test`  
