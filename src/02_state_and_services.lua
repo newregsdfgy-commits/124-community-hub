@@ -57,6 +57,16 @@ local state = {
     musicId = "", -- Локальный звук НЕ запускается автоматически при загрузке.
     musicVolume = 35,
     musicLoop = true,
+    -- PLAYER: local-only graphics; toggles start OFF even after loading a profile.
+    playerAuraEnabled = false,
+    playerGlowEnabled = false,
+    playerAuraColor = "PURPLE",
+    playerGlowPower = 3,
+    playerWeatherEnabled = false,
+    playerWeatherMode = "CLEAR",
+    playerEnvironmentEnabled = false,
+    playerEnvironmentColor = "VIOLET",
+    playerEnvironmentStrength = 40,
     hud = true,
 }
 
