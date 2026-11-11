@@ -1,11 +1,11 @@
--- 124 Visuals v1.3.1 | Deep Audit / ESP + Key + Lifecycle Fixes
+-- 124 Visuals v1.4.0 | Player Visuals: Aura / Glow / Weather / Environment
 -- Первый плейс: 18537079992. Запуск поддерживает все игровые PlaceId.
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.3.1",
+    Version = "1.4.0",
     OriginalPlaceId = 18537079992,
     EspRefreshSeconds = 0.35, -- Быстрый поиск персонажей, без обновления UI каждый кадр.
     EspEventMinSeconds = 0.18, -- Коалесцированные события не запускают 16 полных сканов/сек.
@@ -597,6 +597,16 @@ local state = {
     musicId = "", -- Локальный звук НЕ запускается автоматически при загрузке.
     musicVolume = 35,
     musicLoop = true,
+    -- PLAYER: local-only graphics; toggles start OFF even after loading a profile.
+    playerAuraEnabled = false,
+    playerGlowEnabled = false,
+    playerAuraColor = "PURPLE",
+    playerGlowPower = 3,
+    playerWeatherEnabled = false,
+    playerWeatherMode = "CLEAR",
+    playerEnvironmentEnabled = false,
+    playerEnvironmentColor = "VIOLET",
+    playerEnvironmentStrength = 40,
     hud = true,
 }
 
@@ -1883,6 +1893,10 @@ connect(Players.PlayerRemoving, boosterPro.unwatchPlayer)
 -- Проверять каждую родительскую модель для каждой детали дорого.
 -- При обходе дерева достаточно проверить границу ветки ОДИН раз.
 function boosterPro.isProtectedBranch(obj)
+    -- Player-owned ColorCorrectionEffects belong to an independent visual layer.
+    -- Do not let BALANCED/WHITE/ULTRA turn them off or capture their Enabled.
+    if obj.Name == "Army124PlayerWeatherTone"
+        or obj.Name == "Army124PlayerEnvironmentTone" then return true end
     local cam = Workspace.CurrentCamera
     if obj == cam then return true end
     if obj:IsA("LayerCollector") or obj:IsA("GuiBase2d") then return true end
@@ -3387,6 +3401,363 @@ end
 return controller
 end)()
 
+-- PLAYER VISUAL FX: client-owned avatar aura, glow, rain and environmental grading.
+-- One controller, no changes to game/server player stats or other characters.
+local playerFX = (function()
+    local controller = {
+        character = nil, childConnection = nil,
+        auraAttachment = nil, auraEmitter = nil,
+        glowHighlight = nil, glowLight = nil,
+        weatherTone = nil, environmentTone = nil,
+        rainGui = nil, rainLines = {}, rainConnection = nil,
+        fog = {}, rainElapsed = 0, lastError = nil,
+    }
+    local white = Color3.new(1, 1, 1)
+    local avatarColors = {
+        PURPLE = Color3.fromRGB(170, 102, 255),
+        CYAN = Color3.fromRGB(86, 224, 241),
+        GOLD = Color3.fromRGB(255, 202, 100),
+        GREEN = Color3.fromRGB(101, 243, 155),
+    }
+    local environmentColors = {
+        VIOLET = Color3.fromRGB(215, 183, 255),
+        CYAN = Color3.fromRGB(180, 231, 245),
+        WARM = Color3.fromRGB(255, 212, 169),
+        GREEN = Color3.fromRGB(188, 239, 189),
+    }
+    local weather = {
+        FOG = {
+            start = 8, distance = 150, fogColor = Color3.fromRGB(152, 167, 184),
+            tint = Color3.fromRGB(210, 220, 228), brightness = -0.06,
+            contrast = 0.03, saturation = -0.18,
+        },
+        RAIN = {
+            start = 20, distance = 250, fogColor = Color3.fromRGB(104, 124, 155),
+            tint = Color3.fromRGB(180, 198, 224), brightness = -0.11,
+            contrast = 0.08, saturation = -0.27,
+        },
+        NIGHT = {
+            start = 30, distance = 380, fogColor = Color3.fromRGB(41, 61, 99),
+            tint = Color3.fromRGB(126, 158, 210), brightness = -0.24,
+            contrast = 0.13, saturation = -0.24,
+        },
+    }
+    local function active()
+        return alive and env.ARMY124_BOOT_TOKEN == CONFIG.BootToken
+    end
+    local function safeDestroy(instance)
+        if instance then pcall(function() instance:Destroy() end) end
+    end
+    local function newOwned(className, props, parent)
+        if not active() then error("Player FX: устаревший запуск", 2) end
+        local object = Instance.new(className)
+        local ok, err = pcall(function()
+            for property, value in pairs(props) do object[property] = value end
+            object.Parent = parent
+        end)
+        if not ok then
+            safeDestroy(object)
+            error("Player FX " .. className .. ": " .. tostring(err), 2)
+        end
+        return object
+    end
+    local function removeAvatar()
+        safeDestroy(controller.auraEmitter)
+        safeDestroy(controller.auraAttachment)
+        safeDestroy(controller.glowHighlight)
+        safeDestroy(controller.glowLight)
+        controller.auraEmitter, controller.auraAttachment = nil, nil
+        controller.glowHighlight, controller.glowLight = nil, nil
+    end
+    local function bindCharacter(character)
+        if controller.childConnection then
+            controller.childConnection:Disconnect()
+            controller.childConnection = nil
+        end
+        removeAvatar() -- Old R6/R15 body and its attachments must never persist.
+        controller.character = character
+        if character then
+            controller.childConnection = character.ChildAdded:Connect(function(child)
+                if active() and child.Name == "HumanoidRootPart"
+                    and child:IsA("BasePart") then
+                    local ok, err = pcall(controller.syncAvatar)
+                    if not ok then
+                        controller.lastError = tostring(err)
+                        warn("[124 Player] late Root: " .. tostring(err))
+                    end
+                end
+            end)
+        end
+    end
+    function controller.syncAvatar()
+        if not active() then return end
+        local character = LocalPlayer.Character
+        if controller.character ~= character then bindCharacter(character) end
+        local root = character and character:FindFirstChild("HumanoidRootPart")
+        if root and not root:IsA("BasePart") then root = nil end
+        if not root then
+            removeAvatar()
+            return
+        end
+        local color = avatarColors[state.playerAuraColor] or avatarColors.PURPLE
+        local strength = math.clamp(tonumber(state.playerGlowPower) or 3, 1, 5)
+        if state.playerAuraEnabled then
+            if not controller.auraAttachment or controller.auraAttachment.Parent ~= root then
+                safeDestroy(controller.auraAttachment)
+                controller.auraAttachment = newOwned("Attachment", {
+                    Name = "Army124PlayerAuraAttachment",
+                    Position = Vector3.new(0, -0.5, 0),
+                }, root)
+                controller.auraEmitter = nil
+            end
+            if not controller.auraEmitter or controller.auraEmitter.Parent ~= controller.auraAttachment then
+                controller.auraEmitter = newOwned("ParticleEmitter", {
+                    Name = "Army124PlayerAura",
+                    Texture = "rbxasset://textures/particles/sparkles_main.dds",
+                    Rate = 10 + strength * 5,
+                    Lifetime = NumberRange.new(0.75, 1.25),
+                    Speed = NumberRange.new(0.45, 1.8),
+                    SpreadAngle = Vector2.new(175, 175),
+                    Size = NumberSequence.new({
+                        NumberSequenceKeypoint.new(0, 0.14),
+                        NumberSequenceKeypoint.new(0.5, 0.27),
+                        NumberSequenceKeypoint.new(1, 0),
+                    }),
+                    Transparency = NumberSequence.new({
+                        NumberSequenceKeypoint.new(0, 0.26),
+                        NumberSequenceKeypoint.new(0.7, 0.48),
+                        NumberSequenceKeypoint.new(1, 1),
+                    }),
+                    LightEmission = 0.75,
+                    LightInfluence = 0,
+                    LockedToPart = false,
+                    Enabled = true,
+                }, controller.auraAttachment)
+            end
+            controller.auraEmitter.Color = ColorSequence.new(color)
+            controller.auraEmitter.Rate = 10 + strength * 5
+        else
+            safeDestroy(controller.auraEmitter)
+            safeDestroy(controller.auraAttachment)
+            controller.auraEmitter, controller.auraAttachment = nil, nil
+        end
+        if state.playerGlowEnabled then
+            if not controller.glowHighlight or controller.glowHighlight.Parent ~= PlayerGui then
+                safeDestroy(controller.glowHighlight)
+                controller.glowHighlight = newOwned("Highlight", {
+                    Name = "Army124PlayerGlow",
+                    Adornee = character,
+                    DepthMode = Enum.HighlightDepthMode.Occluded,
+                    FillTransparency = 0.86,
+                    OutlineTransparency = 0.24,
+                    Enabled = true,
+                }, PlayerGui)
+            end
+            controller.glowHighlight.Adornee = character
+            controller.glowHighlight.FillColor = color
+            controller.glowHighlight.OutlineColor = color
+            if not controller.glowLight or controller.glowLight.Parent ~= root then
+                safeDestroy(controller.glowLight)
+                controller.glowLight = newOwned("PointLight", {
+                    Name = "Army124PlayerLight",
+                    Shadows = false,
+                    Range = 12,
+                    Enabled = true,
+                }, root)
+            end
+            controller.glowLight.Color = color
+            controller.glowLight.Brightness = 0.4 + strength * 0.35
+            controller.glowLight.Range = 8 + strength * 1.5
+        else
+            safeDestroy(controller.glowHighlight)
+            safeDestroy(controller.glowLight)
+            controller.glowHighlight, controller.glowLight = nil, nil
+        end
+    end
+    -- Save only Fog properties that this module changes. Dynamic game
+    -- changes are retained as the new baseline, never blindly overwritten.
+    local fogKeys = {"FogEnd", "FogStart", "FogColor"}
+    local function writeFog(key, value)
+        local old = Lighting[key]
+        local slot = controller.fog[key]
+        if not slot then
+            slot = {original = old, last = nil}
+            controller.fog[key] = slot
+        elseif slot.last ~= nil and old ~= slot.last then
+            slot.original = old
+        end
+        Lighting[key] = value
+        if Lighting[key] ~= value then error("Player FX fog write failed: " .. key) end
+        slot.last = value
+    end
+    function controller.restoreWeather()
+        local complete = true
+        for _, key in ipairs(fogKeys) do
+            local slot = controller.fog[key]
+            if slot then
+                local ok = pcall(function()
+                    if Lighting[key] == slot.last then
+                        Lighting[key] = slot.original
+                        if Lighting[key] ~= slot.original then
+                            error("Player FX fog restore mismatch: " .. key)
+                        end
+                    end
+                    -- A newer value from the game belongs to the game.
+                end)
+                if ok then controller.fog[key] = nil
+                else complete = false end
+            end
+        end
+        return complete
+    end
+    function controller.pending()
+        return next(controller.fog) ~= nil
+    end
+    local function ensureTone(field, name)
+        local tone = controller[field]
+        if not tone or tone.Parent ~= Lighting then
+            safeDestroy(tone)
+            tone = newOwned("ColorCorrectionEffect", {
+                Name = name, Enabled = true, Brightness = 0,
+                Contrast = 0, Saturation = 0, TintColor = white,
+            }, Lighting)
+            controller[field] = tone
+        end
+        return tone
+    end
+    local function stopRain()
+        if controller.rainConnection then
+            pcall(function() controller.rainConnection:Disconnect() end)
+            controller.rainConnection = nil
+        end
+        safeDestroy(controller.rainGui)
+        controller.rainGui = nil
+        table.clear(controller.rainLines)
+        controller.rainElapsed = 0
+    end
+    local function startRain()
+        if controller.rainGui and controller.rainGui.Parent and controller.rainConnection then return end
+        stopRain()
+        local gui = newOwned("ScreenGui", {
+            Name = "Army124PlayerRain", IgnoreGuiInset = true,
+            ResetOnSpawn = false, DisplayOrder = 8,
+            ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+        }, PlayerGui)
+        controller.rainGui = gui
+        for index = 1, 24 do
+            local streak = newOwned("Frame", {
+                Name = "RainStreak_" .. tostring(index),
+                BackgroundColor3 = Color3.fromRGB(182, 207, 235),
+                BackgroundTransparency = 0.63 + (index % 4) * 0.06,
+                BorderSizePixel = 0, Active = false, Visible = true,
+                Size = UDim2.fromOffset(index % 3 == 0 and 2 or 1, 13 + index % 13),
+                Rotation = 16,
+            }, gui)
+            controller.rainLines[index] = streak
+        end
+        controller.rainConnection = RunService.RenderStepped:Connect(function(dt)
+            if not active() or not state.playerWeatherEnabled
+                or state.playerWeatherMode ~= "RAIN" or gui ~= controller.rainGui then
+                stopRain()
+                return
+            end
+            controller.rainElapsed = controller.rainElapsed + math.min(dt, 0.12)
+            if controller.rainElapsed < 0.055 then return end
+            controller.rainElapsed = 0
+            local camera = Workspace.CurrentCamera
+            if not camera then return end
+            local size = camera.ViewportSize
+            local now = os.clock()
+            for i, streak in ipairs(controller.rainLines) do
+                local x = ((i * 173) % 997) / 997
+                local y = (now * (0.26 + i % 4 * 0.04) + i * 0.113) % 1
+                streak.Position = UDim2.fromOffset(x * size.X, y * size.Y)
+            end
+        end)
+    end
+    function controller.syncWeather()
+        if not active() then return end
+        local mode = state.playerWeatherEnabled and state.playerWeatherMode or "CLEAR"
+        local profile = weather[mode]
+        if profile then
+            -- Apply distant bound first so short FogEnd never clamps FogStart.
+            writeFog("FogEnd", profile.distance)
+            writeFog("FogStart", profile.start)
+            writeFog("FogColor", profile.fogColor)
+            local tone = ensureTone("weatherTone", "Army124PlayerWeatherTone")
+            tone.TintColor = profile.tint
+            tone.Brightness = profile.brightness
+            tone.Contrast = profile.contrast
+            tone.Saturation = profile.saturation
+        else
+            if not controller.restoreWeather() then
+                error("Player FX: не удалось вернуть Fog, повторим при выгрузке")
+            end
+            safeDestroy(controller.weatherTone)
+            controller.weatherTone = nil
+        end
+        if mode == "RAIN" then startRain() else stopRain() end
+    end
+    function controller.syncEnvironment()
+        if not active() then return end
+        if not state.playerEnvironmentEnabled then
+            safeDestroy(controller.environmentTone)
+            controller.environmentTone = nil
+            return
+        end
+        local tone = ensureTone("environmentTone", "Army124PlayerEnvironmentTone")
+        local color = environmentColors[state.playerEnvironmentColor]
+            or environmentColors.VIOLET
+        local t = math.clamp((tonumber(state.playerEnvironmentStrength) or 40) / 100, 0, 1)
+        tone.TintColor = white:Lerp(color, t)
+        tone.Brightness = 0
+        tone.Contrast = 0.05 * t
+        tone.Saturation = 0.02 * t
+    end
+    function controller.sync()
+        if not active() then return end
+        controller.syncAvatar()
+        controller.syncWeather()
+        controller.syncEnvironment()
+    end
+    function controller.shutdown()
+        if controller.childConnection then
+            controller.childConnection:Disconnect()
+            controller.childConnection = nil
+        end
+        removeAvatar()
+        controller.character = nil
+        stopRain()
+        safeDestroy(controller.weatherTone)
+        safeDestroy(controller.environmentTone)
+        controller.weatherTone, controller.environmentTone = nil, nil
+        return controller.restoreWeather()
+    end
+    function controller.diagnostics()
+        return string.format("Aura=%s Glow=%s | Weather=%s/%s | Tint=%s/%s"
+            .. " | Rain=%s | PendingFog=%s | Root=%s | Error=%s",
+            tostring(state.playerAuraEnabled), tostring(state.playerGlowEnabled),
+            tostring(state.playerWeatherEnabled), tostring(state.playerWeatherMode),
+            tostring(state.playerEnvironmentEnabled), tostring(state.playerEnvironmentColor),
+            tostring(controller.rainGui ~= nil),
+            tostring(controller.pending()),
+            tostring(controller.character ~= nil
+                and controller.character:FindFirstChild("HumanoidRootPart") ~= nil),
+            tostring(controller.lastError or "none"))
+    end
+    -- One character observer, no expensive Workspace.DescendantAdded scanning.
+    connect(LocalPlayer.CharacterAdded, function(character)
+        if not active() then return end
+        bindCharacter(character)
+        local ok, err = pcall(controller.syncAvatar)
+        if not ok then controller.lastError = tostring(err) end
+    end)
+    connect(LocalPlayer.CharacterRemoving, function(character)
+        if controller.character == character then bindCharacter(nil) end
+    end)
+    return controller
+end)()
+
 -- Bootstrap registered BEFORE creating any new ScreenGui or UI input handlers.
 -- The UI section runs inside its own function: Luau permits 200 locals per
 -- function, and the preceding 1600-line controller already uses many.
@@ -3397,6 +3768,10 @@ local function abortPartialHub()
     state.controlRecoil, state.antiAim, state.fullbright = false, false, false
     state.noRecoil, state.noSpread = false, false
     state.speedEnabled, state.noclip, state.fly = false, false, false
+    state.playerAuraEnabled, state.playerGlowEnabled = false, false
+    state.playerWeatherEnabled, state.playerEnvironmentEnabled = false, false
+    -- No scene-owned FX can survive an abort during UI initialization.
+    pcall(playerFX.shutdown)
     if boosterPro.privateMusic and boosterPro.privateMusic.shutdown then
         pcall(boosterPro.privateMusic.shutdown)
     end
@@ -3435,8 +3810,10 @@ local function abortPartialHub()
         pcall(restoreTerrainGrass)
         pcall(restoreTerrainColors)
         pcall(applyLighting)
+        local weatherOk, weatherRestored = pcall(playerFX.restoreWeather)
         local uiOk, uiRestored = pcall(emergencyUIRollback)
         return graphicsOk and graphicsRestored == true
+            and weatherOk and weatherRestored == true and not playerFX.pending()
             and savedLighting == nil and savedTerrainDecoration == nil
             and savedTerrainColors == nil
             and uiOk and uiRestored == true
@@ -3779,6 +4156,9 @@ local storedKeys = {
     "cameraFovEnabled", "cameraFovDegrees", "antiAim", "antiAimSpeed", "antiAimTilt",
     "speedEnabled", "speedValue", "noclip", "fly", "flySpeed",
     "musicId", "musicVolume", "musicLoop",
+    "playerAuraEnabled", "playerGlowEnabled", "playerAuraColor", "playerGlowPower",
+    "playerWeatherEnabled", "playerWeatherMode",
+    "playerEnvironmentEnabled", "playerEnvironmentColor", "playerEnvironmentStrength",
 }
 local numericRules = {
     espRangeMeters = {CONFIG.EspRangeMinMeters, CONFIG.EspRangeMaxMeters}, espMaxTargets = {8, 96},
@@ -3790,12 +4170,16 @@ local numericRules = {
     cameraFovDegrees = {55, 110}, antiAimSpeed = {180, 1440}, antiAimTilt = {0, 25},
     speedValue = {8, 120}, flySpeed = {10, 150},
     musicVolume = {0, 100},
+    playerGlowPower = {1, 5}, playerEnvironmentStrength = {0, 100},
 }
 local textRules = {
     aimMode = {head = true, body = true, legs = true},
     espColorPreset = {TEAM = true, GOLD = true, GREEN = true, WHITE = true},
     performanceMode = {AUTO = true, ECO = true, QUALITY = true},
     boosterMode = {BALANCED = true, WHITE = true, ULTRA = true},
+    playerAuraColor = {PURPLE = true, CYAN = true, GOLD = true, GREEN = true},
+    playerWeatherMode = {CLEAR = true, FOG = true, RAIN = true, NIGHT = true},
+    playerEnvironmentColor = {VIOLET = true, CYAN = true, WARM = true, GREEN = true},
 }
 defaultSettings = {}
 for _, key in ipairs(storedKeys) do defaultSettings[key] = state[key] end
@@ -3966,6 +4350,11 @@ local function applySettings(incoming, autoLoad)
         state.speedEnabled = false
         state.noclip = false
         state.fly = false
+        -- Player visuals may retain a color preset, but must be enabled manually.
+        state.playerAuraEnabled = false
+        state.playerGlowEnabled = false
+        state.playerWeatherEnabled = false
+        state.playerEnvironmentEnabled = false
         -- Prevent an old saved profile from activating Booster before a baseline.
         -- The user may still enable it manually after loading the game.
         state.booster = false
@@ -3985,6 +4374,10 @@ local function applySettings(incoming, autoLoad)
             state.speedEnabled = false
             state.noclip = false
             state.fly = false
+            state.playerAuraEnabled = false
+            state.playerGlowEnabled = false
+            state.playerWeatherEnabled = false
+            state.playerEnvironmentEnabled = false
             -- Не стираем чужой пресет; обновляем только активный CUSTOM.
             if profileName == "CUSTOM" then
                 profiles.CUSTOM = snapshotState()
@@ -4005,6 +4398,7 @@ local function applySettings(incoming, autoLoad)
         setBooster(state.booster, wasBooster and state.booster)
     end
     pcall(applyLighting)
+    if playerFX then playerFX.sync() end
     setAimEnabled(state.aimbot, false)
     recoil.reset()
     perfCounters.session.setEnabled(state.sessionDiagnostics)
@@ -4459,6 +4853,7 @@ local navigation = {
     {key = "HOME", label = "Overview", symbol = "⌂", hidden = true},
     {key = "ESP", label = "ESP", symbol = "◎"},
     {key = "AIM", label = "Aim", symbol = "⌖"},
+    {key = "PLAYER", label = "Player", symbol = "✦"},
     {key = "MISC", label = "Misc", symbol = "⚙"},
     {key = "MEMORY", label = "Memory", symbol = "▦"},
 }
@@ -4805,6 +5200,8 @@ local sectionSides = {
     ["CAMERA & LIGHTING"] = "left", ["ANTI-AIM"] = "right",
     ["MOVEMENT"] = "left", ["FLIGHT"] = "right", ["TELEPORT"] = "right",
     ["WEAPON CONTROL"] = "left", ["LOCAL MUSIC"] = "right",
+    ["PLAYER AURA"] = "left", ["PLAYER GLOW"] = "right",
+    ["LOCAL WEATHER"] = "left", ["ENVIRONMENT COLOR"] = "right",
     
     ["PROFILES"] = "left", ["CONFIG TOOLS"] = "right", ["WINDOW"] = "right",
 }
@@ -6574,6 +6971,69 @@ end
 function privateMusic.shutdown()
     privateMusic.stop()
 end
+
+
+-- PLAYER TAB: avatar-only particles / glow + camera-local weather and color grading.
+addSection(pages.PLAYER, "PLAYER AURA", "Мягкие частицы вокруг собственного персонажа")
+addToggle(pages.PLAYER, "Аура тела", "Локальное сияние без изменения персонажа на сервере",
+    "playerAuraEnabled", function() playerFX.syncAvatar() end)
+addSlider(pages.PLAYER, "Интенсивность ауры", "Частицы и яркость свечения · 1–5",
+    "playerGlowPower", 1, 5, 1, function(v) return tostring(v) .. " / 5" end,
+    function() playerFX.syncAvatar() end)
+addChoice(pages.PLAYER, "Цвет ауры и свечения", {
+    {value = "PURPLE", label = "PURPLE"},
+    {value = "CYAN", label = "CYAN"},
+    {value = "GOLD", label = "GOLD"},
+    {value = "GREEN", label = "GREEN"},
+}, "playerAuraColor", function() playerFX.syncAvatar() end)
+
+addSection(pages.PLAYER, "PLAYER GLOW", "Контур и PointLight только у своего тела")
+addToggle(pages.PLAYER, "Свечение тела", "Контур + мягкий локальный свет, без замены материалов",
+    "playerGlowEnabled", function() playerFX.syncAvatar() end)
+
+addSection(pages.PLAYER, "LOCAL WEATHER", "Клиентская погода · туман, дождь, ночной фильтр")
+addToggle(pages.PLAYER, "Изменить погоду", "Локальный Fog и цветокоррекция, без изменения сервера",
+    "playerWeatherEnabled", function() playerFX.syncWeather() end)
+addChoice(pages.PLAYER, "Пресет погоды", {
+    {value = "CLEAR", label = "CLEAR"},
+    {value = "FOG", label = "FOG"},
+    {value = "RAIN", label = "RAIN"},
+    {value = "NIGHT", label = "NIGHT"},
+}, "playerWeatherMode", function() playerFX.syncWeather() end)
+
+addSection(pages.PLAYER, "ENVIRONMENT COLOR", "Тон окружения, не меняет детали карты")
+addToggle(pages.PLAYER, "Цвет окружения", "Собственный ColorCorrectionEffect без репликации",
+    "playerEnvironmentEnabled", function() playerFX.syncEnvironment() end)
+addChoice(pages.PLAYER, "Оттенок мира", {
+    {value = "VIOLET", label = "VIOLET"},
+    {value = "CYAN", label = "CYAN"},
+    {value = "WARM", label = "WARM"},
+    {value = "GREEN", label = "GREEN"},
+}, "playerEnvironmentColor", function() playerFX.syncEnvironment() end)
+addSlider(pages.PLAYER, "Насыщенность оттенка", "От нейтрального до выбранного цвета, 0–100%",
+    "playerEnvironmentStrength", 0, 100, 5,
+    function(v) return tostring(v) .. "%" end,
+    function() playerFX.syncEnvironment() end)
+addButton(pages.PLAYER, "Выключить эффекты Player",
+    "Отключить ауру, свечение, погоду и вернуть исходные значения Fog", function()
+        state.playerAuraEnabled = false
+        state.playerGlowEnabled = false
+        state.playerWeatherEnabled = false
+        state.playerEnvironmentEnabled = false
+        playerFX.sync()
+        for _, key in ipairs({
+            "playerAuraEnabled", "playerGlowEnabled",
+            "playerWeatherEnabled", "playerEnvironmentEnabled",
+        }) do
+            if refreshToggles[key] then refreshToggles[key]() end
+        end
+        requestSave()
+        tell("Player: локальные эффекты отключены")
+    end)
+addButton(pages.PLAYER, "Диагностика Player FX",
+    "Только локальные объекты, режим погоды и состояние отката", function()
+        tell("Player 1.0 | " .. playerFX.diagnostics())
+    end)
 
 addSection(pages.MISC, "WEAPONS 2.0", "Локальная совместимость, диагностика и откат значений")
 addToggle(pages.MISC, "No Recoil", "Компенсация камеры: Tool.Activated и локальный ввод стрельбы",
@@ -8439,6 +8899,8 @@ cleanup = function(safeStop)
         state.speedEnabled = false
         state.noclip = false
         state.fly = false
+        state.playerAuraEnabled, state.playerGlowEnabled = false, false
+        state.playerWeatherEnabled, state.playerEnvironmentEnabled = false, false
         CONFIG.PlaceCache.safeBoot = true
         -- Legacy flag consumed once by migration; older versions remain safe.
         if game.PlaceId == CONFIG.OriginalPlaceId then env.ARMY124_SAFE_BOOT = true end
@@ -8458,12 +8920,19 @@ cleanup = function(safeStop)
     state.fullbright = false
     state.cameraFovEnabled = false
     state.speedEnabled, state.noclip, state.fly = false, false, false
+    state.playerAuraEnabled, state.playerGlowEnabled = false, false
+    state.playerWeatherEnabled, state.playerEnvironmentEnabled = false, false
     aimHeldKey = false
     captureAimKey = false
     boosterRevision = boosterRevision + 1
     table.clear(boosterPro.protectedRestoreQueue)
     table.clear(boosterPro.protectedRestoreSeen)
 
+    -- Player FX owns only our local objects; restore Fog before recovery checks.
+    local playerFxOk, playerFxRestored = pcall(playerFX.shutdown)
+    if not playerFxOk or playerFxRestored ~= true then
+        warn("[124 Visuals] Player FX: fog restore pending; recovery saved")
+    end
     -- Освобождаем личную музыку, затем физику и локальные параметры оружия.
     if boosterPro.privateMusic then pcall(boosterPro.privateMusic.shutdown) end
     if boosterPro.movement then pcall(boosterPro.movement.shutdown) end
@@ -8521,7 +8990,8 @@ cleanup = function(safeStop)
     end
     if savedLighting or savedTerrainDecoration or savedTerrainColors
         or next(savedGraphics) ~= nil or next(memoryFX.camera.saved) ~= nil
-        or next(memoryFX.spin.pending) ~= nil or recoil.spread.pending() then
+        or next(memoryFX.spin.pending) ~= nil or recoil.spread.pending()
+        or playerFX.pending() then
         local previousRecovery = env.ARMY124_RECOVERY
         local pendingRecovery
         pendingRecovery = function()
@@ -8531,19 +9001,21 @@ cleanup = function(safeStop)
                 oldDone = ok and result == true
             end
             local lightingOK = pcall(applyLighting)
+            local weatherOK, weatherRestored = pcall(playerFX.restoreWeather)
             local grassOK = not savedTerrainDecoration or pcall(restoreTerrainGrass)
             local colorsOK = not savedTerrainColors or pcall(restoreTerrainColors)
             local graphicsOK = pcall(boosterPro.restoreGraphicsSliced)
             local cameraOK = pcall(memoryFX.camera.reset)
             local spinOK = pcall(memoryFX.spin.restorePending)
             local spreadOK, spreadRestored = pcall(recoil.restoreSpread)
-            local done = lightingOK and grassOK and colorsOK and graphicsOK
+            local done = lightingOK and weatherOK and weatherRestored == true
+                and grassOK and colorsOK and graphicsOK
                 and cameraOK and spinOK and spreadOK and spreadRestored == true
                 and not (savedLighting or savedTerrainDecoration or savedTerrainColors)
                 and next(savedGraphics) == nil
                 and next(memoryFX.camera.saved) == nil
                 and next(memoryFX.spin.pending) == nil
-                and not recoil.spread.pending()
+                and not recoil.spread.pending() and not playerFX.pending()
             if done and oldDone and env.ARMY124_RECOVERY == pendingRecovery then
                 env.ARMY124_RECOVERY = nil
             end
