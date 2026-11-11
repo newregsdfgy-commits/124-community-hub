@@ -1,3 +1,15 @@
+# RV_STATE — v1.3.0 ESP 2.0 / Key System 2.0 / modular build (2026-11-11)
+
+Current test branch: `v1.3.0-esp2-key2-modular-test`; base: `v1.2.2-weapons-2-compatibility-test`; main untouched.
+- ESP urgent respawn and local/remote late-part watchers; generation-safe task + 45ms coalescing / 100ms minimum; 0.5s far label refresh and motion-adaptive 2D frame Hz.
+- Key 2.0: local 5 failures / 25s cooldown, second tap for cancel, Return/FocusLost dedup and Android keyboard card position. Key remains local plaintext; no server auth.
+- `src/` split into 11 compile-time modules, byte exact concat to `Hub.lua` / `Visuals.lua`. Builder: `python3 tools/build_visuals.py --check|--write`. Not runtime ModuleScripts.
+- `Start.lua` repointed and version checked v1.3.0. Old cleanup/boot ownership remains.
+- New `tests/EspKeyArchitecture130.test.cjs` (17 focused checks), previous Weapons2 suite adapted to v1.3.0, CI `.github/workflows/v130-ci.yml` builds and parses Luau.
+- Report `AUDIT_v1.3.0.md`. Actual Roblox/Android/rendering/FPS QA is pending; CI result must be verified from Actions.
+
+---
+
 # RV_STATE — Weapons 2.0 / 124 Visuals v1.2.2 (2026-11-11)
 
 - Current test branch: `v1.2.2-weapons-2-compatibility-test`, base: `v1.2.1-purple-neon-ui-2-test`, no changes to main.
