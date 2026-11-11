@@ -1,3 +1,21 @@
+# RV_STATE — 124 Visuals v1.2.0 Stability & Performance Update
+
+Date: 2026-11-11. Test branch: `v1.2.0-stability-performance-test`. Baseline `v1.1.66-deep-audit-race-spread-test` remains intact.
+
+## Current work
+- FPS Booster processing budgets reduced: 64 objects/batch, 0.75 ms nominal slice and 0.35 ms low-FPS, 24 streaming queue objects/batch, 0.35 ms queue slice; checks CPU budget every four objects.
+- Safer hot reload: `connect()` and `mk()` refuse stale instance's signal/UI creation based on `alive` and `CONFIG.BootToken`.
+- Worker counters: scan, restore, repair, avatar. Sliced rollback completion timestamp/status recorded.
+- Memory tab: new **Аудит ресурсов / восстановления** and **Самопроверка стабильности** actions; snapshot diagnostic read is capped at 2048 objects, runs on-demand only.
+- Source files `Hub.lua` and `Visuals.lua` mirrored SHA: `8c4318f17fa21b30472440d62fc3c20974f90ea4`.
+- Loader `Start.lua` SHA: `e55357ea1fa85b80b87782476973e9de4a706bdd` (correct v1.2.0 branch).
+- Added `tools/verify_release.py` and `.github/workflows/visuals-static-checks.yml` for reproducible future checks. CI execution NOT confirmed.
+- Report `AUDIT_v1.2.0.md`. In-chat checks 30/30, whole-source lexical scan 8528 lines / 39999 tokens / zero structural findings.
+- Key `124HUB`, Purple Neon, ESP/AIM/NoRecoil/NoSpread/Booster/movement/music preserved.
+- **Not tested** with Luau compiler or Roblox/Delta live gameplay. No measured FPS claims. Do not merge into main without device QA.
+
+## Previous history
+
 # RV_STATE — 124 Visuals v1.1.66 (2026-11-11)
 
 Current test branch: `v1.1.66-deep-audit-race-spread-test`. Old `v1.1.65-purple-neon-ui-test` remains intact.
