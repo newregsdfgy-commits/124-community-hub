@@ -10,7 +10,7 @@ const hub = read("Hub.lua"), visuals = read("Visuals.lua"), launcher = read("Sta
 const modules = [
     "00_config.lua", "01_access_gate.lua", "02_state_and_services.lua",
     "03_esp_tracker.lua", "04_lighting_and_booster.lua",
-    "05_weapons_and_recoil.lua", "06_gui_runtime.lua", "07_esp_overlays.lua",
+    "05_weapons_and_recoil.lua", "05_player_visuals.lua", "06_gui_runtime.lua", "07_esp_overlays.lua",
     "08_ui_controls.lua", "09_misc_and_diagnostics.lua",
     "10_run_and_cleanup.lua",
 ].map(x => read("src/" + x));
@@ -25,15 +25,15 @@ const gate = part("-- Блокировка запуска:", "local state = {");
 const esp = part("-- ESP: исходная Highlight/Billboard", "-- Shared Lighting ownership:");
 const runtime = part("-- Camera FOV сразу после штатной камеры", undefined);
 
-test("module bundle is byte-equivalent and 11 fragments appear in order", () => {
+test("module bundle is byte-equivalent and 12 fragments appear in order", () => {
     assert.equal(hub, visuals);
     assert.equal(modules.join(""), hub);
-    assert.equal(modules.length, 11);
+    assert.equal(modules.length, 12);
 });
 test("entrypoint version and launcher point to isolated test branch", () => {
-    assert.match(hub, /Version = "1\.3\.1"/);
-    assert.match(launcher, /v1\.3\.1-deep-audit-stability-test\/Visuals\.lua/);
-    assert.match(launcher, /Version = "1\.3\.1"/);
+    assert.match(hub, /Version = "1\.4\.0"/);
+    assert.match(launcher, /v1\.4\.0-player-visuals-test\/Visuals\.lua/);
+    assert.match(launcher, /Version = "1\.4\.0"/);
     assert.match(launcher, /ARMY124_START_RUNNING = true/);
     assert.match(launcher, /ARMY124_START_RUNNING = nil/);
 });
