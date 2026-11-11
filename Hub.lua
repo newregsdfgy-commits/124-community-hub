@@ -1,11 +1,11 @@
--- 124 Visuals v1.3.0 | ESP 2.0 + Key System 2.0 + Modular Build
+-- 124 Visuals v1.3.1 | Deep Audit / ESP + Key + Lifecycle Fixes
 -- Первый плейс: 18537079992. Запуск поддерживает все игровые PlaceId.
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.3.0",
+    Version = "1.3.1",
     OriginalPlaceId = 18537079992,
     EspRefreshSeconds = 0.35, -- Быстрый поиск персонажей, без обновления UI каждый кадр.
     EspEventMinSeconds = 0.18, -- Коалесцированные события не запускают 16 полных сканов/сек.
@@ -427,28 +427,32 @@ do
 
         local response = Instance.new("BindableEvent")
         local completed, wrongCount = false, 0
+        local resolvedValue = false
         local blockedUntil, lastSubmitAt = 0, -math.huge
         local cancelArmedAt = -math.huge
         local function resolve(accepted)
             if completed then return end
+            resolvedValue = accepted == true
             completed = true
-            response:Fire(accepted)
+            response:Fire(resolvedValue)
         end
         local function tryUnlock()
             if completed then return end
             local now = os.clock()
-            -- Return и FocusLost могут срабатывать одновременно на Android.
-            if now - lastSubmitAt < CONFIG.KeySubmitDedupSeconds then return end
-            lastSubmitAt = now
             if now < blockedUntil then
                 message.Text = "Повтори через " .. tostring(math.ceil(blockedUntil - now)) .. " сек."
                 return
             end
             local candidate = input.Text:gsub("^%s+", ""):gsub("%s+$", "")
             if candidate == "" then
+                -- Второе Return/FocusLost не должно перетирать результат
+                -- предыдущего ввода, если TextBox уже очищен обработчиком.
+                if now - lastSubmitAt < CONFIG.KeySubmitDedupSeconds then return end
                 message.Text = "Введи ключ перед проверкой"
                 return
             end
+            -- Не блокируем НОВОЕ значение из-за предыдущего пустого Enter.
+            lastSubmitAt = now
             input.Text = ""
             if candidate == ACCESS_KEY then resolve(true); return end
             wrongCount = wrongCount + 1
@@ -498,8 +502,18 @@ do
         end)
         -- Внешнее уничтожение GUI завершает ожидание, но НЕ открывает доступ.
         screen.Destroying:Connect(function() resolve(false) end)
+        screen.AncestryChanged:Connect(function(_, parent)
+            if parent == nil then resolve(false) end
+        end)
 
-        local accepted = response.Event:Wait()
+        -- Если экран был уничтожен до Event:Wait(), BindableEvent не хранит
+        -- ранее отправленное событие. Возвращаем зафиксированное решение.
+        local accepted
+        if completed then
+            accepted = resolvedValue
+        else
+            accepted = response.Event:Wait()
+        end
         if screen.Parent then screen:Destroy() end
         response:Destroy()
         return accepted == true
@@ -722,7 +736,7 @@ perfCounters.espVisual = {bound = false, bindingName = "Army124CommunityESP_" ..
     errorAt = 0, scanErrorAt = 0, active = {}, projected = {}, ordered = {}, candidatePool = {},
     eligible = 0, missing = 0, omitted = 0, lastScanAt = 0,
     localReady = false, renderFailures = 0, watcherFailures = 0,
-    urgentEvents = 0, urgentScans = 0, motionCamera = nil,
+    urgentEvents = 0, urgentScans = 0, urgentSkipped = 0, motionCamera = nil,
     motionFrame = nil, motionUntil = 0}
 -- Логи отключены без подписки. Игровые события могут приходить сотнями/сек.
 -- Подписка создаётся только после явного включения пользователем.
@@ -1300,7 +1314,15 @@ local function refreshESP()
     local _, myRoot = espParts(character)
     perfCounters.espVisual.localReady = myRoot ~= nil
     if not myRoot then
-        for player in pairs(renderData) do deleteRender(player) end
+        -- Локальный респавн / StreamingEnabled: временно скрываем, а не
+        -- уничтожаем все дорогостоящие Highlight/Billboard. При появлении
+        -- Root следующий событийный scan снова использует валидные объекты.
+        for _, item in pairs(renderData) do
+            if item.inactiveSince == nil then item.inactiveSince = os.clock() end
+            if isLive(item.highlight) then item.highlight.Enabled = false end
+            if isLive(item.billboard) then item.billboard.Enabled = false end
+            if item.tracer and item.tracer.Parent then item.tracer.Visible = false end
+        end
         table.clear(perfCounters.espVisual.ordered)
         perfCounters.espCount = 0
         perfCounters.espVisual.eligible = 0
@@ -1403,6 +1425,7 @@ local espRefreshQueued = false
 local espRefreshGeneration = 0
 local espUrgentQueued = false
 local espUrgentLastAt = -math.huge
+local espUrgentDirtyAt = -math.huge
 local localEspEntry = {character = nil, added = nil, removing = nil}
 -- Частота событийных обновлений согласована с дальностью сканирования.
 function perfCounters.espVisual.eventCooldown()
@@ -1421,6 +1444,9 @@ local function queueESPRefresh(urgent)
     if not alive or not state.esp then return end
     if urgent == true then
         perfCounters.espVisual.urgentEvents = perfCounters.espVisual.urgentEvents + 1
+        -- Во время коалесцирования запоминаем самое НОВОЕ событие:
+        -- обычный scan мог закончиться между первым и последним событием.
+        espUrgentDirtyAt = os.clock()
         if espUrgentQueued then return end
         espUrgentQueued = true
         local generation = espRefreshGeneration
@@ -1431,12 +1457,24 @@ local function queueESPRefresh(urgent)
             if generation ~= espRefreshGeneration then return end
             espUrgentQueued = false
             if not alive or not state.esp then return end
+            -- Не дублируем уже выполненный периодический scan, но никогда
+            -- не теряем новое событие, пришедшее ПОСЛЕ этого scan.
+            if perfCounters.espVisual.localReady
+                and perfCounters.espVisual.lastScanAt >= espUrgentDirtyAt then
+                perfCounters.espVisual.urgentSkipped =
+                    perfCounters.espVisual.urgentSkipped + 1
+                return
+            end
             espUrgentLastAt = os.clock()
             local ok, err = pcall(refreshESP)
             if ok then
                 perfCounters.espVisual.urgentScans = perfCounters.espVisual.urgentScans + 1
             else
-                warn("[124 Visuals] ESP fast respawn: " .. tostring(err))
+                local now = os.clock()
+                if now - perfCounters.espVisual.scanErrorAt >= 3 then
+                    perfCounters.espVisual.scanErrorAt = now
+                    warn("[124 Visuals] ESP fast respawn: " .. tostring(err))
+                end
             end
         end)
         return
@@ -1553,12 +1591,16 @@ stopESPWatchers = function()
     espRefreshGeneration = espRefreshGeneration + 1
     espRefreshQueued = false
     espUrgentQueued = false
+    espUrgentDirtyAt = -math.huge
+    espUrgentLastAt = -math.huge
     for player in pairs(espWatchers) do unwatchEspPlayer(player) end
     bindLocalEspCharacter(nil)
 end
 syncESPWatchers = function()
     if not state.esp then
-        stopESPWatchers()
+        if next(espWatchers) ~= nil or localEspEntry.character ~= nil then
+            stopESPWatchers()
+        end
         return
     end
     if localEspEntry.character ~= LocalPlayer.Character then
@@ -5044,7 +5086,13 @@ local function refreshTracers()
     local source = Vector2.new(viewportSize.X * 0.5, 12)
     local myCharacter = LocalPlayer.Character
     local _, myRoot = espParts(myCharacter)
-    if not myRoot then clearTracers(); return end
+    if not myRoot then
+        -- Во время локального респавна прячем линии, а не создаём их заново.
+        for _, item in pairs(renderData) do
+            if item.tracer and item.tracer.Parent then item.tracer.Visible = false end
+        end
+        return
+    end
     local radiusStuds = state.espRangeMeters / CONFIG.StudMeters
     local radiusSquared = radiusStuds * radiusStuds
     for player, data in pairs(renderData) do
@@ -8590,6 +8638,13 @@ perfCounters.espVisual.frame = function(dt)
         perfCounters.espVisual.motionFrame = nil
         return
     end
+    -- Когда Tracer и Box выключены, не читаем CFrame камеры каждый кадр.
+    if not state.tracers and not state.espBox then
+        espVisualElapsed = 0
+        perfCounters.espVisual.motionCamera = nil
+        perfCounters.espVisual.motionFrame = nil
+        return
+    end
     -- Считываем камеру после её штатного обновления, AIM и Recoil.
     local motion = perfCounters.espVisual
     local camera = Workspace.CurrentCamera
@@ -8604,10 +8659,6 @@ perfCounters.espVisual.frame = function(dt)
         motion.motionCamera, motion.motionFrame = camera, current
     else
         motion.motionCamera, motion.motionFrame = nil, nil
-    end
-    if not state.tracers and not state.espBox then
-        espVisualElapsed = 0
-        return
     end
     -- AIM/Recoil идут каждый кадр. Только тяжёлые ESP GUI-примитивы
     -- обновляем с отдельным пределом кадров при AUTO/ECO.
