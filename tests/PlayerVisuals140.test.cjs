@@ -70,11 +70,16 @@ test("world weather only touches three fog properties and own effects", () => {
   assert.match(visuals, /if Lighting\[key\] == slot\.last then/);
   assert.match(visuals, /slot\.original = old/);
   assert.match(visuals, /function controller\.restoreWeather\(\)/);
+  assert.match(visuals, /Lighting:FindFirstChildOfClass\("Atmosphere"\)/);
+  assert.match(visuals, /function controller\.restoreAtmosphere\(\)/);
+  assert.match(visuals, /if target and target.Parent and target\[key\] == slot\.last then/);
+  assert.match(visuals, /connect\(Lighting\.ChildAdded, onAtmosphereChange\)/);
   assert.doesNotMatch(visuals, /Lighting\.ClockTime\s*=|Lighting\.Brightness\s*=/);
 });
 test("Booster protects exactly the two local tone effects", () => {
   assert.match(booster, /obj\.Name == "Army124PlayerWeatherTone"/);
   assert.match(booster, /obj\.Name == "Army124PlayerEnvironmentTone"/);
+  assert.match(booster, /obj:IsA\("Atmosphere"\) and state\.playerWeatherEnabled/);
   assert.match(visuals, /"Army124PlayerWeatherTone"/);
   assert.match(visuals, /"Army124PlayerEnvironmentTone"/);
 });
