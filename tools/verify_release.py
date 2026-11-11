@@ -11,8 +11,8 @@ import re
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = "1.3.0"
-BRANCH = "v1.3.0-esp2-key2-modular-test"
+VERSION = "1.3.1"
+BRANCH = "v1.3.1-deep-audit-stability-test"
 CHECK_COUNT = [0]
 
 
@@ -237,6 +237,25 @@ def main() -> int:
               "07_esp_overlays.lua", "08_ui_controls.lua",
               "09_misc_and_diagnostics.lua", "10_run_and_cleanup.lua"
           )).decode("utf-8"), failures)
+    check("ESP local respawn retains existing overlays",
+          "if not myRoot then" in hub and
+          "if isLive(item.highlight) then item.highlight.Enabled = false end" in hub and
+          "if item.tracer and item.tracer.Parent then item.tracer.Visible = false end" in hub,
+          failures)
+    check("ESP urgent dedup uses latest event timestamp",
+          "espUrgentDirtyAt = os.clock()" in hub and
+          "lastScanAt >= espUrgentDirtyAt" in hub and
+          "urgentSkipped" in hub, failures)
+    check("Key result latched before waiting",
+          "if completed then" in hub and "accepted = resolvedValue" in hub and
+          "screen.AncestryChanged:Connect" in hub, failures)
+    check("Key empty duplicate does not overwrite feedback",
+          "if now - lastSubmitAt < CONFIG.KeySubmitDedupSeconds then return end" in hub and
+          "if candidate == \"\" then" in hub, failures)
+    check("ESP CFrame skipped when no 2D visuals",
+          hub.find("if not state.tracers and not state.espBox then") <
+          hub.find("local camera = Workspace.CurrentCamera", hub.find("local espVisualElapsed = 0")),
+          failures)
     check("Source quote/comment/bracket scan",
           not structural_errors(hub), failures)
     check("Launcher quote/comment/bracket scan",
