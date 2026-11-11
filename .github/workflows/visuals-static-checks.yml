@@ -2,7 +2,7 @@ name: 124 Visuals release integrity
 on:
   push:
     branches:
-      - "v1.2.0-*"
+      - "v*"
   pull_request:
     paths:
       - "Hub.lua"
