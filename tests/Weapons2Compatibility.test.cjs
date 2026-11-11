@@ -43,6 +43,7 @@ test("delayed callbacks belong to current weapon generation", () => {
     assert.match(recoil, /controller\.spread\.generation == generation/);
     assert.match(recoil, /if spread\.generation ~= generation then return end/);
     assert.match(recoil, /if recoilTool == tool then return end/);
+    assert.match(recoil, /equipRecoilTool\(character:FindFirstChildOfClass\("Tool"\)\)/);
 });
 test("watcher shutdown and nested container removal cleanup", () => {
     assert.match(recoil, /clearSpreadIndex\(\)/);
