@@ -3064,7 +3064,10 @@ local function bindRecoilCharacter(character)
         if alive and child:IsA("Tool") then equipRecoilTool(child) end
     end)
     recoilCharacterConnections[#recoilCharacterConnections + 1] = character.ChildRemoved:Connect(function(child)
-        if child == recoilTool then equipRecoilTool(nil) end
+        -- При удалении активного Tool сразу подхватываем другой оставшийся.
+        if child == recoilTool then
+            equipRecoilTool(character:FindFirstChildOfClass("Tool"))
+        end
     end)
     equipRecoilTool(character:FindFirstChildOfClass("Tool"))
 end
