@@ -70,7 +70,14 @@ local charOne = Instance.new("Model")
 charOne.children = {HumanoidRootPart = rootOne}
 local LocalPlayer = {Character = charOne, CharacterAdded = signal(),
     CharacterRemoving = signal()}
-local Lighting = {FogEnd = 1000, FogStart = 0, FogColor = color(0.4, 0.5, 0.6)}
+local Lighting = {
+    FogEnd = 1000, FogStart = 0, FogColor = color(0.4, 0.5, 0.6),
+    ChildAdded = signal(), ChildRemoved = signal(),
+}
+function Lighting:FindFirstChildOfClass(name)
+    if name == "Atmosphere" then return self.currentAtmosphere end
+    return nil
+end
 local originalFogColor = Lighting.FogColor
 local PlayerGui = {}
 local Workspace = {CurrentCamera = {ViewportSize = Vector2.new(900, 500)}}
@@ -171,6 +178,48 @@ assert(Lighting.FogEnd == 380)
 state.playerWeatherEnabled = false
 playerFX.syncWeather()
 assert(Lighting.FogEnd == 750 and not playerFX.pending())
+
+-- The game may already have Atmosphere, in which case Fog* is NOT rendered.
+local existingAtmo = Instance.new("Atmosphere")
+existingAtmo.Density = 0.12
+existingAtmo.Haze = 0.35
+existingAtmo.Color = color(0.9, 0.8, 0.7)
+existingAtmo.Decay = color(0.5, 0.6, 0.7)
+existingAtmo.Parent = Lighting
+Lighting.currentAtmosphere = existingAtmo
+local originalSkyColor = existingAtmo.Color
+local originalSkyDecay = existingAtmo.Decay
+state.playerWeatherEnabled = true
+state.playerWeatherMode = "FOG"
+playerFX.syncWeather()
+assert(existingAtmo.Density == 0.56 and existingAtmo.Haze == 2.8)
+assert(existingAtmo.Color ~= originalSkyColor)
+assert(playerFX.pending())
+-- A change from the original game must become the next restoration baseline.
+existingAtmo.Haze = 6
+state.playerWeatherMode = "NIGHT"
+playerFX.syncWeather()
+assert(existingAtmo.Haze == 1.3)
+state.playerWeatherEnabled = false
+playerFX.syncWeather()
+assert(existingAtmo.Density == 0.12 and existingAtmo.Haze == 6)
+assert(existingAtmo.Color == originalSkyColor and existingAtmo.Decay == originalSkyDecay)
+assert(not playerFX.pending())
+-- If an Atmosphere is added after Player weather was already active,
+-- the ChildAdded listener switches from Fog to Atmosphere.
+Lighting.currentAtmosphere = nil
+existingAtmo.Parent = nil
+state.playerWeatherEnabled = true
+state.playerWeatherMode = "RAIN"
+playerFX.syncWeather()
+assert(Lighting.FogEnd == 250)
+existingAtmo.Parent = Lighting
+Lighting.currentAtmosphere = existingAtmo
+Lighting.ChildAdded:Fire(existingAtmo)
+assert(Lighting.FogEnd == 1000 and existingAtmo.Density == 0.40)
+state.playerWeatherEnabled = false
+playerFX.syncWeather()
+assert(not playerFX.pending())
 
 -- Explicit user-off / unload removes owned objects, never changes the game avatar.
 local weatherCount = #instances
