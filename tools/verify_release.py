@@ -11,8 +11,8 @@ import re
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = "1.2.1"
-BRANCH = "v1.2.1-purple-neon-ui-2-test"
+VERSION = "1.3.0"
+BRANCH = "v1.3.0-weapons-2-compat-test"
 CHECK_COUNT = [0]
 
 
@@ -175,6 +175,41 @@ def main() -> int:
     check("Recoil and Spread restore remain",
           "function controller.restoreSpread()" in hub and
           "pcall(recoil.shutdown)" in hub, failures)
+    check("Weapons 2.0 diagnostics are read-only",
+          "controller.inspectCompatibility = function()" in hub and
+          "Weapons 2.0 — проверка совместимости" in hub, failures)
+    check("Latest game-provided spread baselines retained",
+          "saved.value = value" in hub and
+          "saved.attributes[name] = value" in hub, failures)
+    check("Per-instance spread rollback is available",
+          "local function restoreSpreadInstance(instance)" in hub and
+          "if not restoreSpreadInstance(instance) then" in hub, failures)
+    check("Detached spread parameter rollback",
+          "local restored = restoreSpreadInstance(instance)" in hub and
+          "local function unregisterSpreadCandidate(instance)" in hub, failures)
+    check("Disconnects spread signal before detached rollback",
+          hub.find("local function unregisterSpreadCandidate(instance)") <
+          hub.find("spread.watchers[instance] = nil") <
+          hub.find("local restored = restoreSpreadInstance(instance)"), failures)
+    check("Recoil input event source grouped correctly",
+          'local origin = (source == "mouse" or source == "touch" or source == "gamepad")' in hub,
+          failures)
+    check("Activated and physical input source retained",
+          'markRecoilShot("tool")' in hub and
+          'markRecoilShot(origin)' in hub, failures)
+    check("InputObject release watchdog",
+          'Enum.UserInputState.End' in hub and
+          'Enum.UserInputState.Cancel' in hub, failures)
+    check("Recoil correction statistics",
+          'controller.telemetry.correctedFrames = ' in hub and
+          'controller.telemetry.lastCorrectionAt = now' in hub, failures)
+    check("On-demand Tool inventory bounded",
+          "info.checked < 256" in hub and
+          "if #stack >= 512 then" in hub, failures)
+    check("No Spread candidate discovery retained",
+          'SpreadDiscoverySeconds = 3.0' in hub and
+          'spread.discoveryIndex + CONFIG.SpreadDiscoveryBatch - 1' in hub,
+          failures)
     check("Render and UI controllers retained",
           all(token in hub for token in (
               "local function aimFrame(dt)",
