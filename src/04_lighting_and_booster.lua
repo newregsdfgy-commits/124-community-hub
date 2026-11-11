@@ -261,6 +261,10 @@ connect(Players.PlayerRemoving, boosterPro.unwatchPlayer)
 -- Проверять каждую родительскую модель для каждой детали дорого.
 -- При обходе дерева достаточно проверить границу ветки ОДИН раз.
 function boosterPro.isProtectedBranch(obj)
+    -- Player-owned ColorCorrectionEffects belong to an independent visual layer.
+    -- Do not let BALANCED/WHITE/ULTRA turn them off or capture their Enabled.
+    if obj.Name == "Army124PlayerWeatherTone"
+        or obj.Name == "Army124PlayerEnvironmentTone" then return true end
     local cam = Workspace.CurrentCamera
     if obj == cam then return true end
     if obj:IsA("LayerCollector") or obj:IsA("GuiBase2d") then return true end
