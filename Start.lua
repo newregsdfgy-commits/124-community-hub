@@ -1,3 +1,16 @@
+-- 124 Visuals / serialized key-gate launcher (payload v1.1.63)
+-- Второй запуск Start.lua не уничтожает уже открытую форму ключа.
+local launchEnv = _G
+if type(getgenv) == "function" then
+    local okEnv, got = pcall(getgenv)
+    if okEnv and type(got) == "table" then launchEnv = got end
+end
+if launchEnv.ARMY124_START_RUNNING == true then
+    warn("[124 START] Ключевой экран уже открыт. Завершите или закройте предыдущий запуск.")
+    return false
+end
+launchEnv.ARMY124_START_RUNNING = true
+local function runLauncher()
 -- 124 Visuals / v1.1.63 audited key-gated launcher
 local url = "https://raw.githubusercontent.com/newregsdfgy-commits/124-community-hub/v1.1.63-independent-reaudit-test/Visuals.lua"
 local function failure(stage, reason)
@@ -54,3 +67,20 @@ if env.ARMY124_BOOT_PHASE ~= "ready" then
 end
 print("[124 START] v1.1.63 GUI ready")
 return true
+
+end
+local wrapperOK, wrapperResult = xpcall(runLauncher, function(reason)
+    local message = tostring(reason)
+    if type(debug) == "table" and type(debug.traceback) == "function" then
+        local okTrace, trace = pcall(debug.traceback, message, 2)
+        if okTrace and type(trace) == "string" then return trace end
+    end
+    return message
+end)
+-- Mutex очищается и после ошибки, и после отмены пользователем.
+launchEnv.ARMY124_START_RUNNING = nil
+if not wrapperOK then
+    warn("[124 START / WRAPPER] " .. tostring(wrapperResult))
+    return false
+end
+return wrapperResult
