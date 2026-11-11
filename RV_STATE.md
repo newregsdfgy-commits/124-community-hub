@@ -1,3 +1,21 @@
+# RV_STATE — Purple Neon UI 2.0 / 124 Visuals v1.2.1
+
+Date: 2026-11-11. Current test branch: `v1.2.1-purple-neon-ui-2-test`. Based on v1.2.0; previous stable/test branches unchanged.
+
+- Purple Neon 2.0: darker violet palette, active nav contrast and new header subtitle.
+- Compact landscape/portrait layouts: 610 px / 460 px preferred widths, 68/78/94 px sidebars, 44 px nav items, 42 px header buttons.
+- Wide touch layout requires safe viewport >=960×540; avoids over-scaling small tap targets.
+- Fast switches cancel old tweens before new animations; slider drag zone now 32 px and rotates safely (gesture reset).
+- On-demand Memory action `Проверка адаптации UI 2.0` reports actual sizes and 7 UI invariants in Roblox Output.
+- Hub.lua and Visuals.lua mirrored blob SHA `12a1222eb5e3d2e7236205a5010630ac110a9a37`.
+- Start.lua SHA `1a69cc6b314309fe27b491bd55966839036dfe98`.
+- `tools/verify_release.py` updated for 18 viewport scenarios and Purple Neon UI-specific assertions; GitHub Actions branch filter includes all `v*`.
+- User gameplay systems and cleanup before/after UI are byte-identical to v1.2.0. Key remains `124HUB`.
+- Audit file: `AUDIT_UI_v1.2.1.md`; **46/46 in-chat static/layout checks**, **18/18 simulated viewports**. CI not confirmed.
+- No real Luau compiler run, Roblox client rendering, live touch/rotation/FPS measurements performed. No production stability guarantee.
+
+## Previous notes
+
 # RV_STATE — 124 Visuals v1.2.0 Stability & Performance Update
 
 Date: 2026-11-11. Test branch: `v1.2.0-stability-performance-test`. Baseline `v1.1.66-deep-audit-race-spread-test` remains intact.
