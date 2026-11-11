@@ -1,11 +1,11 @@
--- 124 Visuals v1.4.0 | Player Visuals: Aura / Glow / Weather / Environment
+-- 124 Visuals v1.4.1 | Deep Stability Audit: Player/Booster/Runtime
 -- Первый плейс: 18537079992. Запуск поддерживает все игровые PlaceId.
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.4.0",
+    Version = "1.4.1",
     OriginalPlaceId = 18537079992,
     EspRefreshSeconds = 0.35, -- Быстрый поиск персонажей, без обновления UI каждый кадр.
     EspEventMinSeconds = 0.18, -- Коалесцированные события не запускают 16 полных сканов/сек.
@@ -631,6 +631,8 @@ local boosterPro = {
     changedProperties = 0, phase = "OFF", lastError = nil,
     -- Weak object keys track values actively written by Booster.
     graphicsWritten = setmetatable({}, {__mode = "k"}),
+    -- Exact instances owned by Player FX; name-based protection is unsafe.
+    playerFxOwned = setmetatable({}, {__mode = "k"}),
     recoveryFailures = 0, recoveryNextAt = 0,
     restoreRetryAt = 0, restoreRetryRunning = false,
     terrainRestoreRetryAt = 0, -- Backoff on inaccessible Terrain: no recurring 1s spikes.
@@ -1893,13 +1895,9 @@ connect(Players.PlayerRemoving, boosterPro.unwatchPlayer)
 -- Проверять каждую родительскую модель для каждой детали дорого.
 -- При обходе дерева достаточно проверить границу ветки ОДИН раз.
 function boosterPro.isProtectedBranch(obj)
-    -- Player-owned ColorCorrectionEffects belong to an independent visual layer.
-    -- Do not let BALANCED/WHITE/ULTRA turn them off or capture their Enabled.
-    if obj.Name == "Army124PlayerWeatherTone"
-        or obj.Name == "Army124PlayerEnvironmentTone" then return true end
-    -- Keep an active player weather Atmosphere distinct from Booster.
-    if obj:IsA("Atmosphere") and state.playerWeatherEnabled
-        and state.playerWeatherMode ~= "CLEAR" then return true end
+    -- Exact instance ownership: no unrelated game effects are exempted based
+    -- on a matching Name, and an unowned Atmosphere remains optimizable.
+    if boosterPro.playerFxOwned[obj] == true then return true end
     local cam = Workspace.CurrentCamera
     if obj == cam then return true end
     if obj:IsA("LayerCollector") or obj:IsA("GuiBase2d") then return true end
@@ -2216,6 +2214,20 @@ function boosterPro.restoreObject(obj, snapshot)
     if not left then
         savedGraphics[obj] = nil
         boosterPro.graphicsWritten[obj] = nil
+    end
+end
+
+-- Hand an Atmosphere back from Booster to Player weather only after restoring
+-- Booster's own saved values; otherwise Player captures Booster's Density=0
+-- as its "game original" and leaves permanently flattened fog on disable.
+function boosterPro.releaseAtmosphereToPlayer(obj)
+    local saved = savedGraphics[obj]
+    if saved then boosterPro.restoreObject(obj, saved) end
+    return savedGraphics[obj] == nil
+end
+function boosterPro.reapplyAtmosphereAfterPlayer(obj)
+    if alive and state.booster and obj and obj.Parent then
+        optimizeObject(obj, false)
     end
 end
 
@@ -3408,7 +3420,7 @@ end)()
 -- One controller, no changes to game/server player stats or other characters.
 local playerFX = (function()
     local controller = {
-        character = nil, childConnection = nil,
+        character = nil, childConnection = nil, childRemovedConnection = nil,
         auraAttachment = nil, auraEmitter = nil,
         glowHighlight = nil, glowLight = nil,
         weatherTone = nil, environmentTone = nil,
@@ -3459,13 +3471,18 @@ local playerFX = (function()
         return alive and env.ARMY124_BOOT_TOKEN == CONFIG.BootToken
     end
     local function safeDestroy(instance)
-        if instance then pcall(function() instance:Destroy() end) end
+        if instance then
+            pcall(function() instance:Destroy() end)
+            boosterPro.playerFxOwned[instance] = nil
+        end
     end
     local function newOwned(className, props, parent)
         if not active() then error("Player FX: устаревший запуск", 2) end
         local object = Instance.new(className)
         local ok, err = pcall(function()
             for property, value in pairs(props) do object[property] = value end
+            -- Register exact instance before Parent fires Booster DescendantAdded.
+            boosterPro.playerFxOwned[object] = true
             object.Parent = parent
         end)
         if not ok then
@@ -3487,6 +3504,10 @@ local playerFX = (function()
             controller.childConnection:Disconnect()
             controller.childConnection = nil
         end
+        if controller.childRemovedConnection then
+            controller.childRemovedConnection:Disconnect()
+            controller.childRemovedConnection = nil
+        end
         removeAvatar() -- Old R6/R15 body and its attachments must never persist.
         controller.character = character
         if character then
@@ -3498,6 +3519,13 @@ local playerFX = (function()
                         controller.lastError = tostring(err)
                         warn("[124 Player] late Root: " .. tostring(err))
                     end
+                end
+            end)
+            controller.childRemovedConnection = character.ChildRemoved:Connect(function(child)
+                if active() and child.Name == "HumanoidRootPart"
+                    and child:IsA("BasePart") then
+                    local ok, err = pcall(controller.syncAvatar)
+                    if not ok then controller.lastError = tostring(err) end
                 end
             end)
         end
@@ -3516,6 +3544,7 @@ local playerFX = (function()
         local strength = math.clamp(tonumber(state.playerGlowPower) or 3, 1, 5)
         if state.playerAuraEnabled then
             if not controller.auraAttachment or controller.auraAttachment.Parent ~= root then
+                safeDestroy(controller.auraEmitter)
                 safeDestroy(controller.auraAttachment)
                 controller.auraAttachment = newOwned("Attachment", {
                     Name = "Army124PlayerAuraAttachment",
@@ -3524,6 +3553,7 @@ local playerFX = (function()
                 controller.auraEmitter = nil
             end
             if not controller.auraEmitter or controller.auraEmitter.Parent ~= controller.auraAttachment then
+                safeDestroy(controller.auraEmitter)
                 controller.auraEmitter = newOwned("ParticleEmitter", {
                     Name = "Army124PlayerAura",
                     Texture = "rbxasset://textures/particles/sparkles_main.dds",
@@ -3555,7 +3585,7 @@ local playerFX = (function()
             controller.auraEmitter, controller.auraAttachment = nil, nil
         end
         if state.playerGlowEnabled then
-            if not controller.glowHighlight or controller.glowHighlight.Parent ~= PlayerGui then
+            if not controller.glowHighlight or controller.glowHighlight.Parent ~= character then
                 safeDestroy(controller.glowHighlight)
                 controller.glowHighlight = newOwned("Highlight", {
                     Name = "Army124PlayerGlow",
@@ -3564,7 +3594,7 @@ local playerFX = (function()
                     FillTransparency = 0.86,
                     OutlineTransparency = 0.24,
                     Enabled = true,
-                }, PlayerGui)
+                }, character)
             end
             controller.glowHighlight.Adornee = character
             controller.glowHighlight.FillColor = color
@@ -3643,7 +3673,12 @@ local playerFX = (function()
                 else complete = false end
             end
         end
-        if complete then controller.atmosphereObject = nil end
+        if complete then
+            local released = controller.atmosphereObject
+            if released then boosterPro.playerFxOwned[released] = nil end
+            controller.atmosphereObject = nil
+            if released then boosterPro.reapplyAtmosphereAfterPlayer(released) end
+        end
         return complete
     end
     local function writeAtmosphere(target, key, value)
@@ -3661,6 +3696,7 @@ local playerFX = (function()
         end
         slot.last = value
         controller.atmosphereObject = target
+        boosterPro.playerFxOwned[target] = true
     end
     function controller.restoreWeather()
         -- Always attempt both: a failure restoring Fog must not skip Atmosphere.
@@ -3714,8 +3750,10 @@ local playerFX = (function()
             controller.rainLines[index] = streak
         end
         controller.rainConnection = RunService.RenderStepped:Connect(function(dt)
+            -- An old queued callback must never stop a newer rain session.
+            if gui ~= controller.rainGui then return end
             if not active() or not state.playerWeatherEnabled
-                or state.playerWeatherMode ~= "RAIN" or gui ~= controller.rainGui then
+                or state.playerWeatherMode ~= "RAIN" then
                 stopRain()
                 return
             end
@@ -3748,6 +3786,12 @@ local playerFX = (function()
                     and controller.atmosphereObject ~= atmosphere
                     and not controller.restoreAtmosphere() then
                     error("Player FX: previous Atmosphere restore pending")
+                end
+                if controller.atmosphereObject ~= atmosphere then
+                    -- Restore Booster-owned original before recording Player's baseline.
+                    if not boosterPro.releaseAtmosphereToPlayer(atmosphere) then
+                        error("Player FX: Booster Atmosphere restore pending")
+                    end
                 end
                 writeAtmosphere(atmosphere, "Density", profile.density)
                 writeAtmosphere(atmosphere, "Haze", profile.haze)
@@ -3802,6 +3846,10 @@ local playerFX = (function()
         if controller.childConnection then
             controller.childConnection:Disconnect()
             controller.childConnection = nil
+        end
+        if controller.childRemovedConnection then
+            controller.childRemovedConnection:Disconnect()
+            controller.childRemovedConnection = nil
         end
         removeAvatar()
         controller.character = nil
