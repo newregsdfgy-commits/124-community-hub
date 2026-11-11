@@ -3812,7 +3812,7 @@ local P = {
 -- управления не должны уменьшаться до нечитабельного размера.
 local function isReferenceLandscape(view)
     -- Avoid shrinking tap targets on short landscape touch displays.
-    return UserInputService.TouchEnabled and view.X >= 760
+    return UserInputService.TouchEnabled and view.X >= 960
         and view.Y >= 540 and view.X >= view.Y * 1.35
 end
 -- Mobile landscape uses the same full reference layout, with a single
