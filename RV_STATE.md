@@ -1,3 +1,22 @@
+# RV_STATE — 124 Visuals Weapons 2.0 v1.3.0
+
+Date: 2026-11-11. Test branch: `v1.3.0-weapons-2-compat-test`. Base `v1.2.1-purple-neon-ui-2-test` left unchanged.
+
+- Source files `Hub.lua` and `Visuals.lua` mirrored blob: `a13d1f6ec48fad02c56204f0c0b2a1233dd789c0`.
+- `Start.lua` blob: `b93573d73e1d5bbae0ccb735d19bf090d19150d4`, points at v1.3.0; key `124HUB` and launch ownership token retained.
+- **W-01** live No Spread client baselines refreshed whenever the game writes another nonzero value (both NumberValue/IntValue and numeric attributes), avoiding stale restores.
+- **W-02** one-object restore helper for detached/removed spread candidates; signal disconnect happens BEFORE restore; errors retain snapshots.
+- **W-03** stale InputObject UserInputState End/Cancel discarded so physical fire cannot remain held indefinitely when input-ended callback was lost.
+- **W-04/05** read-only on-demand controller.inspectCompatibility; diagnostics for local numeric/attribute fields, pending restores, event counts from Tool/mouse/touch/gamepad and corrected camera frames; hard cap 256 inspected objects / 512 pending DFS slots.
+- Existing Misc **Диагностика оружия** improved, new **Weapons 2.0 — проверка совместимости** button added.
+- `tools/verify_release.py` updated to 1.3.0 with eleven new weapon invariants.
+- In-chat source audit 104/104 feature and regression checks. Structural scan 8,730 lines, 40,854 tokens, 0 structural findings.
+- Full audit details: `AUDIT_WEAPONS_v1.3.0.md`.
+- **No confirmed Roblox execution, Luau compiler run, device measurement or weapon-framework live compatibility test**. CI run not confirmed. Do not claim universal No Recoil/No Spread or server-side effects.
+- Existing UI Purple Neon 2.0, FPS Booster/performance features, ESP/AIM, music/movement, cleanup and key system preserved. Don't merge into stable until live smoke tests.
+
+## Previous entries
+
 # RV_STATE — Purple Neon UI 2.0 / 124 Visuals v1.2.1
 
 Date: 2026-11-11. Current test branch: `v1.2.1-purple-neon-ui-2-test`. Based on v1.2.0; previous stable/test branches unchanged.
