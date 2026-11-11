@@ -13,9 +13,11 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 VERSION = "1.2.1"
 BRANCH = "v1.2.1-purple-neon-ui-2-test"
+CHECK_COUNT = [0]
 
 
 def check(label: str, passed: bool, failures: list[str]) -> None:
+    CHECK_COUNT[0] += 1
     status = "PASS" if passed else "FAIL"
     print(f"[{status}] {label}")
     if not passed:
@@ -100,24 +102,33 @@ def structural_errors(source: str) -> list[str]:
 def viewport_ok(x: int, y: int, mobile: bool) -> bool:
     """Smoke-check the same layout dimensions used by the Purple Neon hub."""
     vx, vy = x, max(160, y - (24 if mobile else 0))
-    screenshot = mobile and vx >= 760 and vy >= 350 and vx >= vy * 1.35
+    screenshot = mobile and vx >= 960 and vy >= 540 and vx >= vy * 1.35
     wide = screenshot or (not mobile and vx >= 770 and vy >= 560)
     if screenshot:
         width, height = 950, 520
         scale = max(.36, min(1, (vx - 12) / 950, (vy - 12) / 520))
     else:
-        preferred_width = 950 if wide else (520 if mobile and vx > vy else 410)
+        preferred_width = 950 if wide else (
+            610 if mobile and vx > vy else 460
+        )
         width = min(max(160, vx - (22 if mobile else 32)), preferred_width)
         height = min(520 if wide else 610,
                      max(120, vy - (22 if mobile else 38)))
         scale = 1
-    sidebar = 196 if wide else (78 if width < 340 else 92)
+    sidebar = 196 if wide else (
+        68 if width < 340 else 78 if width < 430 else 94
+    )
     content = width - sidebar - (11 if wide else 9) - (13 if wide else 9)
     nav_top = 20 if wide else (5 if height < 320 else 11)
     bottom = 90 if wide else (9 if height < 300 else 53)
     nav_height = max(0, height - 76 - nav_top - bottom)
+    header_touch = 42 * scale
+    nav_button = (55 if wide else 44) * scale
+    # Navigation is a ScrollingFrame; short viewports legitimately need it.
     return (width * scale <= vx and height * scale <= vy and
-            content >= 160 and nav_height >= 15)
+            content >= 160 and nav_height >= 15 and
+            header_touch >= 38 and nav_button >= 38 and
+            height - 120 >= 20)
 
 
 def main() -> int:
@@ -169,6 +180,22 @@ def main() -> int:
               "local function aimFrame(dt)",
               "local function refreshESP()",
               "local function applyResponsiveLayout()")), failures)
+    check("Purple Neon UI 2.0 label",
+          "PURPLE NEON 2.0" in hub, failures)
+    check("Mobile wide only near native size",
+          "view.X >= 960" in hub and "view.Y >= 540" in hub, failures)
+    check("Accessible header targets",
+          'Size = UDim2.fromOffset(42, 42)' in hub, failures)
+    check("No overlapping toggle tweens",
+          'knobTween:Cancel()' in hub, failures)
+    check("Active slider gesture cancelled on rotate",
+          'local function applyResponsiveLayout()\n    sliderDrag = nil' in hub,
+          failures)
+    check("Larger slider gesture area",
+          'Size = UDim2.new(1, -20, 0, 32)' in hub, failures)
+    check("Runtime UI audit is on demand",
+          'boosterPro.uiAudit = function()' in hub and
+          'Проверка адаптации UI 2.0' in hub, failures)
     check("Source quote/comment/bracket scan",
           not structural_errors(hub), failures)
     check("Launcher quote/comment/bracket scan",
@@ -179,12 +206,14 @@ def main() -> int:
         (393, 873, True), (320, 568, True), (280, 500, True),
         (1280, 800, True), (800, 1280, True), (1366, 768, False),
         (700, 500, False), (490, 340, False), (960, 540, True),
+        (1024, 600, True), (1000, 580, True), (760, 520, True),
+        (360, 720, True), (800, 1280, True), (1920, 1080, False),
     ]
     for x, y, mobile in viewports:
         check(f"Viewport {x}x{y} {'touch' if mobile else 'desktop'}",
               viewport_ok(x, y, mobile), failures)
 
-    print(f"\n{31 - len(failures)}/31 checks passed")
+    print(f"\n{CHECK_COUNT[0] - len(failures)}/{CHECK_COUNT[0]} checks passed")
     if failures:
         print("Failing checks:", ", ".join(failures))
         return 1
