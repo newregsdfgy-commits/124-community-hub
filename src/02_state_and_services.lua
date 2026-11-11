@@ -91,6 +91,8 @@ local boosterPro = {
     changedProperties = 0, phase = "OFF", lastError = nil,
     -- Weak object keys track values actively written by Booster.
     graphicsWritten = setmetatable({}, {__mode = "k"}),
+    -- Exact instances owned by Player FX; name-based protection is unsafe.
+    playerFxOwned = setmetatable({}, {__mode = "k"}),
     recoveryFailures = 0, recoveryNextAt = 0,
     restoreRetryAt = 0, restoreRetryRunning = false,
     terrainRestoreRetryAt = 0, -- Backoff on inaccessible Terrain: no recurring 1s spikes.
