@@ -305,7 +305,15 @@ local function refreshESP()
     local _, myRoot = espParts(character)
     perfCounters.espVisual.localReady = myRoot ~= nil
     if not myRoot then
-        for player in pairs(renderData) do deleteRender(player) end
+        -- Локальный респавн / StreamingEnabled: временно скрываем, а не
+        -- уничтожаем все дорогостоящие Highlight/Billboard. При появлении
+        -- Root следующий событийный scan снова использует валидные объекты.
+        for _, item in pairs(renderData) do
+            if item.inactiveSince == nil then item.inactiveSince = os.clock() end
+            if isLive(item.highlight) then item.highlight.Enabled = false end
+            if isLive(item.billboard) then item.billboard.Enabled = false end
+            if item.tracer and item.tracer.Parent then item.tracer.Visible = false end
+        end
         table.clear(perfCounters.espVisual.ordered)
         perfCounters.espCount = 0
         perfCounters.espVisual.eligible = 0
@@ -408,6 +416,7 @@ local espRefreshQueued = false
 local espRefreshGeneration = 0
 local espUrgentQueued = false
 local espUrgentLastAt = -math.huge
+local espUrgentDirtyAt = -math.huge
 local localEspEntry = {character = nil, added = nil, removing = nil}
 -- Частота событийных обновлений согласована с дальностью сканирования.
 function perfCounters.espVisual.eventCooldown()
@@ -426,6 +435,9 @@ local function queueESPRefresh(urgent)
     if not alive or not state.esp then return end
     if urgent == true then
         perfCounters.espVisual.urgentEvents = perfCounters.espVisual.urgentEvents + 1
+        -- Во время коалесцирования запоминаем самое НОВОЕ событие:
+        -- обычный scan мог закончиться между первым и последним событием.
+        espUrgentDirtyAt = os.clock()
         if espUrgentQueued then return end
         espUrgentQueued = true
         local generation = espRefreshGeneration
@@ -436,12 +448,24 @@ local function queueESPRefresh(urgent)
             if generation ~= espRefreshGeneration then return end
             espUrgentQueued = false
             if not alive or not state.esp then return end
+            -- Не дублируем уже выполненный периодический scan, но никогда
+            -- не теряем новое событие, пришедшее ПОСЛЕ этого scan.
+            if perfCounters.espVisual.localReady
+                and perfCounters.espVisual.lastScanAt >= espUrgentDirtyAt then
+                perfCounters.espVisual.urgentSkipped =
+                    perfCounters.espVisual.urgentSkipped + 1
+                return
+            end
             espUrgentLastAt = os.clock()
             local ok, err = pcall(refreshESP)
             if ok then
                 perfCounters.espVisual.urgentScans = perfCounters.espVisual.urgentScans + 1
             else
-                warn("[124 Visuals] ESP fast respawn: " .. tostring(err))
+                local now = os.clock()
+                if now - perfCounters.espVisual.scanErrorAt >= 3 then
+                    perfCounters.espVisual.scanErrorAt = now
+                    warn("[124 Visuals] ESP fast respawn: " .. tostring(err))
+                end
             end
         end)
         return
@@ -558,12 +582,16 @@ stopESPWatchers = function()
     espRefreshGeneration = espRefreshGeneration + 1
     espRefreshQueued = false
     espUrgentQueued = false
+    espUrgentDirtyAt = -math.huge
+    espUrgentLastAt = -math.huge
     for player in pairs(espWatchers) do unwatchEspPlayer(player) end
     bindLocalEspCharacter(nil)
 end
 syncESPWatchers = function()
     if not state.esp then
-        stopESPWatchers()
+        if next(espWatchers) ~= nil or localEspEntry.character ~= nil then
+            stopESPWatchers()
+        end
         return
     end
     if localEspEntry.character ~= LocalPlayer.Character then
