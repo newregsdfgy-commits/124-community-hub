@@ -6,7 +6,7 @@
 - Byte-identical `Hub.lua` and `Visuals.lua` generated from 11 fragments; `Start.lua` points to this branch and checks v1.3.1.
 - Added `tests/FullAudit131.test.cjs` and `tests/build-131-runtime-audit.py`, workflow `.github/workflows/v131-audit-ci.yml` uses real Luau compiler AND runtime on extracted production ESP/Key callbacks.
 - Static release CI observed 60/60 pass, focused Node tests 36/36 pass on current test branch (first attempt 35/36 due obsolete `response:Fire(accepted)` assertion, updated for latched result).
-- Detailed findings `AUDIT_v1.3.1.md`. Full Luau runtime CI result must be checked before release claims. Real Roblox/Android game QA is pending.
+- Detailed findings `AUDIT_v1.3.1.md`. GitHub Actions #43053577977 **SUCCESS**: source bundle verified, 60/60 static release checks; 36/36 focused regressions; actual Luau parser/compiler for the 3 entrypoints; actual isolated ESP and Key production callback fault injection passed. No real Roblox/Android gameplay, FPS measurements, server-side spread or production stability claims.
 
 ---
 
