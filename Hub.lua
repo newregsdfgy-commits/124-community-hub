@@ -1,11 +1,11 @@
--- 124 Visuals v1.2.2 | Weapons 2.0: совместимость, откат и диагностика
+-- 124 Visuals v1.3.0 | ESP 2.0 + Key System 2.0 + Modular Build
 -- Первый плейс: 18537079992. Запуск поддерживает все игровые PlaceId.
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.2.2",
+    Version = "1.3.0",
     OriginalPlaceId = 18537079992,
     EspRefreshSeconds = 0.35, -- Быстрый поиск персонажей, без обновления UI каждый кадр.
     EspEventMinSeconds = 0.18, -- Коалесцированные события не запускают 16 полных сканов/сек.
@@ -15,13 +15,20 @@ local CONFIG = {
     EspRangeStepMeters = 5,
     EspLongRangeMeters = 350,
     EspExtremeRangeMeters = 700,
-    EspLongScanSeconds = 0.55,
-    EspExtremeScanSeconds = 0.80,
+    EspLongScanSeconds = 0.45,
+    EspExtremeScanSeconds = 0.65,
     MiscSpeedRefreshHz = 4, -- Speed only: раз в 250 мс.
     MiscNoclipRefreshHz = 30, -- Speed + Noclip: максимум 30 проверок в секунду.
     EspLongVisualHz = 18,
     EspExtremeVisualHz = 10,
-    EspFarTextRefreshSeconds = 0.85, -- Дальние текстовые метки не обновляются при каждом скане.
+    EspFarTextRefreshSeconds = 0.50, -- Обновление дальних меток.
+    EspRespawnCoalesceSeconds = 0.045,
+    EspRespawnMinIntervalSeconds = 0.10,
+    EspCameraMotionDot = 0.9998,
+    EspCameraMotionStuds = 0.12,
+    EspCameraMotionHoldSeconds = 0.20,
+    EspCameraMotionMinFps = 48,
+    EspCameraMotionVisualHz = 36,
     StudMeters = 0.28, -- Стандартный масштаб Roblox: 1 stud ≈ 0.28 м.
     ConfigFile = game.PlaceId == 18537079992
         and "124_community_settings_v09.json"
@@ -77,6 +84,10 @@ local CONFIG = {
     RecoilMinPitchDegrees = 0.045, -- Не реагируем на микродрожание камеры.
     RecoilMaxPitchDegrees = 5.0, -- Не воспринимаем резкий разворот как отдачу.
     RecoilMaxCorrectionDegrees = 1.60, -- Ограничение коррекции за кадр.
+    KeyMaxWrongAttempts = 5,
+    KeyLocalCooldownSeconds = 25,
+    KeySubmitDedupSeconds = 0.18,
+    KeyCloseConfirmSeconds = 4,
     BoosterBatch = 64, -- Меньше объектов за проход: плавнее, но дольше первичный скан.
     BoosterSliceMs = 0.75, -- Мягкий бюджет основной обработки (не гарантия hard real-time).
     BoosterLowFpsSliceMs = 0.35, -- При низком FPS чаще отдаём кадр.
@@ -367,7 +378,7 @@ do
             PlaceholderText = "Введи ключ доступа",
             PlaceholderColor3 = Color3.fromRGB(129, 119, 153),
             TextColor3 = Color3.fromRGB(245, 239, 255),
-            TextSize = 15,
+            TextSize = 16,
             TextXAlignment = Enum.TextXAlignment.Center,
         }, panel)
         create("UICorner", {CornerRadius = UDim.new(0, 10)}, input)
@@ -383,7 +394,7 @@ do
             Position = UDim2.new(0, 18, 0, 158),
             Size = UDim2.new(1, -36, 0, 24),
             Font = Enum.Font.GothamMedium,
-            Text = "Ключ проверяется локально",
+            Text = "Локальный ключ · максимум 5 ошибок",
             TextColor3 = Color3.fromRGB(164, 148, 199),
             TextSize = 12,
             TextXAlignment = Enum.TextXAlignment.Center,
@@ -409,13 +420,15 @@ do
             Position = UDim2.new(0, 18, 0, 244),
             Size = UDim2.new(1, -36, 0, 25),
             Font = Enum.Font.Gotham,
-            Text = "Закрыть",
+            Text = "Закрыть (подтверждение)",
             TextSize = 13,
             TextColor3 = Color3.fromRGB(174, 168, 188),
         }, panel)
 
         local response = Instance.new("BindableEvent")
-        local completed = false
+        local completed, wrongCount = false, 0
+        local blockedUntil, lastSubmitAt = 0, -math.huge
+        local cancelArmedAt = -math.huge
         local function resolve(accepted)
             if completed then return end
             completed = true
@@ -423,27 +436,67 @@ do
         end
         local function tryUnlock()
             if completed then return end
+            local now = os.clock()
+            -- Return и FocusLost могут срабатывать одновременно на Android.
+            if now - lastSubmitAt < CONFIG.KeySubmitDedupSeconds then return end
+            lastSubmitAt = now
+            if now < blockedUntil then
+                message.Text = "Повтори через " .. tostring(math.ceil(blockedUntil - now)) .. " сек."
+                return
+            end
             local candidate = input.Text:gsub("^%s+", ""):gsub("%s+$", "")
-            if candidate == ACCESS_KEY then
-                input.Text = ""
-                resolve(true)
+            if candidate == "" then
+                message.Text = "Введи ключ перед проверкой"
+                return
+            end
+            input.Text = ""
+            if candidate == ACCESS_KEY then resolve(true); return end
+            wrongCount = wrongCount + 1
+            local remaining = math.max(0, CONFIG.KeyMaxWrongAttempts - wrongCount)
+            message.TextColor3 = Color3.fromRGB(255, 130, 148)
+            if remaining == 0 then
+                blockedUntil = now + CONFIG.KeyLocalCooldownSeconds
+                message.Text = "Лимит попыток · " .. tostring(CONFIG.KeyLocalCooldownSeconds)
+                    .. " сек. до повтора"
+                submit.Active, submit.AutoButtonColor = false, false
+                task.delay(CONFIG.KeyLocalCooldownSeconds, function()
+                    if completed or not screen.Parent then return end
+                    wrongCount, blockedUntil = 0, 0
+                    submit.Active, submit.AutoButtonColor = true, true
+                    message.TextColor3 = Color3.fromRGB(164, 148, 199)
+                    message.Text = "Доступно попыток: " .. tostring(CONFIG.KeyMaxWrongAttempts)
+                end)
             else
-                message.Text = "Неверный ключ. Попробуй ещё раз."
-                message.TextColor3 = Color3.fromRGB(255, 130, 148)
-                input.Text = ""
+                message.Text = "Неверный ключ · осталось попыток: " .. tostring(remaining)
             end
         end
         submit.Activated:Connect(tryUnlock)
+        local function moveForKeyboard(focused)
+            if not UserInputService.TouchEnabled then return end
+            local y = focused and 0.31 or 0.43
+            panel.Position = UDim2.fromScale(0.5, y)
+            shadow.Position = UDim2.fromScale(0.5, y)
+        end
+        input.Focused:Connect(function() moveForKeyboard(true) end)
         input.FocusLost:Connect(function(enterPressed)
-            -- Обычное касание вне поля не является отправкой ключа.
+            moveForKeyboard(false)
             if enterPressed then tryUnlock() end
         end)
-        -- Явная кнопка Return мобильной клавиатуры. Старые клиенты могут
-        -- не иметь этого события; обычная кнопка АКТИВИРОВАТЬ остаётся доступна.
         pcall(function()
             input.ReturnPressedFromOnScreenKeyboard:Connect(tryUnlock)
         end)
-        cancel.Activated:Connect(function() resolve(false) end)
+        cancel.Activated:Connect(function()
+            if completed then return end
+            local now = os.clock()
+            if now - cancelArmedAt <= CONFIG.KeyCloseConfirmSeconds then
+                resolve(false)
+            else
+                cancelArmedAt = now
+                cancel.Text = "НАЖМИ ЕЩЁ РАЗ ДЛЯ ЗАКРЫТИЯ"
+                message.Text = "Второе нажатие подтвердит закрытие"
+            end
+        end)
+        -- Внешнее уничтожение GUI завершает ожидание, но НЕ открывает доступ.
         screen.Destroying:Connect(function() resolve(false) end)
 
         local accepted = response.Event:Wait()
