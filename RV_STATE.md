@@ -6,7 +6,7 @@
 - Booster `playerFxOwned` weak-key registry protects exact instances. Player weather explicitly restores Booster Atmosphere snapshots before modification and returns ownership/optimized state on weather OFF.
 - Launcher checks payload `Version = "1.4.1"`. Builder/old test suites aligned to v1.4.1.
 - Tests: 60 release assertions; previous focused suites + `tests/DeepAudit141.test.cjs` (14 more); executable isolated Player/ESP/Key and actual Booster restore code via `tests/build-booster141-runtime.py`.
-- Reproducible compile/behavior CI `.github/workflows/v141-ci.yml`. See latest run result; do not assume success before observing it.
+- **GitHub Actions #43120099593 SUCCESS:** 12-module build matched, 60/60 release integrity checks, 64/64 focused regressions, official Luau parser/compiler passed on Hub.lua, Visuals.lua, Start.lua, isolated real Luau Player/Booster/ESP/Key tests passed. No live Roblox/Android visual, FPS or executor tests were performed.
 - Detailed audit: `AUDIT_v1.4.1.md`. Still requires real Android/Roblox visual and FPS QA.
 
 ---
