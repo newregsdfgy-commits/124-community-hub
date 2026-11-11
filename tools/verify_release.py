@@ -11,8 +11,8 @@ import re
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = "1.2.2"
-BRANCH = "v1.2.2-weapons-2-compatibility-test"
+VERSION = "1.3.0"
+BRANCH = "v1.3.0-esp2-key2-modular-test"
 CHECK_COUNT = [0]
 
 
@@ -211,6 +211,32 @@ def main() -> int:
     check("Runtime UI audit is on demand",
           'boosterPro.uiAudit = function()' in hub and
           'Проверка адаптации UI 2.0' in hub, failures)
+    check("ESP 2.0 urgent respawn queue",
+          "local function queueESPRefresh(urgent)" in hub and
+          "queueESPRefresh(true)" in hub and
+          "bindLocalEspCharacter" in hub, failures)
+    check("ESP 2.0 camera motion",
+          "EspCameraMotionVisualHz = 36" in hub and
+          "motion.motionUntil" in hub and
+          "motion.motionCamera" in hub, failures)
+    check("Key System 2.0 counter, local cooldown",
+          "KeyMaxWrongAttempts = 5" in hub and
+          "wrongCount = wrongCount + 1" in hub and
+          "KeyLocalCooldownSeconds" in hub, failures)
+    check("Key System 2.0 dedup and confirm to close",
+          "lastSubmitAt < CONFIG.KeySubmitDedupSeconds" in hub and
+          "cancelArmedAt <= CONFIG.KeyCloseConfirmSeconds" in hub, failures)
+    check("Android keyboard location adjustment",
+          "input.Focused:Connect(function() moveForKeyboard(true) end)" in hub,
+          failures)
+    check("Same source bundle as 11 source modules",
+          hub == b"".join((ROOT / "src" / name).read_bytes() for name in (
+              "00_config.lua", "01_access_gate.lua", "02_state_and_services.lua",
+              "03_esp_tracker.lua", "04_lighting_and_booster.lua",
+              "05_weapons_and_recoil.lua", "06_gui_runtime.lua",
+              "07_esp_overlays.lua", "08_ui_controls.lua",
+              "09_misc_and_diagnostics.lua", "10_run_and_cleanup.lua"
+          )).decode("utf-8"), failures)
     check("Source quote/comment/bracket scan",
           not structural_errors(hub), failures)
     check("Launcher quote/comment/bracket scan",
