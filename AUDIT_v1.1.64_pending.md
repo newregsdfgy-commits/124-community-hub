@@ -1,6 +1,17 @@
 # 124 Visuals — v1.1.64 audit findings (11 Nov 2026)
 
-**Status:** review-only branch. The attempt to update the large `Hub.lua`, `Visuals.lua` and launcher was rejected by the GitHub tool. Files retain the v1.1.63 Git blobs; this document is NOT a claim that fixes were deployed.
+**Status:** partial fix, test-only branch. The attempt to replace the large `Hub.lua` and `Visuals.lua` was blocked; their Git blobs remain at v1.1.63. A small patch to `Start.lua` DID succeed. Do not claim that all Lua core fixes were deployed.
+
+## Applied loader fixes
+
+- `Start.lua` now serializes launch operations using `getgenv().ARMY124_START_RUNNING` and refuses another loader invocation while the first is awaiting a key or initializing. The flag is released on normal success, key cancellation and caught errors.
+- The loader removes a previous `Army124StartupError` overlay when attempting a new launch.
+- The loader refuses to execute a download that lacks the exact `local ACCESS_KEY = "124HUB"` marker. This is a release sanity check and **not** secure authentication.
+- 18/18 focused static assertions passed. A lexical scan of the 99-line loader detected no unmatched quotes, comments or brackets.
+- Patched loader blob SHA: `7626b1d3da65abae097da798b9276fadcc4d3d99`.
+- Current payload remains v1.1.63 via the same validated raw URL; Hub/Visuals blob SHA `02c2e68c861f8ed249d5dc7880324402c06d17a8`.
+- The loader mutex covers only concurrent use of this specific `Start.lua` in a shared executor environment; direct loading of Hub/Visuals and distinct executor environments remain outside this fix.
+
 
 ## Reproducible issues visible in v1.1.63 source
 
@@ -25,6 +36,6 @@
 
 ## Limits and next action
 
-The source files have not been modified in this branch due to a blocked write. The previous v1.1.63 test branch remains the runnable version. Do **not** advertise v1.1.64 as fixed or ready for live testing.
+The two full Lua source files have not been modified in this branch due to a blocked write. The **launcher** was modified and may be tested with its existing v1.1.63 payload. Do **not** advertise the core as v1.1.64 or claim all defects resolved.
 
 The above defects are based on source inspection. Roblox compilation, executor tests, actual FPS measurements and gameplay regression were not performed.
