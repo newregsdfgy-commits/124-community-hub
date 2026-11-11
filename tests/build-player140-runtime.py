@@ -216,7 +216,7 @@ assert(Lighting.FogEnd == 250)
 existingAtmo.Parent = Lighting
 Lighting.currentAtmosphere = existingAtmo
 Lighting.ChildAdded:Fire(existingAtmo)
-assert(Lighting.FogEnd == 1000 and existingAtmo.Density == 0.40)
+assert(Lighting.FogEnd == 750 and existingAtmo.Density == 0.40)
 state.playerWeatherEnabled = false
 playerFX.syncWeather()
 assert(not playerFX.pending())
