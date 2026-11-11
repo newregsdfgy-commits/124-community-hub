@@ -88,7 +88,7 @@ def main() -> int:
             print("FAIL: bundle out of sync:", ", ".join(bad))
             print("Run: python3 tools/build_visuals.py --write")
             return 1
-        print("PASS: both bundles match 11 ordered source modules")
+        print("PASS: both bundles match 12 ordered source modules")
     else:
         for name in OUTPUT_NAMES:
             write_atomic(ROOT / name, expected)
