@@ -1,3 +1,20 @@
+# RV_STATE — 124 Visuals v1.1.66 (2026-11-11)
+
+Current test branch: `v1.1.66-deep-audit-race-spread-test`. Old `v1.1.65-purple-neon-ui-test` remains intact.
+
+- Main files `Hub.lua` / `Visuals.lua` are identical: blob `82ec22bee0ef88fe3a0bba6ad0214f92e5633ce9`.
+- `Start.lua` points to v1.1.66 and validates returned instance token: blob `acd99220683700cc10e4d91b5859bbcec3188ad4`.
+- **K-05** fixed shared startup phase overwrite: `CONFIG.BootToken`, `ARMY124_BOOT_TOKEN` and owner checks after yielding transitions and at final ready/failed phases.
+- **K-06** fixed stale `Army124StartupError` overlay in direct script runs.
+- **S-05** fixed missed late attributes/renamed NumberValues: Tool discovery every 3 sec, 48 candidate checks per pass; watchers and rollback retained.
+- Previous Purple Neon visual implementation, navigation and all GUI builders byte-identical.
+- Focused static: **135/135**, plus lexical 8,442 lines / 39,577 tokens / no structural errors, plus viewport math **12/12**.
+- Detailed report: `AUDIT_v1.1.66.md`.
+- **No real Lua compiler run, Roblox client, executor, weapon runtime or FPS measurement performed**. Not certified production/stable.
+- Key remains **`124HUB`**, client-local plaintext only. Directly loading in unrelated separate executor states may not share ownership.
+
+## Previous entries
+
 # RV_STATE — 124 Visuals v1.1.65 Purple Neon UI
 
 Date: 2026-11-11. Current test branch: `v1.1.65-purple-neon-ui-test`.
