@@ -13,8 +13,8 @@ const recoil = hub.slice(hub.indexOf("local recoil = (function()"),
 
 test("mirrors, launch version, previous functions retained", () => {
     assert.equal(hub, visuals);
-    assert.match(hub, /Version = "1\.2\.2"/);
-    assert.match(launcher, /v1\.2\.2-weapons-2-compatibility-test\/Visuals\.lua/);
+    assert.match(hub, /Version = "1\.3\.0"/);
+    assert.match(launcher, /v1\.3\.0-esp2-key2-modular-test\/Visuals\.lua/);
     for (const expected of ["local function aimFrame(dt)", "local function refreshESP()",
         "function boosterPro.restoreGraphicsSliced(", "PURPLE NEON 2.0",
         "local function shutdownRecoilControl()", "local function recoilFrame(dt)",
