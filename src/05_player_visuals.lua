@@ -7,7 +7,8 @@ local playerFX = (function()
         glowHighlight = nil, glowLight = nil,
         weatherTone = nil, environmentTone = nil,
         rainGui = nil, rainLines = {}, rainConnection = nil,
-        fog = {}, rainElapsed = 0, lastError = nil,
+        fog = {}, atmosphere = {}, atmosphereObject = nil,
+        rainElapsed = 0, lastError = nil,
     }
     local white = Color3.new(1, 1, 1)
     local avatarColors = {
@@ -27,16 +28,25 @@ local playerFX = (function()
             start = 8, distance = 150, fogColor = Color3.fromRGB(152, 167, 184),
             tint = Color3.fromRGB(210, 220, 228), brightness = -0.06,
             contrast = 0.03, saturation = -0.18,
+            density = 0.56, haze = 2.8,
+            skyColor = Color3.fromRGB(170, 183, 193),
+            skyDecay = Color3.fromRGB(132, 145, 160),
         },
         RAIN = {
             start = 20, distance = 250, fogColor = Color3.fromRGB(104, 124, 155),
             tint = Color3.fromRGB(180, 198, 224), brightness = -0.11,
             contrast = 0.08, saturation = -0.27,
+            density = 0.40, haze = 2.1,
+            skyColor = Color3.fromRGB(126, 147, 176),
+            skyDecay = Color3.fromRGB(87, 106, 143),
         },
         NIGHT = {
             start = 30, distance = 380, fogColor = Color3.fromRGB(41, 61, 99),
             tint = Color3.fromRGB(126, 158, 210), brightness = -0.24,
             contrast = 0.13, saturation = -0.24,
+            density = 0.34, haze = 1.3,
+            skyColor = Color3.fromRGB(74, 94, 139),
+            skyDecay = Color3.fromRGB(46, 64, 107),
         },
     }
     local function active()
@@ -187,7 +197,7 @@ local playerFX = (function()
         if Lighting[key] ~= value then error("Player FX fog write failed: " .. key) end
         slot.last = value
     end
-    function controller.restoreWeather()
+    local function restoreFog()
         local complete = true
         for _, key in ipairs(fogKeys) do
             local slot = controller.fog[key]
@@ -207,8 +217,53 @@ local playerFX = (function()
         end
         return complete
     end
+    local atmoKeys = {"Density", "Haze", "Color", "Decay"}
+    function controller.restoreAtmosphere()
+        local complete = true
+        for _, key in ipairs(atmoKeys) do
+            local slot = controller.atmosphere[key]
+            if slot then
+                local ok = pcall(function()
+                    local target = slot.object
+                    if target and target.Parent and target[key] == slot.last then
+                        target[key] = slot.original
+                        if target[key] ~= slot.original then
+                            error("Player FX atmosphere restore mismatch: " .. key)
+                        end
+                    end
+                    -- Do not overwrite newer game-owned Atmosphere updates.
+                end)
+                if ok then controller.atmosphere[key] = nil
+                else complete = false end
+            end
+        end
+        if complete then controller.atmosphereObject = nil end
+        return complete
+    end
+    local function writeAtmosphere(target, key, value)
+        local slot = controller.atmosphere[key]
+        local current = target[key]
+        if not slot or slot.object ~= target then
+            slot = {object = target, original = current, last = nil}
+            controller.atmosphere[key] = slot
+        elseif slot.last ~= nil and current ~= slot.last then
+            slot.original = current
+        end
+        target[key] = value
+        if target[key] ~= value then
+            error("Player FX atmosphere write failed: " .. key)
+        end
+        slot.last = value
+        controller.atmosphereObject = target
+    end
+    function controller.restoreWeather()
+        -- Always attempt both: a failure restoring Fog must not skip Atmosphere.
+        local fogOK = restoreFog()
+        local atmoOK = controller.restoreAtmosphere()
+        return fogOK and atmoOK
+    end
     function controller.pending()
-        return next(controller.fog) ~= nil
+        return next(controller.fog) ~= nil or next(controller.atmosphere) ~= nil
     end
     local function ensureTone(field, name)
         local tone = controller[field]
@@ -277,10 +332,30 @@ local playerFX = (function()
         local mode = state.playerWeatherEnabled and state.playerWeatherMode or "CLEAR"
         local profile = weather[mode]
         if profile then
-            -- Apply distant bound first so short FogEnd never clamps FogStart.
-            writeFog("FogEnd", profile.distance)
-            writeFog("FogStart", profile.start)
-            writeFog("FogColor", profile.fogColor)
+            -- Lighting.Fog* is ignored when a game has Atmosphere.
+            -- Only adjust the existing Atmosphere if it exists, with owned
+            -- snapshots. Never insert a second Atmosphere or destroy the game's.
+            local atmosphere = Lighting:FindFirstChildOfClass("Atmosphere")
+            if atmosphere then
+                if not restoreFog() then error("Player FX: Fog restore pending") end
+                if controller.atmosphereObject
+                    and controller.atmosphereObject ~= atmosphere
+                    and not controller.restoreAtmosphere() then
+                    error("Player FX: previous Atmosphere restore pending")
+                end
+                writeAtmosphere(atmosphere, "Density", profile.density)
+                writeAtmosphere(atmosphere, "Haze", profile.haze)
+                writeAtmosphere(atmosphere, "Color", profile.skyColor)
+                writeAtmosphere(atmosphere, "Decay", profile.skyDecay)
+            else
+                if not controller.restoreAtmosphere() then
+                    error("Player FX: Atmosphere restore pending")
+                end
+                -- Fog settings work only without an active Atmosphere.
+                writeFog("FogEnd", profile.distance)
+                writeFog("FogStart", profile.start)
+                writeFog("FogColor", profile.fogColor)
+            end
             local tone = ensureTone("weatherTone", "Army124PlayerWeatherTone")
             tone.TintColor = profile.tint
             tone.Brightness = profile.brightness
@@ -288,7 +363,7 @@ local playerFX = (function()
             tone.Saturation = profile.saturation
         else
             if not controller.restoreWeather() then
-                error("Player FX: не удалось вернуть Fog, повторим при выгрузке")
+                error("Player FX: не удалось вернуть погоду, повторим при выгрузке")
             end
             safeDestroy(controller.weatherTone)
             controller.weatherTone = nil
@@ -332,7 +407,7 @@ local playerFX = (function()
     end
     function controller.diagnostics()
         return string.format("Aura=%s Glow=%s | Weather=%s/%s | Tint=%s/%s"
-            .. " | Rain=%s | PendingFog=%s | Root=%s | Error=%s",
+            .. " | Rain=%s | PendingWeather=%s | Root=%s | Error=%s",
             tostring(state.playerAuraEnabled), tostring(state.playerGlowEnabled),
             tostring(state.playerWeatherEnabled), tostring(state.playerWeatherMode),
             tostring(state.playerEnvironmentEnabled), tostring(state.playerEnvironmentColor),
@@ -342,6 +417,18 @@ local playerFX = (function()
                 and controller.character:FindFirstChild("HumanoidRootPart") ~= nil),
             tostring(controller.lastError or "none"))
     end
+    -- Follow Atmosphere insertion/removal, never poll every frame.
+    local function onAtmosphereChange(obj)
+        if active() and state.playerWeatherEnabled and obj:IsA("Atmosphere") then
+            local ok, err = pcall(controller.syncWeather)
+            if not ok then
+                controller.lastError = tostring(err)
+                warn("[124 Player] Atmosphere change: " .. tostring(err))
+            end
+        end
+    end
+    connect(Lighting.ChildAdded, onAtmosphereChange)
+    connect(Lighting.ChildRemoved, onAtmosphereChange)
     -- One character observer, no expensive Workspace.DescendantAdded scanning.
     connect(LocalPlayer.CharacterAdded, function(character)
         if not active() then return end
