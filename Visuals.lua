@@ -1,11 +1,11 @@
--- 124 Visuals v1.1.63 | key event correctness, spread event pacing, recoil hold
+-- 124 Visuals v1.1.65 | Purple Neon UI and mobile layout polish
 -- Первый плейс: 18537079992. Запуск поддерживает все игровые PlaceId.
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.1.63",
+    Version = "1.1.65",
     OriginalPlaceId = 18537079992,
     EspRefreshSeconds = 0.35, -- Быстрый поиск персонажей, без обновления UI каждый кадр.
     EspEventMinSeconds = 0.18, -- Коалесцированные события не запускают 16 полных сканов/сек.
@@ -3685,14 +3685,14 @@ local TweenService = game:GetService("TweenService")
 -- Premium violet palette. UI-only: gameplay and ESP colors are unchanged.
 -- Static gradients and borders are cheap; no blur, particles or RenderStepped FX.
 local P = {
-    background = Color3.fromRGB(14, 12, 23),
-    panel = Color3.fromRGB(22, 19, 34),
-    tile = Color3.fromRGB(33, 29, 48),
-    border = Color3.fromRGB(75, 60, 99),
-    text = Color3.fromRGB(245, 242, 255),
-    dim = Color3.fromRGB(170, 160, 193),
-    accent = Color3.fromRGB(176, 115, 255),
-    off = Color3.fromRGB(67, 65, 84),
+    background = Color3.fromRGB(17, 15, 29),
+    panel = Color3.fromRGB(24, 21, 39),
+    tile = Color3.fromRGB(38, 33, 55),
+    border = Color3.fromRGB(85, 65, 119),
+    text = Color3.fromRGB(244, 239, 255),
+    dim = Color3.fromRGB(171, 160, 199),
+    accent = Color3.fromRGB(184, 139, 255),
+    off = Color3.fromRGB(66, 59, 83),
 }
 -- На телефоне даже альбомный экран остаётся одноколоночным: элементы
 -- управления не должны уменьшаться до нечитабельного размера.
@@ -3851,14 +3851,14 @@ mk("TextLabel", {
 mk("TextLabel", {
     Name = "BrandTitle", BackgroundTransparency = 1,
     Position = UDim2.fromOffset(19, 14), Size = UDim2.new(1, -183, 0, 21),
-    Text = "124 Visuals", TextColor3 = P.text, TextSize = 19,
+    Text = "124 VISUALS", TextColor3 = P.text, TextSize = 19,
     Font = Enum.Font.GothamBold, TextXAlignment = Enum.TextXAlignment.Left,
     TextTruncate = Enum.TextTruncate.AtEnd,
 }, bar)
 mk("TextLabel", {
     Name = "BrandCaption", BackgroundTransparency = 1,
     Position = UDim2.fromOffset(21, 39), Size = UDim2.new(1, -183, 0, 16),
-    Text = "v" .. CONFIG.Version,
+    Text = "PURPLE NEON  •  v" .. CONFIG.Version,
     TextColor3 = P.dim, Font = Enum.Font.Code,
     TextSize = 10, TextXAlignment = Enum.TextXAlignment.Left,
     TextTruncate = Enum.TextTruncate.AtEnd,
@@ -3933,7 +3933,7 @@ mk("UIGradient", {
 local tabs = mk("Frame", {
     Name = "VisualsNavigation", BackgroundColor3 = Color3.fromRGB(20, 16, 31),
     BorderSizePixel = 0,
-    Position = UDim2.fromOffset(0, 0), Size = UDim2.new(0, 196, 1, 0),
+    Position = UDim2.fromOffset(0, 76), Size = UDim2.new(0, 196, 1, -76),
     ClipsDescendants = true,
 }, panel)
 mk("UIGradient", {Rotation = 90,
@@ -4051,9 +4051,9 @@ end
 local navigation = {
     {key = "HOME", label = "Overview", symbol = "⌂", hidden = true},
     {key = "ESP", label = "ESP", symbol = "◎"},
-    {key = "AIM", label = "Aim", symbol = "⌁"},
+    {key = "AIM", label = "Aim", symbol = "⌖"},
+    {key = "MISC", label = "Misc", symbol = "⚙"},
     {key = "MEMORY", label = "Memory", symbol = "▦"},
-    {key = "MISC", label = "Settings", symbol = "⚙"},
 }
 local function makeColumn(parent, name)
     local scroll = mk("ScrollingFrame", {
@@ -4431,17 +4431,18 @@ local function applyResponsiveLayout()
     wideLayout = wide
     contentPlate.Position = UDim2.fromOffset(wide and 207 or 101, 81)
     contentPlate.Size = UDim2.new(1, wide and -220 or -110, 1, wide and -121 or -120)
-    pageHeader.Visible, pageSubHeader.Visible = false, false
-    -- Four-tab measured layout: legacy navSlots used negative relative
-    -- height and cut off Settings on short landscape viewports.
+    pageHeader.Visible, pageSubHeader.Visible = wide, wide
+    -- Единая шапка 76px не перекрывается навигацией.
+    local sidebarHeader = 76
     local compactShort = not wide and height < 320
-    local navTop = wide and 96 or (compactShort and 58 or 70)
+    local navTop = wide and 20 or (compactShort and 5 or 11)
     local bottomReserve = wide and 90 or (height < 300 and 9 or 53)
     local buttonHeight = wide and 55 or (compactShort and 31 or 39)
-    tabs.Position = UDim2.fromOffset(0, 0)
-    tabs.Size = UDim2.new(0, wide and 196 or 92, 1, 0)
+    tabs.Position = UDim2.fromOffset(0, sidebarHeader)
+    tabs.Size = UDim2.new(0, wide and 196 or 92, 1, -sidebarHeader)
     navSlots.Position = UDim2.fromOffset(0, navTop)
-    navSlots.Size = UDim2.new(1, 0, 0, math.max(0, height - navTop - bottomReserve))
+    navSlots.Size = UDim2.new(1, 0, 0,
+        math.max(0, height - sidebarHeader - navTop - bottomReserve))
     navigationLayout.FillDirection = Enum.FillDirection.Vertical
     navigationLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
     navigationLayout.VerticalAlignment = Enum.VerticalAlignment.Top
@@ -4515,11 +4516,11 @@ local function applyResponsiveLayout()
     local brandTitle = bar:FindFirstChild("BrandTitle")
     local brandCaption = bar:FindFirstChild("BrandCaption")
     if brandTitle then
-        brandTitle.Size = wide and UDim2.fromOffset(122, 21) or UDim2.new(1, -183, 0, 21)
-        brandTitle.TextSize = wide and 12 or 15
+        brandTitle.Size = wide and UDim2.fromOffset(168, 21) or UDim2.new(1, -120, 0, 21)
+        brandTitle.TextSize = 15
     end
     if brandCaption then
-        brandCaption.Size = wide and UDim2.fromOffset(122, 16) or UDim2.new(1, -183, 0, 16)
+        brandCaption.Size = wide and UDim2.fromOffset(169, 16) or UDim2.new(1, -120, 0, 16)
     end
 end
 
@@ -4539,7 +4540,7 @@ local function showPage(key)
     end
     currentPage = key
     local titles = {HOME = "Dashboard", ESP = "Visuals", AIM = "Aim",
-        MISC = "Settings", MEMORY = "Performance"}
+        MISC = "Misc", MEMORY = "Memory"}
     local descriptions = {HOME = "Live game performance and optimization overview",
         ESP = "Player overlays and visibility controls",
         AIM = "Targeting, weapon filters and FOV",
@@ -4550,8 +4551,8 @@ local function showPage(key)
     for name, page in pairs(pages) do
         local selected = name == key
         page.Visible = selected
-        tabButtons[name].BackgroundColor3 = selected and Color3.fromRGB(66, 37, 105)
-            or Color3.fromRGB(31, 27, 44)
+        tabButtons[name].BackgroundColor3 = selected and Color3.fromRGB(78, 46, 127)
+            or Color3.fromRGB(32, 27, 49)
         tabButtons[name].TextColor3 = selected and P.text or P.dim
         tabButtons[name].Font = selected and Enum.Font.GothamBold or Enum.Font.GothamMedium
         tabUnderline[name].Visible = selected
@@ -4859,15 +4860,15 @@ end
 local function addToggle(page, title, description, key, onChanged)
     local row = mk("TextButton", {
         Name = key, Size = UDim2.new(1, 0, 0, 54),
-        BackgroundColor3 = Color3.fromRGB(34, 29, 50), BorderSizePixel = 0,
+        BackgroundColor3 = Color3.fromRGB(37, 31, 56), BorderSizePixel = 0,
         AutoButtonColor = false, Text = "",
     }, columnFor(page))
     registerWidget(page, row)
     round(row, 10)
     local rowBorder = mk("UIStroke", {Color = P.border, Transparency = 0.59, Thickness = 1}, row)
     mk("UIGradient", {Rotation = 0,
-        Color = ColorSequence.new(Color3.fromRGB(40, 33, 58),
-            Color3.fromRGB(26, 25, 39))}, row)
+        Color = ColorSequence.new(Color3.fromRGB(43, 35, 66),
+            Color3.fromRGB(27, 23, 43))}, row)
     mk("TextLabel", {
         BackgroundTransparency = 1,
         Position = UDim2.fromOffset(13, 7), Size = UDim2.new(1, -72, 0, 20),
@@ -4896,11 +4897,21 @@ local function addToggle(page, title, description, key, onChanged)
         BackgroundColor3 = Color3.fromRGB(222, 223, 227), BorderSizePixel = 0,
     }, pill)
     round(knob, 7)
-    local function update()
+    local function update(animate)
         if not row.Parent then return end
         local enabled = state[key] == true
-        pill.BackgroundColor3 = enabled and Color3.fromRGB(117, 62, 183) or P.off
-        knob.Position = UDim2.fromOffset(enabled and 18 or 2, 2)
+        pill.BackgroundColor3 = enabled and Color3.fromRGB(114, 67, 199) or P.off
+        local targetPosition = UDim2.fromOffset(enabled and 18 or 2, 2)
+        if animate == true then
+            -- Только по нажатию, без RenderStepped и фоновых эффектов.
+            local okTween = pcall(function()
+                TweenService:Create(knob, TweenInfo.new(0.14, Enum.EasingStyle.Quad,
+                    Enum.EasingDirection.Out), {Position = targetPosition}):Play()
+            end)
+            if not okTween then knob.Position = targetPosition end
+        else
+            knob.Position = targetPosition
+        end
         knob.BackgroundColor3 = enabled and Color3.fromRGB(255, 251, 255)
             or Color3.fromRGB(222, 219, 235)
         pillBorder.Color = enabled and P.accent or P.border
@@ -4931,7 +4942,7 @@ local function addToggle(page, title, description, key, onChanged)
                 return
             end
         end
-        update()
+        update(true)
         requestSave()
     end
     safeActivate(row, onRowActivated)
