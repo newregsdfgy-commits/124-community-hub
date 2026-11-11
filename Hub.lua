@@ -3957,9 +3957,14 @@ mk("Frame", {
     BorderSizePixel = 0, BackgroundTransparency = 0.48,
     Position = UDim2.new(1, -1, 0, 0), Size = UDim2.new(0, 1, 1, 0),
 }, tabs)
-local navSlots = mk("Frame", {
-    Name = "NavigationSlots", BackgroundTransparency = 1,
+local navSlots = mk("ScrollingFrame", {
+    Name = "NavigationSlots", BackgroundTransparency = 1, BorderSizePixel = 0,
     Position = UDim2.fromOffset(0, 96), Size = UDim2.new(1, 0, 1, -190),
+    CanvasSize = UDim2.fromOffset(0, 0),
+    AutomaticCanvasSize = Enum.AutomaticSize.Y,
+    ScrollingDirection = Enum.ScrollingDirection.Y,
+    ScrollBarThickness = 2, ScrollBarImageColor3 = P.accent,
+    Active = true, ClipsDescendants = true,
 }, tabs)
 mk("UIPadding", {
     PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10),
@@ -3976,9 +3981,14 @@ local tabButtons, tabUnderline, tabOutlines, pages, pageColumns = {}, {}, {}, {}
 local referenceESP = nil
 local currentPage = "ESP"
 -- Защита от ложных нажатий: палец сдвигает страницу, а не переключатель.
-local scrollFrames = {}
+local scrollFrames = {navSlots}
 local touchGestures = setmetatable({}, {__mode = "k"})
 local suppressTapUntil = 0
+connect(navSlots:GetPropertyChangedSignal("CanvasPosition"), function()
+    if UserInputService.TouchEnabled then
+        suppressTapUntil = os.clock() + 0.24
+    end
+end)
 -- Do not treat a scroller from a *hidden ancestor page* as touch-active.
 -- The previous check looked only at the direct parent and could suppress
 -- clicks on unrelated pages after switching to compact/portrait layout.
