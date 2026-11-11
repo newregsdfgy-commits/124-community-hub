@@ -1862,6 +1862,8 @@ cleanup = function(safeStop)
         state.speedEnabled = false
         state.noclip = false
         state.fly = false
+        state.playerAuraEnabled, state.playerGlowEnabled = false, false
+        state.playerWeatherEnabled, state.playerEnvironmentEnabled = false, false
         CONFIG.PlaceCache.safeBoot = true
         -- Legacy flag consumed once by migration; older versions remain safe.
         if game.PlaceId == CONFIG.OriginalPlaceId then env.ARMY124_SAFE_BOOT = true end
@@ -1881,12 +1883,19 @@ cleanup = function(safeStop)
     state.fullbright = false
     state.cameraFovEnabled = false
     state.speedEnabled, state.noclip, state.fly = false, false, false
+    state.playerAuraEnabled, state.playerGlowEnabled = false, false
+    state.playerWeatherEnabled, state.playerEnvironmentEnabled = false, false
     aimHeldKey = false
     captureAimKey = false
     boosterRevision = boosterRevision + 1
     table.clear(boosterPro.protectedRestoreQueue)
     table.clear(boosterPro.protectedRestoreSeen)
 
+    -- Player FX owns only our local objects; restore Fog before recovery checks.
+    local playerFxOk, playerFxRestored = pcall(playerFX.shutdown)
+    if not playerFxOk or playerFxRestored ~= true then
+        warn("[124 Visuals] Player FX: fog restore pending; recovery saved")
+    end
     -- Освобождаем личную музыку, затем физику и локальные параметры оружия.
     if boosterPro.privateMusic then pcall(boosterPro.privateMusic.shutdown) end
     if boosterPro.movement then pcall(boosterPro.movement.shutdown) end
@@ -1944,7 +1953,8 @@ cleanup = function(safeStop)
     end
     if savedLighting or savedTerrainDecoration or savedTerrainColors
         or next(savedGraphics) ~= nil or next(memoryFX.camera.saved) ~= nil
-        or next(memoryFX.spin.pending) ~= nil or recoil.spread.pending() then
+        or next(memoryFX.spin.pending) ~= nil or recoil.spread.pending()
+        or playerFX.pending() then
         local previousRecovery = env.ARMY124_RECOVERY
         local pendingRecovery
         pendingRecovery = function()
@@ -1954,19 +1964,21 @@ cleanup = function(safeStop)
                 oldDone = ok and result == true
             end
             local lightingOK = pcall(applyLighting)
+            local weatherOK, weatherRestored = pcall(playerFX.restoreWeather)
             local grassOK = not savedTerrainDecoration or pcall(restoreTerrainGrass)
             local colorsOK = not savedTerrainColors or pcall(restoreTerrainColors)
             local graphicsOK = pcall(boosterPro.restoreGraphicsSliced)
             local cameraOK = pcall(memoryFX.camera.reset)
             local spinOK = pcall(memoryFX.spin.restorePending)
             local spreadOK, spreadRestored = pcall(recoil.restoreSpread)
-            local done = lightingOK and grassOK and colorsOK and graphicsOK
+            local done = lightingOK and weatherOK and weatherRestored == true
+                and grassOK and colorsOK and graphicsOK
                 and cameraOK and spinOK and spreadOK and spreadRestored == true
                 and not (savedLighting or savedTerrainDecoration or savedTerrainColors)
                 and next(savedGraphics) == nil
                 and next(memoryFX.camera.saved) == nil
                 and next(memoryFX.spin.pending) == nil
-                and not recoil.spread.pending()
+                and not recoil.spread.pending() and not playerFX.pending()
             if done and oldDone and env.ARMY124_RECOVERY == pendingRecovery then
                 env.ARMY124_RECOVERY = nil
             end
