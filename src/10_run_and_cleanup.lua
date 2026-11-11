@@ -73,6 +73,13 @@ perfCounters.espVisual.frame = function(dt)
         perfCounters.espVisual.motionFrame = nil
         return
     end
+    -- Когда Tracer и Box выключены, не читаем CFrame камеры каждый кадр.
+    if not state.tracers and not state.espBox then
+        espVisualElapsed = 0
+        perfCounters.espVisual.motionCamera = nil
+        perfCounters.espVisual.motionFrame = nil
+        return
+    end
     -- Считываем камеру после её штатного обновления, AIM и Recoil.
     local motion = perfCounters.espVisual
     local camera = Workspace.CurrentCamera
@@ -87,10 +94,6 @@ perfCounters.espVisual.frame = function(dt)
         motion.motionCamera, motion.motionFrame = camera, current
     else
         motion.motionCamera, motion.motionFrame = nil, nil
-    end
-    if not state.tracers and not state.espBox then
-        espVisualElapsed = 0
-        return
     end
     -- AIM/Recoil идут каждый кадр. Только тяжёлые ESP GUI-примитивы
     -- обновляем с отдельным пределом кадров при AUTO/ECO.
