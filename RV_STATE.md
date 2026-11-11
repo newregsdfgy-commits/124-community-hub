@@ -1,3 +1,16 @@
+# RV_STATE — Player Visuals v1.4.0 (2026-11-12)
+
+- Test branch `v1.4.0-player-visuals-test`, based on v1.3.1 deep audit; main unchanged.
+- Player nav: Aura/Glow on LocalPlayer character (R6/R15 root), colors and intensity; Weather CLEAR/FOG/RAIN/NIGHT with a local bounded 24-frame rain overlay; Environment tint ColorCorrection and intensity.
+- In `src/05_player_visuals.lua` (12th compile-time module), with restoration/cleanup wired into bootstrap abort, normal unload and existing recovery callback.
+- Roblox documentation confirms Fog* may be hidden/ignored when Atmosphere exists. Code uses existing Atmosphere with last-written ownership/restore in that case, Fog otherwise; watches Atmosphere changes and protects player-owned effects from Booster.
+- Toggles default OFF and autoload OFF; selected modes/colors saved using existing validation. No game/server changes and no server authentication.
+- Compiled source `Hub.lua` and `Visuals.lua` identical after latest rebuild. Detailed report `AUDIT_PLAYER_v1.4.0.md`.
+- CI `.github/workflows/v140-ci.yml` contains 60 release checks, 50 targeted Node tests and official Luau runtime simulation for Player FX, ESP and Key. Do not claim all succeeded until observing actual run.
+- Real Android/Roblox gameplay and FPS measurement still pending.
+
+---
+
 # RV_STATE — Deep Audit v1.3.1 (2026-11-11)
 
 - Test branch: `v1.3.1-deep-audit-stability-test`, base: `v1.3.0-esp2-key2-modular-test`, main unchanged.
