@@ -3813,7 +3813,7 @@ local P = {
 local function isReferenceLandscape(view)
     -- Avoid shrinking tap targets on short landscape touch displays.
     return UserInputService.TouchEnabled and view.X >= 760
-        and view.Y >= 460 and view.X >= view.Y * 1.35
+        and view.Y >= 540 and view.X >= view.Y * 1.35
 end
 -- Mobile landscape uses the same full reference layout, with a single
 -- uniform scale. Portrait and undersized desktop keep readable legacy lists.
@@ -3998,15 +3998,15 @@ local pageSubHeader = mk("TextLabel", {
 }, bar)
 local cleanup -- Обработчик выгрузки определяется ниже.
 local hide = mk("TextButton", {
-    Name = "Minimize", Position = UDim2.new(1, -91, 0, 18),
-    Size = UDim2.fromOffset(34, 34), BackgroundColor3 = P.tile,
+    Name = "Minimize", Position = UDim2.new(1, -100, 0, 17),
+    Size = UDim2.fromOffset(42, 42), BackgroundColor3 = P.tile,
     Text = "—", TextColor3 = P.dim, TextSize = 16,
     Font = Enum.Font.GothamMedium, AutoButtonColor = true,
 }, bar)
 round(hide, 6)
 local close = mk("TextButton", {
-    Name = "CloseHub", Position = UDim2.new(1, -49, 0, 18),
-    Size = UDim2.fromOffset(34, 34), BackgroundColor3 = P.tile,
+    Name = "CloseHub", Position = UDim2.new(1, -51, 0, 17),
+    Size = UDim2.fromOffset(42, 42), BackgroundColor3 = P.tile,
     Text = "×", TextColor3 = Color3.fromRGB(242, 146, 154),
     Font = Enum.Font.GothamMedium, TextSize = 16, AutoButtonColor = true,
 }, bar)
@@ -4542,7 +4542,9 @@ local function registerWidget(page, widget)
     table.insert(info.widgets, {object = widget, side = info.side})
     return widget
 end
+local sliderDrag = nil -- Cancel an active thumb gesture when viewport changes.
 local function applyResponsiveLayout()
+    sliderDrag = nil
     local view = Workspace.CurrentCamera and Workspace.CurrentCamera.ViewportSize or viewport
     local width, height, wide, baseScale = windowMetrics(view)
     -- Responsive transitions must cancel the previous animation before
@@ -4572,7 +4574,7 @@ local function applyResponsiveLayout()
     local compactShort = not wide and height < 320
     local navTop = wide and 20 or (compactShort and 5 or 11)
     local bottomReserve = wide and 90 or (height < 300 and 9 or 53)
-    local buttonHeight = wide and 55 or (compactShort and 35 or 44)
+    local buttonHeight = wide and 55 or 44 -- Scroll navigation, never shrink touch targets.
     tabs.Position = UDim2.fromOffset(0, sidebarHeader)
     tabs.Size = UDim2.new(0, sidebarWidth, 1, -sidebarHeader)
     navSlots.Position = UDim2.fromOffset(0, navTop)
@@ -4651,15 +4653,14 @@ local function applyResponsiveLayout()
     local brandTitle = bar:FindFirstChild("BrandTitle")
     local brandCaption = bar:FindFirstChild("BrandCaption")
     if brandTitle then
-        brandTitle.Size = wide and UDim2.fromOffset(168, 21) or UDim2.new(1, -120, 0, 21)
+        brandTitle.Size = wide and UDim2.fromOffset(168, 21) or UDim2.new(1, -130, 0, 21)
         brandTitle.TextSize = 15
     end
     if brandCaption then
-        brandCaption.Size = wide and UDim2.fromOffset(169, 16) or UDim2.new(1, -120, 0, 16)
+        brandCaption.Size = wide and UDim2.fromOffset(169, 16) or UDim2.new(1, -130, 0, 16)
     end
 end
 
-local sliderDrag = nil
 local function showPage(key)
     if not pages[key] then return end
     if key ~= "ESP" and referenceESP and referenceESP.clearSearch then
@@ -4700,6 +4701,47 @@ end
 boosterPro.dashboard.openSettings = function() showPage("MEMORY") end
 applyResponsiveLayout()
 showPage("ESP")
+-- On-demand layout audit; no RenderStepped loops or geometry mutation.
+boosterPro.uiAudit = function()
+    local camera = Workspace.CurrentCamera
+    local raw = camera and camera.ViewportSize or viewport
+    local buttons = 0
+    local minHeight = math.huge
+    for _, nav in ipairs(navigation) do
+        if not nav.hidden then
+            local button = tabButtons[nav.key]
+            if button and button.Parent and button.Visible then
+                buttons = buttons + 1
+                minHeight = math.min(minHeight, button.AbsoluteSize.Y)
+            end
+        end
+    end
+    local checks = {
+        {"панель", panel.Parent ~= nil and panel.AbsoluteSize.X >= 150
+            and panel.AbsoluteSize.Y >= 110},
+        {"область настроек", contentPlate.AbsoluteSize.X >= 140
+            and contentPlate.AbsoluteSize.Y >= 20},
+        {"левая навигация", tabs.AbsoluteSize.X >= 60
+            and navSlots.AbsoluteSize.Y >= 15},
+        {"разделы ESP/Aim/Misc/Memory", buttons == 4},
+        {"размер кнопок", minHeight >= 38},
+        {"кнопки закрытия/сворачивания", close.AbsoluteSize.X >= 38
+            and hide.AbsoluteSize.X >= 38},
+        {"активная страница", pages[currentPage] ~= nil
+            and pages[currentPage].Visible},
+    }
+    local failures, passed = {}, 0
+    for _, entry in ipairs(checks) do
+        if entry[2] then passed = passed + 1
+        else failures[#failures + 1] = entry[1] end
+    end
+    return string.format("UI 2.0 %d/%d | экран %dx%d | меню %dx%d"
+            .. " | контент %dpx | навигация %dpx | %s",
+        passed, #checks, raw.X, raw.Y,
+        panel.AbsoluteSize.X, panel.AbsoluteSize.Y,
+        contentPlate.AbsoluteSize.X, navSlots.AbsoluteSize.X,
+        #failures == 0 and "OK" or ("ПРОВЕРИТЬ: " .. table.concat(failures, ", ")))
+end
 local currentLayoutCamera = nil
 local cameraLayoutConnection = nil
 local layoutPending = false
@@ -5032,18 +5074,26 @@ local function addToggle(page, title, description, key, onChanged)
         BackgroundColor3 = Color3.fromRGB(222, 223, 227), BorderSizePixel = 0,
     }, pill)
     round(knob, 7)
+    local knobTween = nil
     local function update(animate)
         if not row.Parent then return end
         local enabled = state[key] == true
-        pill.BackgroundColor3 = enabled and Color3.fromRGB(114, 67, 199) or P.off
+        pill.BackgroundColor3 = enabled and P.accent or P.off
         local targetPosition = UDim2.fromOffset(enabled and 18 or 2, 2)
+        -- Fast double taps must not leave the knob with an obsolete tween.
+        if knobTween then pcall(function() knobTween:Cancel() end); knobTween = nil end
         if animate == true then
-            -- Только по нажатию, без RenderStepped и фоновых эффектов.
-            local okTween = pcall(function()
-                TweenService:Create(knob, TweenInfo.new(0.14, Enum.EasingStyle.Quad,
-                    Enum.EasingDirection.Out), {Position = targetPosition}):Play()
+            local okTween, tween = pcall(function()
+                return TweenService:Create(knob, TweenInfo.new(0.14,
+                    Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+                    {Position = targetPosition})
             end)
-            if not okTween then knob.Position = targetPosition end
+            if okTween and tween then
+                knobTween = tween
+                tween:Play()
+            else
+                knob.Position = targetPosition
+            end
         else
             knob.Position = targetPosition
         end
@@ -5051,6 +5101,7 @@ local function addToggle(page, title, description, key, onChanged)
             or Color3.fromRGB(222, 219, 235)
         pillBorder.Color = enabled and P.accent or P.border
         pillBorder.Transparency = enabled and 0.17 or 0.64
+        rowBorder.Color = enabled and P.accent or P.border
         rowBorder.Transparency = enabled and 0.29 or 0.63
     end
     refreshToggles[key] = update
@@ -5132,7 +5183,7 @@ end
 -- Общий drag-handler работает и с мышью, и с touch; нет RenderStepped у слайдеров.
 local function addSlider(page, title, description, key, minValue, maxValue, step, formatter, onChanged)
     local container = mk("Frame", {
-        Name = key .. "Slider", Size = UDim2.new(1, 0, 0, 74),
+        Name = key .. "Slider", Size = UDim2.new(1, 0, 0, 83),
         BackgroundColor3 = P.tile, BorderSizePixel = 0,
     }, columnFor(page))
     registerWidget(page, container)
@@ -5160,7 +5211,7 @@ local function addSlider(page, title, description, key, minValue, maxValue, step
     local touchArea = mk("TextButton", {
         Name = "DragArea", BackgroundTransparency = 1, Text = "",
         AutoButtonColor = false,
-        Position = UDim2.fromOffset(10, 44), Size = UDim2.new(1, -20, 0, 25),
+        Position = UDim2.fromOffset(10, 44), Size = UDim2.new(1, -20, 0, 32),
     }, container)
     local track = mk("Frame", {
         Name = "Track", BorderSizePixel = 0,
@@ -6044,6 +6095,14 @@ addButton(pages.MEMORY, "Самопроверка стабильности",
         tell("STABILITY " .. tostring(passed) .. "/" .. tostring(total)
             .. (#failures > 0 and " | Ошибки: " .. table.concat(failures, ", ")
                 or " | локальные инварианты в норме"))
+    end)
+addButton(pages.MEMORY, "Проверка адаптации UI 2.0",
+    "Проверить реальные размеры, вкладки и кнопки на текущем экране", function()
+        local ok, result = pcall(function()
+            return boosterPro.uiAudit and boosterPro.uiAudit()
+                or "UI audit ещё не инициализирован"
+        end)
+        tell(ok and result or ("UI AUDIT ERROR: " .. tostring(result)))
     end)
 addToggle(pages.MEMORY, "Часы / FPS / Ping", "Информационный блок экрана", "hud")
 addToggle(pages.MEMORY, "HUD активных функций", "Состояние AIM, ESP, Booster", "activeHud")
