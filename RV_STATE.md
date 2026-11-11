@@ -7,7 +7,7 @@
 - Inputs remain off by default, No Recoil and Control Recoil mutually exclusive. Purple Neon UI 2.0, AIM, ESP, FPS Booster, movement, music, startup key and cleanup preserved.
 - `Start.lua` points at this branch and verifies `Version = "1.2.2"`. `tools/verify_release.py` has focused invariants; `tests/Weapons2Compatibility.test.cjs` contains nine static tests; `.github/workflows/weapons-2-ci.yml` adds Luau compile checks.
 - Source patch preflight: 28 exact patches applied + subsequent dual-file multi-Tool fix; no live Roblox tests. Some previous obsolete v1.1.x regression checks cannot be used as a pass/fail signal on 1.2.x.
-- Detailed report: `AUDIT_WEAPONS_v1.2.2.md`. CI result should be read from GitHub Actions; do not infer Luau compilation or device compatibility until confirmed.
+- Detailed report: `AUDIT_WEAPONS_v1.2.2.md`. GitHub Actions focused run `43045644213` SUCCESS: 49/49 static release checks; 9/9 focused Node tests; actual Luau parser/compiler succeeds for Hub.lua, Visuals.lua, Start.lua. Roblox/device/weapon live behavior remains untested.
 - Follow-up: actual weapon QA, then decide whether to merge into main.
 
 ---
