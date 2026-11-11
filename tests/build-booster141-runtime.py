@@ -36,7 +36,8 @@ local boosterPro = {
     restoreFailures = 0,
 }
 local Workspace = {CurrentCamera = {}}
-local warn = function(message) error("Unexpected restore warning: " .. tostring(message)) end
+local warningCount = 0
+local warn = function(message) warningCount = warningCount + 1 end
 local function makeObject(name, class)
     return {Name = name, ClassName = class, Parent = {},
         IsA = function(self, kind) return kind == self.ClassName end}
@@ -99,23 +100,21 @@ boosterPro.graphicsWritten[competing] = {Density = 0}
 assert(boosterPro.releaseAtmosphereToPlayer(competing))
 assert(competing.Density == 0.42 and savedGraphics[competing] == nil)
 
--- A blocked restore leaves a snapshot and safely blocks Player taking ownership.
-local locked = makeObject("LockedAtmosphere", "Atmosphere")
-locked.Density = 0
-locked.readOnly = true
-local originalMeta = getmetatable(locked)
-setmetatable(locked, {__newindex = function(self, key, value)
-    if key == "Density" then error("Engine denied write") end
-    rawset(self, key, value)
-end})
--- Rebuild field to ensure writes pass through the __newindex metamethod.
-rawset(locked, "Density", nil)
+-- A denied engine write must remain pending instead of being treated as restored.
+local lockStorage = {Density = 0}
+local locked = {Name = "LockedAtmosphere", ClassName = "Atmosphere", Parent = {}}
+setmetatable(locked, {
+    __index = function(_, key) return lockStorage[key] end,
+    __newindex = function(self, key, value)
+        if key == "Density" then error("Engine denied write") end
+        rawset(self, key, value)
+    end,
+})
 savedGraphics[locked] = {Density = 0.11}
 boosterPro.graphicsWritten[locked] = {Density = 0}
--- Since a nil Density is now an external mutation, the safe path does not
--- claim it can restore a property the game no longer exposes.
-assert(boosterPro.releaseAtmosphereToPlayer(locked))
-assert(savedGraphics[locked] == nil)
+assert(not boosterPro.releaseAtmosphereToPlayer(locked))
+assert(savedGraphics[locked] ~= nil and lockStorage.Density == 0)
+assert(warningCount == 1)
 print("PASS: real Booster release/reapply/restore and exact instance ownership")
 '''
 path = Path(tempfile.gettempdir()) / "Army124-Booster141.luau"
