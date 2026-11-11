@@ -1,3 +1,18 @@
+# RV_STATE — 124 Visuals v1.1.65 Purple Neon UI
+
+Date: 2026-11-11. Current test branch: `v1.1.65-purple-neon-ui-test`.
+
+- User selected reference **Purple Neon №1**. Implemented neon palette, unified full-width header, permanent left nav ESP/Aim/Misc/Memory, compact right-hand toggles with click-only tween, responsive narrow sidebar, scrollable nav on very short displays.
+- Core gameplay pre-UI and post-UI initialization remain identical to previous v1.1.63 core. Previous v1.1.64 serialized key-loader retained and repointed to v1.1.65.
+- `Hub.lua` and `Visuals.lua` identical blob: `8d5de300e14b8cd4ec18fd4d3598346ed5ea838d`.
+- `Start.lua` new blob: `3daa4572d7a130a8b9dc9d8d383df580695af8dc`.
+- `AUDIT_UI_v1.1.65.md` created: 69/69 static checks, 7/7 viewport scenario calculations, structural lexical scan 8,391 lines / 39,331 tokens without syntax-structure findings.
+- **Unverified:** Roblox Luau compile, actual UI rendering, Android touch behavior, performance/FPS, live ESP/AIM functionality. Do not present these as tested.
+- Key System `124HUB` unchanged; it is client-local, not server-secured.
+- Known earlier lifecycle caveat: directly loading Hub.lua/Visuals.lua concurrently can race on shared boot phase. Loader guard only serializes Start.lua in the same environment. Not changed in UI-only update.
+
+## Previous history
+
 # RV_STATE — 124 Visuals / launcher-only audit fixes (11 Nov 2026)
 
 Current test branch: `v1.1.64-lifecycle-key-race-audit-test`.
