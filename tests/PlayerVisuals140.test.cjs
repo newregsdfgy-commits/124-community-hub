@@ -77,9 +77,8 @@ test("world weather only touches three fog properties and own effects", () => {
   assert.doesNotMatch(visuals, /Lighting\.ClockTime\s*=|Lighting\.Brightness\s*=/);
 });
 test("Booster protects exactly the two local tone effects", () => {
-  assert.match(booster, /obj\.Name == "Army124PlayerWeatherTone"/);
-  assert.match(booster, /obj\.Name == "Army124PlayerEnvironmentTone"/);
-  assert.match(booster, /obj:IsA\("Atmosphere"\) and state\.playerWeatherEnabled/);
+  assert.match(booster, /boosterPro\.playerFxOwned\[obj\] == true/);
+  assert.match(booster, /function boosterPro\.releaseAtmosphereToPlayer\(obj\)/);
   assert.match(visuals, /"Army124PlayerWeatherTone"/);
   assert.match(visuals, /"Army124PlayerEnvironmentTone"/);
 });
@@ -104,7 +103,7 @@ test("existing weapons and ESP/UI modules stay in place", () => {
     assert.ok(hub.includes(token), token);
 });
 test("release and current branch are correct", () => {
-  assert.match(hub, /Version = "1\.4\.0"/);
-  assert.match(loader, /v1\.4\.0-player-visuals-test\/Visuals\.lua/);
-  assert.match(loader, /Version = "1\.4\.0"/);
+  assert.match(hub, /Version = "1\.4\.1"/);
+  assert.match(loader, /v1\.4\.1-deep-audit-fixes-test\/Visuals\.lua/);
+  assert.match(loader, /Version = "1\.4\.1"/);
 });
