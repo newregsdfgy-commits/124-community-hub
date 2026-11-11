@@ -27,7 +27,8 @@ Main: unchanged.
 - `node --test tests/EspKeyArchitecture130.test.cjs tests/Weapons2Compatibility.test.cjs tests/FullAudit131.test.cjs tests/PlayerVisuals140.test.cjs`: 36 previous focused regressions + 14 Player-specific tests.
 - `tests/build-131-runtime-audit.py`: actual ESP/Key callbacks executed with fake local Roblox clocks.
 - `tests/build-player140-runtime.py`: actual Player Lua controller executed in Luau with deterministic stand-ins for signals, characters, Lighting, Rain, Atmosphere, ColorCorrection and owned Instances; asserts respawn, toggle, external weather update and cleanup.
-- `.github/workflows/v140-ci.yml`: builds official Luau compiler and CLI; parses/compiles Hub.lua, Visuals.lua, Start.lua; runs both isolated behavior suites.
+- **Observed CI success:** [GitHub Actions #43118103219](https://github.com/newregsdfgy-commits/124-community-hub/actions/runs/43118103219) — byte-identical 12-module bundle; **60/60 release checks**, **50/50 Node regressions**; actual official Luau parser and compiler successfully processed `Hub.lua`, `Visuals.lua`, `Start.lua`; isolated Luau executed real ESP/Key callback bodies and the actual Player FX controller including aura, character respawn, rain, tint, fog baseline, existing Atmosphere + dynamic insertion, and cleanup. All suites returned success.
+- `.github/workflows/v140-ci.yml`: reproduces the same tests. Success does not replace real Roblox/Android device QA.
 - **The compiler and simulations are not a real Roblox/Android runtime.** Before production, test player respawns, dark maps, game with/without Atmosphere, FPS Booster in all modes, performance impact on a phone, portrait/landscape and app-specific UI conflicts.
 
 ## Known constraints
