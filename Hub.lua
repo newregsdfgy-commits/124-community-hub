@@ -1,11 +1,11 @@
--- 124 Visuals v1.2.1 | Purple Neon UI 2.0: responsive polish and touch accessibility
+-- 124 Visuals v1.3.0 | Weapons 2.0: recoil telemetry, spread rollback and compatibility diagnostics
 -- Первый плейс: 18537079992. Запуск поддерживает все игровые PlaceId.
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.2.1",
+    Version = "1.3.0",
     OriginalPlaceId = 18537079992,
     EspRefreshSeconds = 0.35, -- Быстрый поиск персонажей, без обновления UI каждый кадр.
     EspEventMinSeconds = 0.18, -- Коалесцированные события не запускают 16 полных сканов/сек.
@@ -2568,6 +2568,12 @@ local recoilHolding = false
 local recoilHoldStarted = 0
 local recoilLastPulseAt = -math.huge
 local recoilFireInput = nil
+-- Event counters: no extra listeners or per-frame allocations.
+controller.telemetry = {
+    tool = 0, mouse = 0, touch = 0, gamepad = 0,
+    lastShotAt = 0, lastSource = "нет", correctedFrames = 0,
+    lastCorrectionAt = 0, equippedAt = 0,
+}
 
 -- Клиентский No Spread: только явные параметры NumberValue/IntValue/
 -- числовые атрибуты текущего Tool. ModuleScript и серверные траектории не меняем.
@@ -2590,6 +2596,8 @@ controller.spread = {
     watchers = {}, generation = 0, queued = false, applying = false,
     lastReactiveAt = -math.huge,
     discoveryList = nil, discoveryIndex = 1, nextDiscoveryAt = 0,
+    lastApplyAt = 0, lastChangedAt = 0, lastRestoreAt = 0,
+    lastRestoreOK = true, errors = 0, lastError = nil,
 }
 local function isSpreadParameter(name)
     return type(name) == "string"
@@ -2687,15 +2695,62 @@ local function registerSpreadCandidate(instance)
     end
 end
 
+-- Restore a single owned snapshot, including when a parameter leaves the Tool.
+-- If the game changed 0 to another value after our write, preserve that value.
+local function restoreSpreadInstance(instance)
+    local originals = controller.spread.originals
+    local saved = originals[instance]
+    if not saved then return true end
+    if not instance or not instance.Parent then
+        originals[instance] = nil
+        return true
+    end
+    local allRestored = true
+    if saved.value ~= nil then
+        local ok = pcall(function()
+            if instance.Value == 0 then
+                instance.Value = saved.value
+                if instance.Value ~= saved.value then
+                    error("No Spread value restore mismatch")
+                end
+            end
+        end)
+        if ok then saved.value = nil else allRestored = false end
+    end
+    for attr, before in pairs(saved.attributes) do
+        local ok = pcall(function()
+            if instance:GetAttribute(attr) == 0 then
+                instance:SetAttribute(attr, before)
+                if instance:GetAttribute(attr) ~= before then
+                    error("No Spread attribute restore mismatch")
+                end
+            end
+        end)
+        if ok then saved.attributes[attr] = nil else allRestored = false end
+    end
+    if saved.value == nil and next(saved.attributes) == nil then
+        originals[instance] = nil
+    end
+    return allRestored
+end
+
 -- Удалённые дочерние объекты не должны удерживать старые подписки до смены Tool.
 local function unregisterSpreadCandidate(instance)
     local spread = controller.spread
+    -- Disconnect BEFORE restore: deferred Value/Attribute signals must not
+    -- re-queue a scan after an object has left the equipped Tool.
     local group = spread.watchers[instance]
     if group then
         for _, connection in ipairs(group) do
             pcall(function() connection:Disconnect() end)
         end
         spread.watchers[instance] = nil
+    end
+    -- A detached parameter may still be alive in Backpack and reused later.
+    local restored = restoreSpreadInstance(instance)
+    if not restored then
+        spread.lastRestoreOK = false
+        spread.lastError = "Не удалось восстановить параметр при удалении из Tool"
     end
     spread.candidateSet[instance] = nil
     for i = #spread.candidates, 1, -1 do
@@ -2707,45 +2762,14 @@ local function unregisterSpreadCandidate(instance)
 end
 
 function controller.restoreSpread()
-    -- Отмена подписок до восстановления не даёт возвращённым значениям
-    -- вызвать повторное зануление.
+    -- Сначала отключаем наблюдателей, затем восстанавливаем живые объекты.
     clearSpreadIndex()
-    local originals = controller.spread.originals
     local allRestored = true
-    for instance, saved in pairs(originals) do
-        if not instance or not instance.Parent then
-            -- Объект удалён самой игрой: возвращать свойства больше некуда.
-            originals[instance] = nil
-        else
-            if saved.value ~= nil then
-                local ok = pcall(function()
-                    -- Если игра сама сменила значение, не перезаписываем его.
-                    if instance.Value == 0 then
-                        instance.Value = saved.value
-                        if instance.Value ~= saved.value then
-                            error("No Spread value restore mismatch")
-                        end
-                    end
-                end)
-                if ok then saved.value = nil else allRestored = false end
-            end
-            for attr, before in pairs(saved.attributes) do
-                local ok = pcall(function()
-                    if instance:GetAttribute(attr) == 0 then
-                        instance:SetAttribute(attr, before)
-                        if instance:GetAttribute(attr) ~= before then
-                            error("No Spread attribute restore mismatch")
-                        end
-                    end
-                end)
-                if ok then saved.attributes[attr] = nil else allRestored = false end
-            end
-            -- При отказе Roblox API снимок остаётся для следующих попыток.
-            if saved.value == nil and next(saved.attributes) == nil then
-                originals[instance] = nil
-            end
-        end
+    for instance in pairs(controller.spread.originals) do
+        if not restoreSpreadInstance(instance) then allRestored = false end
     end
+    controller.spread.lastRestoreAt = os.clock()
+    controller.spread.lastRestoreOK = allRestored
     if allRestored then controller.spread.modified = 0 end
     return allRestored
 end
@@ -2804,10 +2828,12 @@ function controller.applySpread()
         if (instance:IsA("NumberValue") or instance:IsA("IntValue"))
             and isSpreadParameter(instance.Name) then
             local value = instance.Value
-            if value > 0 and value < 1000000 then
+            if type(value) == "number" and value > 0 and value < 1000000 then
                 local saved = originals[instance]
                 if not saved then saved = {attributes = {}}; originals[instance] = saved end
-                if saved.value == nil then saved.value = value end
+                -- Preserve the latest *game-provided* nonzero baseline.
+                -- First snapshot only would revert dynamic bloom to an older value.
+                saved.value = value
                 instance.Value = 0
                 changed = changed + 1
             end
@@ -2820,7 +2846,8 @@ function controller.applySpread()
                     and value > 0 and value < 1000000 then
                     local saved = originals[instance]
                     if not saved then saved = {attributes = {}}; originals[instance] = saved end
-                    if saved.attributes[name] == nil then saved.attributes[name] = value end
+                    -- Update snapshot whenever the game writes a newer nonzero value.
+                    saved.attributes[name] = value
                     instance:SetAttribute(name, 0)
                     changed = changed + 1
                 end
@@ -2846,6 +2873,12 @@ function controller.applySpread()
         end
     end
     spread.applying = false
+    spread.lastApplyAt = os.clock()
+    if changed > 0 then spread.lastChangedAt = spread.lastApplyAt end
+    if errors > 0 then
+        spread.errors = spread.errors + errors
+        spread.lastError = tostring(firstError):sub(1, 180)
+    end
     if errors > 0 and os.clock() - spread.lastErrorAt >= 4 then
         spread.lastErrorAt = os.clock()
         warn("[124 Visuals] No Spread local: " .. tostring(firstError)
@@ -2876,9 +2909,15 @@ local function disconnectRecoilConnections(collection)
     table.clear(collection)
 end
 
-local function markRecoilShot()
+local function markRecoilShot(source)
     if not alive or not recoilTool then return end
     local now = os.clock()
+    local telemetry = controller.telemetry
+    local origin = (source == "mouse" or source == "touch" or source == "gamepad")
+        and source or "tool"
+    telemetry[origin] = telemetry[origin] + 1
+    telemetry.lastSource = origin
+    telemetry.lastShotAt = now
     -- Отложенная проверка после того, как оружие обновило локальные параметры.
     if state.noSpread and now >= controller.spread.nextCheckAt then
         controller.spread.nextCheckAt = now + CONFIG.SpreadShotRecheckSeconds
@@ -2949,7 +2988,9 @@ connect(UserInputService.InputBegan, function(input, processed)
         or (kind == Enum.UserInputType.Touch and isTouchFireButton(input.Position))
     if fire then
         recoilFireInput = input
-        markRecoilShot()
+        local origin = kind == Enum.UserInputType.Touch and "touch"
+            or kind == Enum.UserInputType.Gamepad1 and "gamepad" or "mouse"
+        markRecoilShot(origin)
     end
 end)
 connect(UserInputService.InputEnded, function(input)
@@ -2969,7 +3010,10 @@ local function equipRecoilTool(tool)
     resetRecoilTracking()
     if tool and tool:IsA("Tool") and tool.Parent == LocalPlayer.Character then
         recoilTool = tool
-        recoilToolConnections[#recoilToolConnections + 1] = tool.Activated:Connect(markRecoilShot)
+        controller.telemetry.equippedAt = os.clock()
+        recoilToolConnections[#recoilToolConnections + 1] = tool.Activated:Connect(function()
+            markRecoilShot("tool")
+        end)
         recoilToolConnections[#recoilToolConnections + 1] = tool.Deactivated:Connect(function()
             recoilHolding = false
             recoilFireUntil = math.max(recoilFireUntil, os.clock() + CONFIG.RecoilShotGraceSeconds)
@@ -3063,6 +3107,15 @@ local function recoilFrame(dt)
     -- just lost. Avoid alternating camera writers on intermittent LOS loss.
     if state.aimbot and (aimHeldMouse or aimHeldTouch or aimHeldKey) then return end
     local now = os.clock()
+    -- InputEnded is not always delivered when Roblox UI steals focus.
+    -- Discard a finished/cancelled InputObject rather than treating it as held.
+    if recoilFireInput then
+        local okState, inputState = pcall(function() return recoilFireInput.UserInputState end)
+        if okState and (inputState == Enum.UserInputState.End
+            or inputState == Enum.UserInputState.Cancel) then
+            recoilFireInput = nil
+        end
+    end
     local fireInputHeld = recoilFireInput ~= nil
     -- Tool.Activated бывает без InputBegan (обработанный ввод в gun framework).
     -- Реально зажатую кнопку мыши проверяем независимо от processed.
@@ -3095,15 +3148,70 @@ local function recoilFrame(dt)
     camera.CFrame = camera.CFrame * CFrame.Angles(-correction, 0, 0)
     recoilLastPitch = camera.CFrame:ToOrientation()
     recoilLastCorrection = math.deg(correction)
+    controller.telemetry.correctedFrames = controller.telemetry.correctedFrames + 1
+    controller.telemetry.lastCorrectionAt = now
 end
 
--- END RECOIL CONTROL v1.1.63
+-- END RECOIL CONTROL v1.3.0
 controller.reset = resetRecoilTracking
 controller.shutdown = shutdownRecoilControl
 controller.frame = recoilFrame
 controller.inspect = function()
     return recoilTool and recoilTool.Name or "нет Tool",
         controller.shots, recoilLastCorrection
+end
+-- Read-only compatibility inspection. Detects local parameter names and recent
+-- input/camera observations. Never claims to affect server-authoritative bullets.
+controller.inspectCompatibility = function()
+    local info = {
+        tool = recoilTool and recoilTool.Name or "нет Tool",
+        toolPresent = recoilTool ~= nil
+            and recoilTool.Parent == LocalPlayer.Character,
+        checked = 0, numeric = 0, attributes = 0, truncated = false,
+        snapshots = 0, errors = controller.spread.errors,
+        lastError = controller.spread.lastError,
+        pulses = controller.shots,
+        inputs = controller.telemetry,
+        correction = recoilLastCorrection,
+        noRecoil = state.noRecoil, controlRecoil = state.controlRecoil,
+        noSpread = state.noSpread,
+        lastAppliedAt = controller.spread.lastApplyAt,
+        lastRestoreOK = controller.spread.lastRestoreOK,
+    }
+    for _ in pairs(controller.spread.originals) do
+        info.snapshots = info.snapshots + 1
+    end
+    if not info.toolPresent then return info end
+    -- Bounded, on-demand DFS; unlike a full GetDescendants() inventory
+    -- it will not materialize all descendants on very large Tool models.
+    local stack = {recoilTool}
+    while #stack > 0 and info.checked < 256 do
+        local object = stack[#stack]
+        stack[#stack] = nil
+        info.checked = info.checked + 1
+        local ok, found = pcall(function()
+            if (object:IsA("NumberValue") or object:IsA("IntValue"))
+                and isSpreadParameter(object.Name) then info.numeric = info.numeric + 1 end
+            local attributes = object:GetAttributes()
+            for name, value in pairs(attributes) do
+                if isSpreadParameter(name) and type(value) == "number" then
+                    info.attributes = info.attributes + 1
+                end
+            end
+            return object:GetChildren()
+        end)
+        if ok and found then
+            for i = #found, 1, -1 do
+                if #stack >= 512 then
+                    info.truncated = true
+                    break
+                end
+                stack[#stack + 1] = found[i]
+            end
+        end
+    end
+    if #stack > 0 then info.truncated = true end
+    return info
 end
 return controller
 end)()
@@ -6311,13 +6419,42 @@ addToggle(pages.MISC, "No Spread", "Отслеживает локальные п
                 or "No Spread: восстановление не завершено; снимки сохранены для повтора")
         end
 end)
-addButton(pages.MISC, "Диагностика оружия", "Показать Tool и число изменённых клиентских параметров", function()
-    local tool, shots, lastCorrection = recoil.inspect()
-    tell("Tool: " .. tostring(tool)
-        .. " | No Spread changed: " .. tostring(recoil.spread.modified)
-        .. " | Shot pulses: " .. tostring(shots)
-        .. " | Recoil correction: " .. string.format("%.2f°", lastCorrection))
+addButton(pages.MISC, "Диагностика оружия", "Клиентские параметры, выстрелы и восстановление", function()
+    local info = recoil.inspectCompatibility()
+    tell("WEAPONS 2.0 | Tool: " .. tostring(info.tool)
+        .. " | Spread numeric/attrs " .. tostring(info.numeric) .. "/" .. tostring(info.attributes)
+        .. (info.truncated and "+" or "")
+        .. " | Saved " .. tostring(info.snapshots)
+        .. " | Recoil pulses " .. tostring(info.pulses)
+        .. " | Correction " .. string.format("%.2f°", info.correction)
+        .. " | Errors " .. tostring(info.errors))
 end)
+addButton(pages.MISC, "Weapons 2.0 — проверка совместимости",
+    "Только чтение: входные события, локальные параметры и ограничения оружия", function()
+        local info = recoil.inspectCompatibility()
+        if not info.toolPresent then
+            tell("Weapons 2.0: экипируй Tool для проверки. Серверную отдачу/разброс определить нельзя.")
+            return
+        end
+        local inputs = info.inputs
+        local found = info.numeric + info.attributes
+        tell("WEAPONS | " .. tostring(info.tool)
+            .. " | Локальных spread-параметров: " .. tostring(found)
+            .. (info.truncated and "+ (частичный скан)" or "")
+            .. " | Tool/Mouse/Touch/Pad: " .. tostring(inputs.tool) .. "/"
+            .. tostring(inputs.mouse) .. "/" .. tostring(inputs.touch) .. "/"
+            .. tostring(inputs.gamepad)
+            .. " | Коррекция: " .. tostring(inputs.correctedFrames) .. " кадров"
+            .. " | Откат: " .. (info.lastRestoreOK and "OK" or "PENDING"))
+        if found == 0 then
+            warn("[124 Weapons] В Tool не найдены известные локальные Spread-поля; "
+                .. "это НЕ доказательство серверного разброса.")
+        end
+        if info.lastError then
+            warn("[124 Weapons] Последняя ошибка No Spread: "
+                .. tostring(info.lastError):sub(1, 180))
+        end
+    end)
 
 addSection(pages.MISC, "LOCAL MUSIC", "Личный проигрыватель Roblox Audio ID, без передачи другим игрокам")
 local musicInputRow = mk("Frame", {
