@@ -261,13 +261,9 @@ connect(Players.PlayerRemoving, boosterPro.unwatchPlayer)
 -- Проверять каждую родительскую модель для каждой детали дорого.
 -- При обходе дерева достаточно проверить границу ветки ОДИН раз.
 function boosterPro.isProtectedBranch(obj)
-    -- Player-owned ColorCorrectionEffects belong to an independent visual layer.
-    -- Do not let BALANCED/WHITE/ULTRA turn them off or capture their Enabled.
-    if obj.Name == "Army124PlayerWeatherTone"
-        or obj.Name == "Army124PlayerEnvironmentTone" then return true end
-    -- Keep an active player weather Atmosphere distinct from Booster.
-    if obj:IsA("Atmosphere") and state.playerWeatherEnabled
-        and state.playerWeatherMode ~= "CLEAR" then return true end
+    -- Exact instance ownership: no unrelated game effects are exempted based
+    -- on a matching Name, and an unowned Atmosphere remains optimizable.
+    if boosterPro.playerFxOwned[obj] == true then return true end
     local cam = Workspace.CurrentCamera
     if obj == cam then return true end
     if obj:IsA("LayerCollector") or obj:IsA("GuiBase2d") then return true end
@@ -584,6 +580,20 @@ function boosterPro.restoreObject(obj, snapshot)
     if not left then
         savedGraphics[obj] = nil
         boosterPro.graphicsWritten[obj] = nil
+    end
+end
+
+-- Hand an Atmosphere back from Booster to Player weather only after restoring
+-- Booster's own saved values; otherwise Player captures Booster's Density=0
+-- as its "game original" and leaves permanently flattened fog on disable.
+function boosterPro.releaseAtmosphereToPlayer(obj)
+    local saved = savedGraphics[obj]
+    if saved then boosterPro.restoreObject(obj, saved) end
+    return savedGraphics[obj] == nil
+end
+function boosterPro.reapplyAtmosphereAfterPlayer(obj)
+    if alive and state.booster and obj and obj.Parent then
+        optimizeObject(obj, false)
     end
 end
 
