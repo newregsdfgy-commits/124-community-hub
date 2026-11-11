@@ -49,7 +49,7 @@ local Enum = {HighlightDepthMode = {Occluded = "Occluded"},
 local instances = {}
 local Instance = {}
 function Instance.new(class)
-    local value = {ClassName = class, ChildAdded = signal(), Parent = nil}
+    local value = {ClassName = class, ChildAdded = signal(), ChildRemoved = signal(), Parent = nil}
     function value:Destroy()
         self.destroyed = true
         self.Parent = nil
@@ -92,6 +92,20 @@ local state = {
     playerEnvironmentEnabled = false, playerEnvironmentColor = "VIOLET",
     playerEnvironmentStrength = 40,
 }
+-- Production PlayerFX calls these Booster-owner methods. The integration
+-- test verifies the call order and ownership; the separate static gates ensure
+-- the project uses the real Booster methods with full snapshot restoration.
+local boosterCalls = {released = 0, reapplied = 0}
+local boosterPro = {
+    playerFxOwned = setmetatable({}, {__mode = "k"}),
+    releaseAtmosphereToPlayer = function(obj)
+        boosterCalls.released = boosterCalls.released + 1
+        return obj ~= nil
+    end,
+    reapplyAtmosphereAfterPlayer = function(obj)
+        boosterCalls.reapplied = boosterCalls.reapplied + 1
+    end,
+}
 local hooks = {}
 local function connect(event, fn)
     local conn = event:Connect(fn)
@@ -114,6 +128,8 @@ assert(playerFX.auraAttachment.Parent == rootOne)
 assert(playerFX.auraEmitter.Rate == 25)
 assert(playerFX.glowLight.Parent == rootOne)
 assert(playerFX.glowHighlight.Adornee == charOne)
+assert(playerFX.glowHighlight.Parent == charOne, "Highlight must not be in PlayerGui")
+assert(boosterPro.playerFxOwned[playerFX.glowHighlight] == true)
 local oldAura = playerFX.auraAttachment
 local oldGlow = playerFX.glowHighlight
 
@@ -133,6 +149,19 @@ LocalPlayer.CharacterAdded:Fire(charTwo)
 assert(oldAura.destroyed and oldGlow.destroyed)
 assert(playerFX.auraAttachment.Parent == rootTwo)
 assert(playerFX.glowHighlight.Adornee == charTwo)
+assert(playerFX.glowHighlight.Parent == charTwo)
+-- A late Root removal is not a CharacterRemoving event and must still clean
+-- orphan attachments, light and highlight. A new Root should recreate them.
+charTwo.children.HumanoidRootPart = nil
+charTwo.ChildRemoved:Fire(rootTwo)
+assert(playerFX.auraAttachment == nil and playerFX.glowLight == nil)
+local rootThree = Instance.new("Part")
+rootThree.Name = "HumanoidRootPart"
+charTwo.children.HumanoidRootPart = rootThree
+charTwo.ChildAdded:Fire(rootThree)
+assert(playerFX.auraAttachment.Parent == rootThree)
+assert(playerFX.glowLight.Parent == rootThree)
+assert(playerFX.glowHighlight.Parent == charTwo)
 
 -- Fog and rain belong to client visual layer only.
 state.playerWeatherEnabled = true
@@ -166,6 +195,18 @@ assert(Lighting.FogColor == externalFog)
 assert(not playerFX.pending())
 assert(previousGui.destroyed and not previousConnection.active)
 assert(playerFX.weatherTone == nil and playerFX.rainGui == nil)
+-- Even if a previously queued callback sneaks in after rapid OFF/ON,
+-- it must not disconnect or destroy the newest rain session.
+state.playerWeatherEnabled = true
+state.playerWeatherMode = "RAIN"
+playerFX.syncWeather()
+local newestRainGui = playerFX.rainGui
+local newestRainConnection = playerFX.rainConnection
+previousConnection.callback(0.066)
+assert(playerFX.rainGui == newestRainGui and not newestRainGui.destroyed)
+assert(playerFX.rainConnection == newestRainConnection and newestRainConnection.active)
+state.playerWeatherEnabled = false
+playerFX.syncWeather()
 
 -- New external FogEnd during weather mode becomes the next restore baseline.
 state.playerWeatherEnabled = true
@@ -194,6 +235,8 @@ state.playerWeatherMode = "FOG"
 playerFX.syncWeather()
 assert(existingAtmo.Density == 0.56 and existingAtmo.Haze == 2.8)
 assert(existingAtmo.Color ~= originalSkyColor)
+assert(boosterCalls.released >= 1)
+assert(boosterPro.playerFxOwned[existingAtmo] == true)
 assert(playerFX.pending())
 -- A change from the original game must become the next restoration baseline.
 existingAtmo.Haze = 6
@@ -204,6 +247,8 @@ state.playerWeatherEnabled = false
 playerFX.syncWeather()
 assert(existingAtmo.Density == 0.12 and existingAtmo.Haze == 6)
 assert(existingAtmo.Color == originalSkyColor and existingAtmo.Decay == originalSkyDecay)
+assert(boosterPro.playerFxOwned[existingAtmo] == nil)
+assert(boosterCalls.reapplied >= 1)
 assert(not playerFX.pending())
 -- If an Atmosphere is added after Player weather was already active,
 -- the ChildAdded listener switches from Fog to Atmosphere.
@@ -226,7 +271,7 @@ local weatherCount = #instances
 assert(playerFX.shutdown())
 assert(playerFX.auraAttachment == nil and playerFX.glowHighlight == nil)
 assert(playerFX.environmentTone == nil)
-assert(playerFX.childConnection == nil)
+assert(playerFX.childConnection == nil and playerFX.childRemovedConnection == nil)
 assert(not playerFX.pending())
 assert(playerFX.shutdown())
 assert(#instances == weatherCount)
