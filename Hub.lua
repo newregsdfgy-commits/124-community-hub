@@ -3697,8 +3697,8 @@ local P = {
 -- На телефоне даже альбомный экран остаётся одноколоночным: элементы
 -- управления не должны уменьшаться до нечитабельного размера.
 local function isReferenceLandscape(view)
-    return UserInputService.TouchEnabled and view.X >= 480
-        and view.Y >= 260 and view.X >= view.Y * 1.35
+    return UserInputService.TouchEnabled and view.X >= 760
+        and view.Y >= 350 and view.X >= view.Y * 1.35
 end
 -- Mobile landscape uses the same full reference layout, with a single
 -- uniform scale. Portrait and undersized desktop keep readable legacy lists.
