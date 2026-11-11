@@ -40,7 +40,7 @@ test("entrypoint version and launcher point to isolated test branch", () => {
 test("key gate remains before any runtime state creation", () => {
     assert.ok(hub.indexOf("local ACCESS_KEY") < hub.indexOf("local state = {"));
     assert.match(gate, /local ACCESS_KEY = "124HUB"/);
-    assert.match(gate, /response:Fire\(accepted\)/);
+    assert.match(gate, /response:Fire\(resolvedValue\)/);
 });
 test("wrong keys tracked; empty input does not consume an attempt", () => {
     assert.match(gate, /local completed, wrongCount = false, 0/);
