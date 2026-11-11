@@ -49,7 +49,7 @@ test("respawn and streaming late Root never retain old avatar objects", () => {
   assert.match(visuals, /local function bindCharacter\(character\)/);
   assert.match(visuals, /removeAvatar\(\) -- Old R6\/R15/);
   assert.match(visuals, /character\.ChildAdded:Connect/);
-  assert.match(visuals, /root or not root:IsA\("BasePart"\)/);
+  assert.match(visuals, /root and not root:IsA\("BasePart"\)/);
   assert.match(visuals, /controller\.childConnection:Disconnect\(\)/);
 });
 test("weather has four choices and bounded local rain GUI work", () => {
