@@ -390,6 +390,9 @@ local storedKeys = {
     "cameraFovEnabled", "cameraFovDegrees", "antiAim", "antiAimSpeed", "antiAimTilt",
     "speedEnabled", "speedValue", "noclip", "fly", "flySpeed",
     "musicId", "musicVolume", "musicLoop",
+    "playerAuraEnabled", "playerGlowEnabled", "playerAuraColor", "playerGlowPower",
+    "playerWeatherEnabled", "playerWeatherMode",
+    "playerEnvironmentEnabled", "playerEnvironmentColor", "playerEnvironmentStrength",
 }
 local numericRules = {
     espRangeMeters = {CONFIG.EspRangeMinMeters, CONFIG.EspRangeMaxMeters}, espMaxTargets = {8, 96},
@@ -401,12 +404,16 @@ local numericRules = {
     cameraFovDegrees = {55, 110}, antiAimSpeed = {180, 1440}, antiAimTilt = {0, 25},
     speedValue = {8, 120}, flySpeed = {10, 150},
     musicVolume = {0, 100},
+    playerGlowPower = {1, 5}, playerEnvironmentStrength = {0, 100},
 }
 local textRules = {
     aimMode = {head = true, body = true, legs = true},
     espColorPreset = {TEAM = true, GOLD = true, GREEN = true, WHITE = true},
     performanceMode = {AUTO = true, ECO = true, QUALITY = true},
     boosterMode = {BALANCED = true, WHITE = true, ULTRA = true},
+    playerAuraColor = {PURPLE = true, CYAN = true, GOLD = true, GREEN = true},
+    playerWeatherMode = {CLEAR = true, FOG = true, RAIN = true, NIGHT = true},
+    playerEnvironmentColor = {VIOLET = true, CYAN = true, WARM = true, GREEN = true},
 }
 defaultSettings = {}
 for _, key in ipairs(storedKeys) do defaultSettings[key] = state[key] end
@@ -577,6 +584,11 @@ local function applySettings(incoming, autoLoad)
         state.speedEnabled = false
         state.noclip = false
         state.fly = false
+        -- Player visuals may retain a color preset, but must be enabled manually.
+        state.playerAuraEnabled = false
+        state.playerGlowEnabled = false
+        state.playerWeatherEnabled = false
+        state.playerEnvironmentEnabled = false
         -- Prevent an old saved profile from activating Booster before a baseline.
         -- The user may still enable it manually after loading the game.
         state.booster = false
@@ -596,6 +608,10 @@ local function applySettings(incoming, autoLoad)
             state.speedEnabled = false
             state.noclip = false
             state.fly = false
+            state.playerAuraEnabled = false
+            state.playerGlowEnabled = false
+            state.playerWeatherEnabled = false
+            state.playerEnvironmentEnabled = false
             -- Не стираем чужой пресет; обновляем только активный CUSTOM.
             if profileName == "CUSTOM" then
                 profiles.CUSTOM = snapshotState()
@@ -616,6 +632,7 @@ local function applySettings(incoming, autoLoad)
         setBooster(state.booster, wasBooster and state.booster)
     end
     pcall(applyLighting)
+    if playerFX then playerFX.sync() end
     setAimEnabled(state.aimbot, false)
     recoil.reset()
     perfCounters.session.setEnabled(state.sessionDiagnostics)
@@ -1070,6 +1087,7 @@ local navigation = {
     {key = "HOME", label = "Overview", symbol = "⌂", hidden = true},
     {key = "ESP", label = "ESP", symbol = "◎"},
     {key = "AIM", label = "Aim", symbol = "⌖"},
+    {key = "PLAYER", label = "Player", symbol = "✦"},
     {key = "MISC", label = "Misc", symbol = "⚙"},
     {key = "MEMORY", label = "Memory", symbol = "▦"},
 }
@@ -1416,6 +1434,8 @@ local sectionSides = {
     ["CAMERA & LIGHTING"] = "left", ["ANTI-AIM"] = "right",
     ["MOVEMENT"] = "left", ["FLIGHT"] = "right", ["TELEPORT"] = "right",
     ["WEAPON CONTROL"] = "left", ["LOCAL MUSIC"] = "right",
+    ["PLAYER AURA"] = "left", ["PLAYER GLOW"] = "right",
+    ["LOCAL WEATHER"] = "left", ["ENVIRONMENT COLOR"] = "right",
     
     ["PROFILES"] = "left", ["CONFIG TOOLS"] = "right", ["WINDOW"] = "right",
 }
