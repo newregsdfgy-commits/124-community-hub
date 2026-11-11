@@ -21,6 +21,7 @@ SOURCE_NAMES = (
     "03_esp_tracker.lua",
     "04_lighting_and_booster.lua",
     "05_weapons_and_recoil.lua",
+    "05_player_visuals.lua",
     "06_gui_runtime.lua",
     "07_esp_overlays.lua",
     "08_ui_controls.lua",
@@ -29,12 +30,13 @@ SOURCE_NAMES = (
 )
 OUTPUT_NAMES = ("Hub.lua", "Visuals.lua")
 SOURCE_HEADERS = (
-    b"-- 124 Visuals v1.3.1",
+    b"-- 124 Visuals v1.4.0",
     b"-- \xd0\x91\xd0\xbb\xd0\xbe\xd0\xba\xd0\xb8\xd1\x80\xd0\xbe\xd0\xb2\xd0\xba\xd0\xb0 \xd0\xb7\xd0\xb0\xd0\xbf\xd1\x83\xd1\x81\xd0\xba\xd0\xb0:",
     b"local state = {",
     b"-- ESP: ",
     b"-- Shared Lighting ownership:",
     b"local recoil = (function()",
+    b"-- PLAYER VISUAL FX:",
     b"-- Bootstrap registered BEFORE",
     b"-- \xd0\x9b\xd0\xb8\xd0\xbd\xd0\xb8\xd0\xb8 \xd1\x81\xd0\xb2\xd0\xb5\xd1\x80\xd1\x85\xd1\x83",
     b"-- \xd0\x95\xd0\xb4\xd0\xb8\xd0\xbd\xd0\xb0\xd1\x8f \xd1\x81\xd0\xb5\xd1\x82\xd0\xba\xd0\xb0",
