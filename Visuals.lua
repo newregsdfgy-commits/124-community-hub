@@ -1,11 +1,11 @@
--- 124 Visuals v1.2.1 | Purple Neon UI 2.0: responsive polish and touch accessibility
+-- 124 Visuals v1.2.2 | Weapons 2.0: совместимость, откат и диагностика
 -- Первый плейс: 18537079992. Запуск поддерживает все игровые PlaceId.
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.2.1",
+    Version = "1.2.2",
     OriginalPlaceId = 18537079992,
     EspRefreshSeconds = 0.35, -- Быстрый поиск персонажей, без обновления UI каждый кадр.
     EspEventMinSeconds = 0.18, -- Коалесцированные события не запускают 16 полных сканов/сек.
@@ -70,6 +70,8 @@ local CONFIG = {
     SpreadDiscoveryBatch = 48, -- Ограничение работы одного обновления.
     SpreadShotRecheckSeconds = 0.18,
     SpreadPostShotSeconds = 0.06,
+    SpreadMaxWritableValue = 1000000,
+    SpreadErrorLogSeconds = 4,
     RecoilMaxCorrectionPerSecond = 120, -- Единая плавность при 60/120+ FPS.
     RecoilMaxFrameSeconds = 0.16, -- Не компенсируем скачок камеры после лагов.
     RecoilMinPitchDegrees = 0.045, -- Не реагируем на микродрожание камеры.
@@ -2552,7 +2554,12 @@ local function aimFrame(dt)
 end
 
 local recoil = (function()
-local controller = {bound = false, shots = 0, bindingName = "Army124CommunityRecoil_" .. tostring(LocalPlayer.UserId)}
+local controller = {
+    bound = false, shots = 0, correctionFrames = 0,
+    lastRecoilStatus = "ожидание", lastShotAt = 0,
+    inputSignals = {tool = 0, mouse = 0, touch = 0, gamepad = 0},
+    bindingName = "Army124CommunityRecoil_" .. tostring(LocalPlayer.UserId),
+}
 -- RECOIL CONTROL v1.1.63 — наблюдение камеры и локального ввода стрельбы.
 -- Не обращается к RemoteEvent, не меняет параметры оружия и не даёт гарантий
 -- против серверного разброса или нестандартных систем с другим camera pipeline.
@@ -2590,7 +2597,16 @@ controller.spread = {
     watchers = {}, generation = 0, queued = false, applying = false,
     lastReactiveAt = -math.huge,
     discoveryList = nil, discoveryIndex = 1, nextDiscoveryAt = 0,
+    stats = {writes = 0, checks = 0, errors = 0,
+        restoreFailures = 0, lastError = "", lastAppliedAt = 0},
 }
+-- Базу отката обновляем при каждом новом значении от оружейного скрипта.
+local function rememberSpreadBaseline(instance, name, value)
+    local originals = controller.spread.originals
+    local saved = originals[instance]
+    if not saved then saved = {attributes = {}}; originals[instance] = saved end
+    if name then saved.attributes[name] = value else saved.value = value end
+end
 local function isSpreadParameter(name)
     return type(name) == "string"
         and spreadParameterNames[string.lower(name):gsub("[^%w]", "")] == true
@@ -2614,6 +2630,7 @@ local function clearSpreadIndex()
     table.clear(spread.candidateSet)
     spread.currentTool = nil
 end
+local safeApplySpread
 local function queueSpreadRefresh()
     local spread = controller.spread
     if not alive or not state.noSpread or spread.queued or spread.applying then return end
@@ -2629,7 +2646,7 @@ local function queueSpreadRefresh()
         spread.queued = false
         if alive and state.noSpread and recoilTool == spread.currentTool then
             spread.lastReactiveAt = os.clock()
-            pcall(controller.applySpread)
+            safeApplySpread()
         end
     end)
 end
@@ -2746,7 +2763,11 @@ function controller.restoreSpread()
             end
         end
     end
-    if allRestored then controller.spread.modified = 0 end
+    if allRestored then
+        controller.spread.modified = 0
+    else
+        controller.spread.stats.restoreFailures = controller.spread.stats.restoreFailures + 1
+    end
     return allRestored
 end
 
@@ -2804,11 +2825,10 @@ function controller.applySpread()
         if (instance:IsA("NumberValue") or instance:IsA("IntValue"))
             and isSpreadParameter(instance.Name) then
             local value = instance.Value
-            if value > 0 and value < 1000000 then
-                local saved = originals[instance]
-                if not saved then saved = {attributes = {}}; originals[instance] = saved end
-                if saved.value == nil then saved.value = value end
+            if value > 0 and value < CONFIG.SpreadMaxWritableValue then
+                rememberSpreadBaseline(instance, nil, value)
                 instance.Value = 0
+                if instance.Value ~= 0 then error("No Spread: запись Value не удержалась") end
                 changed = changed + 1
             end
         end
@@ -2817,11 +2837,12 @@ function controller.applySpread()
         if spread.candidateSet[instance] then
             for name, value in pairs(instance:GetAttributes()) do
                 if isSpreadParameter(name) and type(value) == "number"
-                    and value > 0 and value < 1000000 then
-                    local saved = originals[instance]
-                    if not saved then saved = {attributes = {}}; originals[instance] = saved end
-                    if saved.attributes[name] == nil then saved.attributes[name] = value end
+                    and value > 0 and value < CONFIG.SpreadMaxWritableValue then
+                    rememberSpreadBaseline(instance, name, value)
                     instance:SetAttribute(name, 0)
+                    if instance:GetAttribute(name) ~= 0 then
+                        error("No Spread: запись Attribute не удержалась")
+                    end
                     changed = changed + 1
                 end
             end
@@ -2846,14 +2867,34 @@ function controller.applySpread()
         end
     end
     spread.applying = false
-    if errors > 0 and os.clock() - spread.lastErrorAt >= 4 then
-        spread.lastErrorAt = os.clock()
-        warn("[124 Visuals] No Spread local: " .. tostring(firstError)
-            .. " | failures=" .. tostring(errors))
+    spread.stats.checks = spread.stats.checks + 1
+    spread.stats.writes = spread.stats.writes + changed
+    spread.stats.lastAppliedAt = os.clock()
+    if errors > 0 then
+        spread.stats.errors = spread.stats.errors + errors
+        spread.stats.lastError = tostring(firstError)
+        if os.clock() - spread.lastErrorAt >= CONFIG.SpreadErrorLogSeconds then
+            spread.lastErrorAt = os.clock()
+            warn("[124 Visuals] No Spread local: " .. tostring(firstError)
+                .. " | failures=" .. tostring(errors))
+        end
     end
     controller.spread.modified = controller.spread.modified + changed
     return changed
 end
+
+-- Ошибка API не должна прерывать кадр или уничтожать диагностическую статистику.
+safeApplySpread = function()
+    local ok, result = pcall(controller.applySpread)
+    if not ok then
+        local spread = controller.spread
+        spread.stats.errors = spread.stats.errors + 1
+        spread.stats.lastError = tostring(result)
+        return 0
+    end
+    return result
+end
+controller.safeApplySpread = safeApplySpread
 
 local function stopRecoilFire()
     recoilHolding = false
@@ -2876,25 +2917,30 @@ local function disconnectRecoilConnections(collection)
     table.clear(collection)
 end
 
-local function markRecoilShot()
+local function markRecoilShot(source)
     if not alive or not recoilTool then return end
+    source = type(source) == "string" and source or "tool"
+    controller.inputSignals[source] = (controller.inputSignals[source] or 0) + 1
     local now = os.clock()
     -- Отложенная проверка после того, как оружие обновило локальные параметры.
     if state.noSpread and now >= controller.spread.nextCheckAt then
         controller.spread.nextCheckAt = now + CONFIG.SpreadShotRecheckSeconds
         local firedTool = recoilTool
+        local generation = controller.spread.generation
         task.delay(CONFIG.SpreadPostShotSeconds, function()
-            if alive and state.noSpread and recoilTool == firedTool then
-                pcall(controller.applySpread)
+            if alive and state.noSpread and recoilTool == firedTool
+                and controller.spread.generation == generation then
+                safeApplySpread()
             end
         end)
     end
-    if not (state.controlRecoil or state.noRecoil) then return end
-    -- Tool.Activated и физическое нажатие часто приходят одним пакетом.
+    -- Считаем входные пульсы независимо от No Recoil (режим No Spread-only).
     if now - recoilLastPulseAt >= CONFIG.RecoilInputDedupSeconds then
         controller.shots = controller.shots + 1
+        controller.lastShotAt = now
         recoilLastPulseAt = now
     end
+    if not (state.controlRecoil or state.noRecoil) then return end
     -- Первый выстрел после включения: до первого RenderStep ещё нет эталонного
     -- pitch. Берём его при Tool.Activated, чтобы не пропускать начальный подброс.
     if recoilLastPitch == nil then
@@ -2949,7 +2995,8 @@ connect(UserInputService.InputBegan, function(input, processed)
         or (kind == Enum.UserInputType.Touch and isTouchFireButton(input.Position))
     if fire then
         recoilFireInput = input
-        markRecoilShot()
+        markRecoilShot(kind == Enum.UserInputType.Touch and "touch"
+            or kind == Enum.UserInputType.MouseButton1 and "mouse" or "gamepad")
     end
 end)
 connect(UserInputService.InputEnded, function(input)
@@ -2974,7 +3021,7 @@ local function equipRecoilTool(tool)
             recoilHolding = false
             recoilFireUntil = math.max(recoilFireUntil, os.clock() + CONFIG.RecoilShotGraceSeconds)
         end)
-        if state.noSpread then controller.applySpread() end
+        if state.noSpread then safeApplySpread() end
         recoilToolConnections[#recoilToolConnections + 1] = tool.DescendantAdded:Connect(function(obj)
             if alive and state.noSpread and recoilTool == tool then
                 registerSpreadCandidate(obj)
@@ -2987,8 +3034,18 @@ local function equipRecoilTool(tool)
             task.defer(function()
                 if recoilTool ~= tool or not alive then return end
                 local ok, stillInside = pcall(function() return obj:IsDescendantOf(tool) end)
-                if (not ok or not stillInside) and controller.spread.candidateSet[obj] then
-                    unregisterSpreadCandidate(obj)
+                if not ok or not stillInside then
+                    -- При удалении контейнера очищаем подписки его потомков.
+                    local candidates = controller.spread.candidates
+                    for i = #candidates, 1, -1 do
+                        local candidate = candidates[i]
+                        local insideOK, inside = pcall(function()
+                            return candidate:IsDescendantOf(tool)
+                        end)
+                        if candidate ~= tool and (not insideOK or not inside) then
+                            unregisterSpreadCandidate(candidate)
+                        end
+                    end
                 end
             end)
         end)
@@ -3033,7 +3090,7 @@ local function recoilFrame(dt)
         local now = os.clock()
         if now >= controller.spread.nextCheckAt then
             controller.spread.nextCheckAt = now + CONFIG.SpreadVerificationSeconds
-            pcall(controller.applySpread)
+            safeApplySpread()
         end
     end
     -- OFF: нулевые вычисления углов камеры.
@@ -3044,11 +3101,13 @@ local function recoilFrame(dt)
         or recoilTool == nil or recoilTool.Parent ~= LocalPlayer.Character then
         recoilLastCamera, recoilLastPitch = nil, nil
         recoilLastCorrection = 0
+        controller.lastRecoilStatus = recoilTool and "режим выключен" or "Tool не экипирован"
         return
     end
     local camera = Workspace.CurrentCamera
     if not camera then
         recoilLastCamera, recoilLastPitch = nil, nil
+        controller.lastRecoilStatus = "нет камеры"
         return
     end
     local currentPitch = camera.CFrame:ToOrientation()
@@ -3057,11 +3116,20 @@ local function recoilFrame(dt)
     recoilLastCamera = camera
     recoilLastPitch = currentPitch
     recoilLastCorrection = 0
-    if not sameCamera or previousPitch == nil then return end
-    if isRobloxMenuOpen() or UserInputService:GetFocusedTextBox() ~= nil then return end
+    if not sameCamera or previousPitch == nil then
+        controller.lastRecoilStatus = "первый кадр камеры"
+        return
+    end
+    if isRobloxMenuOpen() or UserInputService:GetFocusedTextBox() ~= nil then
+        controller.lastRecoilStatus = "интерфейс в фокусе"
+        return
+    end
     -- AIM owns the camera during active aiming, even when the target was
     -- just lost. Avoid alternating camera writers on intermittent LOS loss.
-    if state.aimbot and (aimHeldMouse or aimHeldTouch or aimHeldKey) then return end
+    if state.aimbot and (aimHeldMouse or aimHeldTouch or aimHeldKey) then
+        controller.lastRecoilStatus = "камера управляется AIM"
+        return
+    end
     local now = os.clock()
     local fireInputHeld = recoilFireInput ~= nil
     -- Tool.Activated бывает без InputBegan (обработанный ввод в gun framework).
@@ -3076,10 +3144,20 @@ local function recoilFrame(dt)
         or (recoilHolding and now - recoilHoldStarted
             <= (fireInputHeld and CONFIG.RecoilMaxHoldSeconds
                 or CONFIG.RecoilOrphanHoldSeconds))
-    if not firing or dt <= 0 or dt > CONFIG.RecoilMaxFrameSeconds then return end
+    if not firing then
+        controller.lastRecoilStatus = "нет подтверждения стрельбы"
+        return
+    end
+    if dt <= 0 or dt > CONFIG.RecoilMaxFrameSeconds then
+        controller.lastRecoilStatus = "пропуск после задержки кадра"
+        return
+    end
     local pitchUp = signedAngle(previousPitch, currentPitch)
     if pitchUp < math.rad(CONFIG.RecoilMinPitchDegrees)
-        or pitchUp > math.rad(CONFIG.RecoilMaxPitchDegrees) then return end
+        or pitchUp > math.rad(CONFIG.RecoilMaxPitchDegrees) then
+        controller.lastRecoilStatus = "подброс не распознан"
+        return
+    end
     -- No Recoil компенсирует весь обнаруженный подброс в пределах защитных
     -- порогов. Не маскируем серверный recoil и не подавляем ручные движения.
     local frameCap = state.noRecoil and math.rad(CONFIG.RecoilMaxPitchDegrees)
@@ -3095,15 +3173,64 @@ local function recoilFrame(dt)
     camera.CFrame = camera.CFrame * CFrame.Angles(-correction, 0, 0)
     recoilLastPitch = camera.CFrame:ToOrientation()
     recoilLastCorrection = math.deg(correction)
+    controller.correctionFrames = controller.correctionFrames + 1
+    controller.lastRecoilStatus = "локальная коррекция камеры"
 end
 
--- END RECOIL CONTROL v1.1.63
+-- END RECOIL CONTROL / WEAPONS 2.0
 controller.reset = resetRecoilTracking
 controller.shutdown = shutdownRecoilControl
 controller.frame = recoilFrame
 controller.inspect = function()
     return recoilTool and recoilTool.Name or "нет Tool",
         controller.shots, recoilLastCorrection
+end
+-- Подробный анализ вызывается по кнопке; в RenderStep не сканируем атрибуты.
+controller.diagnostics = function()
+    local spread = controller.spread
+    local tool = recoilTool
+    local d = {
+        tool = tool and tool.Name or "нет Tool",
+        equipped = tool ~= nil and tool.Parent == LocalPlayer.Character,
+        recoilMode = state.noRecoil and "No Recoil"
+            or state.controlRecoil and "Control Recoil" or "OFF",
+        recoilStatus = controller.lastRecoilStatus,
+        recoilCorrections = controller.correctionFrames,
+        lastCorrectionDegrees = recoilLastCorrection,
+        inputSignals = table.clone(controller.inputSignals),
+        shotPulses = controller.shots,
+        spreadEnabled = state.noSpread,
+        numericParameters = 0, attributeParameters = 0,
+        candidates = #spread.candidates,
+        writes = spread.stats.writes, checks = spread.stats.checks,
+        errors = spread.stats.errors,
+        restoreFailures = spread.stats.restoreFailures,
+        lastError = spread.stats.lastError,
+        pendingRestore = spread.pending(),
+    }
+    if d.equipped then
+        for _, instance in ipairs(spread.candidates) do
+            pcall(function()
+                if instance == tool or instance:IsDescendantOf(tool) then
+                    if (instance:IsA("NumberValue") or instance:IsA("IntValue"))
+                        and isSpreadParameter(instance.Name) then
+                        d.numericParameters = d.numericParameters + 1
+                    end
+                    for name, value in pairs(instance:GetAttributes()) do
+                        if isSpreadParameter(name) and type(value) == "number" then
+                            d.attributeParameters = d.attributeParameters + 1
+                        end
+                    end
+                end
+            end)
+        end
+    end
+    d.spreadStatus = not d.equipped and "Tool не экипирован"
+        or not d.spreadEnabled and "функция выключена"
+        or (d.numericParameters + d.attributeParameters == 0)
+            and "совместимые клиентские параметры не обнаружены"
+        or "параметры найдены; влияние на траекторию не подтверждено"
+    return d
 end
 return controller
 end)()
@@ -6290,7 +6417,7 @@ function privateMusic.shutdown()
     privateMusic.stop()
 end
 
-addSection(pages.MISC, "WEAPON CONTROL", "Локальные свойства текущего Tool — не серверное оружие")
+addSection(pages.MISC, "WEAPONS 2.0", "Локальная совместимость, диагностика и откат значений")
 addToggle(pages.MISC, "No Recoil", "Компенсация камеры: Tool.Activated и локальный ввод стрельбы",
     "noRecoil", function(enabled)
         if enabled and state.controlRecoil then
@@ -6302,21 +6429,42 @@ end)
 addToggle(pages.MISC, "No Spread", "Отслеживает локальные параметры Tool; серверный разброс не меняет",
     "noSpread", function(enabled)
         if enabled then
-            local touched = recoil.applySpread()
-            tell(touched > 0 and ("No Spread: изменено клиентских параметров: " .. tostring(touched))
-                or "No Spread: подходящих параметров у текущего Tool нет; ждём оружие")
+            local touched = recoil.safeApplySpread()
+            local report = recoil.diagnostics()
+            tell(touched > 0 and ("No Spread: локальных записей: " .. tostring(touched)
+                    .. " (эффект в игре не подтверждён)")
+                or ("No Spread: " .. report.spreadStatus))
         else
             local restored = recoil.restoreSpread()
             tell(restored and "No Spread: локальные параметры восстановлены"
                 or "No Spread: восстановление не завершено; снимки сохранены для повтора")
         end
 end)
-addButton(pages.MISC, "Диагностика оружия", "Показать Tool и число изменённых клиентских параметров", function()
-    local tool, shots, lastCorrection = recoil.inspect()
-    tell("Tool: " .. tostring(tool)
-        .. " | No Spread changed: " .. tostring(recoil.spread.modified)
-        .. " | Shot pulses: " .. tostring(shots)
-        .. " | Recoil correction: " .. string.format("%.2f°", lastCorrection))
+addButton(pages.MISC, "Диагностика Weapons 2.0", "Tool, ввод, кадры, параметры, ошибки и откат", function()
+    local d = recoil.diagnostics()
+    tell("Weapons 2.0 | " .. tostring(d.tool) .. " | Spread: "
+        .. tostring(d.numericParameters + d.attributeParameters)
+        .. " параметров | Pulses: " .. tostring(d.shotPulses)
+        .. " | Ошибки: " .. tostring(d.errors))
+    print("[124 Weapons 2.0] Tool=" .. tostring(d.tool)
+        .. " | Recoil=" .. d.recoilMode .. " | " .. d.recoilStatus
+        .. " | correctionFrames=" .. tostring(d.recoilCorrections)
+        .. " | lastCorrection=" .. string.format("%.2f", d.lastCorrectionDegrees)
+        .. " | inputs=" .. tostring(d.inputSignals.tool) .. "/"
+            .. tostring(d.inputSignals.mouse) .. "/"
+            .. tostring(d.inputSignals.touch) .. "/"
+            .. tostring(d.inputSignals.gamepad)
+        .. " (Tool/Mouse/Touch/Gamepad)"
+        .. " | Spread=" .. d.spreadStatus
+        .. " | indexed=" .. tostring(d.candidates)
+        .. " | numeric=" .. tostring(d.numericParameters)
+        .. " | attrs=" .. tostring(d.attributeParameters)
+        .. " | writes=" .. tostring(d.writes)
+        .. " | checks=" .. tostring(d.checks)
+        .. " | errors=" .. tostring(d.errors)
+        .. " | restoreFailures=" .. tostring(d.restoreFailures)
+        .. " | pendingRestore=" .. tostring(d.pendingRestore)
+        .. " | lastError=" .. tostring(d.lastError))
 end)
 
 addSection(pages.MISC, "LOCAL MUSIC", "Личный проигрыватель Roblox Audio ID, без передачи другим игрокам")
