@@ -1,0 +1,67 @@
+name: v1.4.1 deep stability audit
+on:
+  push:
+    branches:
+      - v1.4.1-deep-audit-fixes-test
+    paths:
+      - 'src/**'
+      - 'Hub.lua'
+      - 'Visuals.lua'
+      - 'Start.lua'
+      - 'tools/**'
+      - 'tests/EspKeyArchitecture130.test.cjs'
+      - 'tests/Weapons2Compatibility.test.cjs'
+      - 'tests/FullAudit131.test.cjs'
+      - 'tests/PlayerVisuals140.test.cjs'
+      - 'tests/DeepAudit141.test.cjs'
+      - 'tests/build-131-runtime-audit.py'
+      - 'tests/build-player140-runtime.py'
+      - 'tests/build-booster141-runtime.py'
+      - '.github/workflows/v141-ci.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  deep-stability:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify 12 module bundle and release checks
+        run: |
+          set -euo pipefail
+          python3 tools/build_visuals.py --check
+          python3 tools/verify_release.py
+          node --test tests/EspKeyArchitecture130.test.cjs tests/Weapons2Compatibility.test.cjs tests/FullAudit131.test.cjs tests/PlayerVisuals140.test.cjs tests/DeepAudit141.test.cjs
+      - name: Checkout official Luau
+        uses: actions/checkout@v4
+        with:
+          repository: luau-lang/luau
+          ref: master
+          path: luau-source
+          persist-credentials: false
+      - name: Build official Luau compiler and runtime
+        run: |
+          set -euo pipefail
+          cmake -S luau-source -B luau-build -DCMAKE_BUILD_TYPE=Release -DLUAU_BUILD_TESTS=OFF
+          cmake --build luau-build --target Luau.Compile.CLI Luau.Repl.CLI --parallel 2
+      - name: Parse and compile all released entrypoints
+        run: |
+          set -euo pipefail
+          cmp Hub.lua Visuals.lua
+          for source in Hub.lua Visuals.lua Start.lua; do
+            ./luau-build/luau-compile --only-parse "$source" > /dev/null
+            ./luau-build/luau-compile -O2 -g0 --binary "$source" > "/tmp/${source}.luauc"
+            test -s "/tmp/${source}.luauc"
+          done
+          echo "PASS: v1.4.1 compiled all release entrypoints"
+      - name: Execute actual Player, Booster, ESP and Key callback tests
+        run: |
+          set -euo pipefail
+          python3 tests/build-131-runtime-audit.py
+          python3 tests/build-player140-runtime.py
+          python3 tests/build-booster141-runtime.py
+          ./luau-build/luau /tmp/Army124-FullAudit131.luau
+          ./luau-build/luau /tmp/Army124-Player140.luau
+          ./luau-build/luau /tmp/Army124-Booster141.luau
+          echo "PASS: v1.4.1 isolated Luau fault injection"
