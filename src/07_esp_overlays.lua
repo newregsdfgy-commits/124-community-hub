@@ -28,7 +28,13 @@ local function refreshTracers()
     local source = Vector2.new(viewportSize.X * 0.5, 12)
     local myCharacter = LocalPlayer.Character
     local _, myRoot = espParts(myCharacter)
-    if not myRoot then clearTracers(); return end
+    if not myRoot then
+        -- Во время локального респавна прячем линии, а не создаём их заново.
+        for _, item in pairs(renderData) do
+            if item.tracer and item.tracer.Parent then item.tracer.Visible = false end
+        end
+        return
+    end
     local radiusStuds = state.espRangeMeters / CONFIG.StudMeters
     local radiusSquared = radiusStuds * radiusStuds
     for player, data in pairs(renderData) do
