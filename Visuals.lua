@@ -721,7 +721,9 @@ end
 perfCounters.espVisual = {bound = false, bindingName = "Army124CommunityESP_" .. tostring(LocalPlayer.UserId),
     errorAt = 0, scanErrorAt = 0, active = {}, projected = {}, ordered = {}, candidatePool = {},
     eligible = 0, missing = 0, omitted = 0, lastScanAt = 0,
-    localReady = false, renderFailures = 0, watcherFailures = 0}
+    localReady = false, renderFailures = 0, watcherFailures = 0,
+    urgentEvents = 0, urgentScans = 0, motionCamera = nil,
+    motionFrame = nil, motionUntil = 0}
 -- Логи отключены без подписки. Игровые события могут приходить сотнями/сек.
 -- Подписка создаётся только после явного включения пользователем.
 perfCounters.session = {
@@ -1399,6 +1401,9 @@ end
 local espWatchers = {}
 local espRefreshQueued = false
 local espRefreshGeneration = 0
+local espUrgentQueued = false
+local espUrgentLastAt = -math.huge
+local localEspEntry = {character = nil, added = nil, removing = nil}
 -- Частота событийных обновлений согласована с дальностью сканирования.
 function perfCounters.espVisual.eventCooldown()
     if state.performanceMode ~= "QUALITY"
@@ -1412,8 +1417,31 @@ function perfCounters.espVisual.eventCooldown()
     end
     return CONFIG.EspEventMinSeconds
 end
-local function queueESPRefresh()
-    if not alive or not state.esp or espRefreshQueued then return end
+local function queueESPRefresh(urgent)
+    if not alive or not state.esp then return end
+    if urgent == true then
+        perfCounters.espVisual.urgentEvents = perfCounters.espVisual.urgentEvents + 1
+        if espUrgentQueued then return end
+        espUrgentQueued = true
+        local generation = espRefreshGeneration
+        local elapsed = os.clock() - espUrgentLastAt
+        local delaySeconds = math.max(CONFIG.EspRespawnCoalesceSeconds,
+            CONFIG.EspRespawnMinIntervalSeconds - elapsed)
+        task.delay(delaySeconds, function()
+            if generation ~= espRefreshGeneration then return end
+            espUrgentQueued = false
+            if not alive or not state.esp then return end
+            espUrgentLastAt = os.clock()
+            local ok, err = pcall(refreshESP)
+            if ok then
+                perfCounters.espVisual.urgentScans = perfCounters.espVisual.urgentScans + 1
+            else
+                warn("[124 Visuals] ESP fast respawn: " .. tostring(err))
+            end
+        end)
+        return
+    end
+    if espRefreshQueued then return end
     espRefreshQueued = true
     local generation = espRefreshGeneration
     local elapsed = os.clock() - perfCounters.espVisual.lastScanAt
@@ -1452,13 +1480,13 @@ local function bindEspCharacter(entry, character)
     entry.character = character
     if character then
         entry.partAdded = character.DescendantAdded:Connect(function(obj)
-            if alive and isEspPart(obj) then queueESPRefresh() end
+            if alive and isEspPart(obj) then queueESPRefresh(true) end
         end)
         entry.partRemoved = character.DescendantRemoving:Connect(function(obj)
-            if alive and isEspPart(obj) then queueESPRefresh() end
+            if alive and isEspPart(obj) then queueESPRefresh(true) end
         end)
     end
-    queueESPRefresh()
+    queueESPRefresh(true)
 end
 local function unwatchEspPlayer(player)
     local entry = espWatchers[player]
@@ -1482,6 +1510,7 @@ local function watchEspPlayer(player)
             end
         end)
         entry.removing = player.CharacterRemoving:Connect(function()
+            deleteRender(player) -- Не оставляем старое выделение после респавна.
             local bound, why = pcall(bindEspCharacter, entry, nil)
             if not bound then
                 warn("[124 Community Visuals] ESP removing watcher: " .. tostring(why))
@@ -1506,18 +1535,43 @@ local function watchEspPlayer(player)
         end
     end
 end
+local function bindLocalEspCharacter(character)
+    if localEspEntry.added then localEspEntry.added:Disconnect(); localEspEntry.added = nil end
+    if localEspEntry.removing then localEspEntry.removing:Disconnect(); localEspEntry.removing = nil end
+    localEspEntry.character = character
+    if character and state.esp then
+        localEspEntry.added = character.DescendantAdded:Connect(function(obj)
+            if alive and isEspPart(obj) then queueESPRefresh(true) end
+        end)
+        localEspEntry.removing = character.DescendantRemoving:Connect(function(obj)
+            if alive and isEspPart(obj) then queueESPRefresh(true) end
+        end)
+    end
+    queueESPRefresh(true)
+end
 stopESPWatchers = function()
     espRefreshGeneration = espRefreshGeneration + 1
     espRefreshQueued = false
+    espUrgentQueued = false
     for player in pairs(espWatchers) do unwatchEspPlayer(player) end
+    bindLocalEspCharacter(nil)
 end
 syncESPWatchers = function()
     if not state.esp then
         stopESPWatchers()
         return
     end
+    if localEspEntry.character ~= LocalPlayer.Character then
+        bindLocalEspCharacter(LocalPlayer.Character)
+    end
     for _, player in ipairs(perfCounters.roster) do watchEspPlayer(player) end
 end
+connect(LocalPlayer.CharacterAdded, function(character)
+    if alive and state.esp then bindLocalEspCharacter(character) end
+end)
+connect(LocalPlayer.CharacterRemoving, function()
+    if alive and state.esp then bindLocalEspCharacter(nil) end
+end)
 connect(Players.PlayerAdded, watchEspPlayer)
 connect(Players.PlayerRemoving, function(player)
     unwatchEspPlayer(player)
@@ -8530,7 +8584,27 @@ end)
 -- новых игроков по-прежнему отбирает медленный refreshESP(), не рендер-цикл.
 local espVisualElapsed = 0
 perfCounters.espVisual.frame = function(dt)
-    if not alive or not state.esp then espVisualElapsed = 0; return end
+    if not alive or not state.esp then
+        espVisualElapsed = 0
+        perfCounters.espVisual.motionCamera = nil
+        perfCounters.espVisual.motionFrame = nil
+        return
+    end
+    -- Считываем камеру после её штатного обновления, AIM и Recoil.
+    local motion = perfCounters.espVisual
+    local camera = Workspace.CurrentCamera
+    if camera then
+        local current = camera.CFrame
+        local old = motion.motionFrame
+        if old and motion.motionCamera == camera
+            and (old.LookVector:Dot(current.LookVector) < CONFIG.EspCameraMotionDot
+            or (old.Position - current.Position).Magnitude > CONFIG.EspCameraMotionStuds) then
+            motion.motionUntil = os.clock() + CONFIG.EspCameraMotionHoldSeconds
+        end
+        motion.motionCamera, motion.motionFrame = camera, current
+    else
+        motion.motionCamera, motion.motionFrame = nil, nil
+    end
     if not state.tracers and not state.espBox then
         espVisualElapsed = 0
         return
@@ -8563,6 +8637,13 @@ perfCounters.espVisual.frame = function(dt)
             elseif state.espRangeMeters >= CONFIG.EspLongRangeMeters then
                 hz = math.min(hz, CONFIG.EspLongVisualHz)
             end
+        end
+        -- Ускоряем 2D проекцию только при движении камеры и свободном FPS.
+        if tier ~= "ECO" and (not state.performanceGuard
+            or perfCounters.guard.level == 0)
+            and measuredFps >= CONFIG.EspCameraMotionMinFps
+            and os.clock() < motion.motionUntil then
+            hz = math.max(hz, CONFIG.EspCameraMotionVisualHz)
         end
         espVisualElapsed = espVisualElapsed + math.min(dt, 0.12)
         local period = 1 / hz
