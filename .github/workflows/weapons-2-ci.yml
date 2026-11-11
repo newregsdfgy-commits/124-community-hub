@@ -1,0 +1,46 @@
+name: Weapons 2.0 Luau and focused regression
+on:
+  push:
+    branches:
+      - v1.2.2-weapons-2-compatibility-test
+    paths:
+      - Hub.lua
+      - Visuals.lua
+      - Start.lua
+      - tests/Weapons2Compatibility.test.cjs
+      - tools/verify_release.py
+      - .github/workflows/weapons-2-ci.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  weapons-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify release and weapon-specific tests
+        run: |
+          python3 tools/verify_release.py
+          node --test tests/Weapons2Compatibility.test.cjs
+      - name: Get Luau compiler
+        uses: actions/checkout@v4
+        with:
+          repository: luau-lang/luau
+          ref: master
+          path: luau-source
+          persist-credentials: false
+      - name: Build Luau compiler
+        run: |
+          cmake -S luau-source -B luau-build -DCMAKE_BUILD_TYPE=Release -DLUAU_BUILD_TESTS=OFF
+          cmake --build luau-build --target Luau.Compile.CLI --parallel 2
+      - name: Parse and compile all Luau entrypoints
+        run: |
+          set -euo pipefail
+          cmp Hub.lua Visuals.lua
+          for source in Hub.lua Visuals.lua Start.lua; do
+            ./luau-build/luau-compile --only-parse "$source" > /dev/null
+            ./luau-build/luau-compile -O2 -g0 --binary "$source" > "/tmp/${source}.luauc"
+            test -s "/tmp/${source}.luauc"
+          done
+          echo "Luau parse and compile checks passed."
