@@ -1,11 +1,11 @@
--- 124 Visuals v1.1.65 | Purple Neon UI and mobile layout polish
+-- 124 Visuals v1.1.66 | deep audit, concurrent boots and spread rediscovery
 -- Первый плейс: 18537079992. Запуск поддерживает все игровые PlaceId.
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.1.65",
+    Version = "1.1.66",
     OriginalPlaceId = 18537079992,
     EspRefreshSeconds = 0.35, -- Быстрый поиск персонажей, без обновления UI каждый кадр.
     EspEventMinSeconds = 0.18, -- Коалесцированные события не запускают 16 полных сканов/сек.
@@ -66,6 +66,8 @@ local CONFIG = {
     RecoilInputDedupSeconds = 0.04,
     SpreadVerificationSeconds = 0.50, -- Резервная периодическая проверка.
     SpreadEventMinSeconds = 0.05, -- Не чаще 20 реактивных проверок в секунду.
+    SpreadDiscoverySeconds = 3.0, -- Обнаружить новые атрибуты и переименованные параметры.
+    SpreadDiscoveryBatch = 48, -- Ограничение работы одного обновления.
     SpreadShotRecheckSeconds = 0.18,
     SpreadPostShotSeconds = 0.06,
     RecoilMaxCorrectionPerSecond = 120, -- Единая плавность при 60/120+ FPS.
@@ -151,6 +153,9 @@ if type(getgenv) == "function" then
     local ok, result = pcall(getgenv)
     if ok and type(result) == "table" then env = result end
 end
+-- Уникальный токен запуска: завершение старой корутины не меняет новый BOOT_PHASE.
+CONFIG.BootToken = {}
+env.ARMY124_BOOT_TOKEN = CONFIG.BootToken
 -- Не расходуем дополнительные top-level locals: большие Luau-скрипты
 -- чувствительны к ограничению числа локальных регистров.
 if type(env.ARMY124_PLACE_CACHE) ~= "table" then
@@ -163,6 +168,7 @@ if type(CONFIG.PlaceCache) ~= "table" then
 end
 -- Startup reporting is independent of the main GUI, which might not initialize.
 local function bootFailure(stage, err)
+    if env.ARMY124_BOOT_TOKEN ~= CONFIG.BootToken then return end
     local reason = tostring(err or "unknown")
     env.ARMY124_BOOT_PHASE = "failed"
     env.ARMY124_BOOT_ERROR = tostring(stage) .. ": " .. reason
@@ -205,27 +211,35 @@ local function bootFailure(stage, err)
 end
 env.ARMY124_BOOT_PHASE = "preflight"
 env.ARMY124_BOOT_ERROR = nil
+-- Старый ScreenGui ошибки имеет DisplayOrder выше ключа: убираем его сразу.
+pcall(function()
+    local oldError = PlayerGui:FindFirstChild("Army124StartupError")
+    if oldError then oldError:Destroy() end
+end)
 -- Старый экземпляр ДОЛЖЕН освободить UI, BindToRenderStep и свойства.
 -- Старые версии возвращают nil при успехе, поэтому проверяем освобождение
 -- env.ARMY124_CLEANUP, а не только возвращаемое значение.
 if type(env.ARMY124_CLEANUP) == "function" then
     local previous = env.ARMY124_CLEANUP
     local ok, result = pcall(previous)
+    if env.ARMY124_BOOT_TOKEN ~= CONFIG.BootToken then return CONFIG.BootToken end
     if not ok or result == false or env.ARMY124_CLEANUP == previous then
         bootFailure("PREVIOUS CLEANUP",
             "Старая копия не выгружена. Перезапусти игру. " .. tostring(result))
-        return
+        return CONFIG.BootToken
     end
 end
 if type(env.ARMY124_RECOVERY) == "function" then
     local ok, restored = pcall(env.ARMY124_RECOVERY)
+    if env.ARMY124_BOOT_TOKEN ~= CONFIG.BootToken then return CONFIG.BootToken end
     if not ok or restored ~= true then
         bootFailure("RECOVERY",
             "Восстановление старой графики не завершено. " .. tostring(restored))
-        return
+        return CONFIG.BootToken
     end
 end
 
+if env.ARMY124_BOOT_TOKEN ~= CONFIG.BootToken then return CONFIG.BootToken end
 -- Блокировка запуска: основной код ещё не создавал state, GUI и обработчики.
 -- Единый локальный ключ. Новый запуск всегда запрашивает ввод заново.
 do
@@ -438,6 +452,8 @@ do
 
     env.ARMY124_BOOT_PHASE = "key_required"
     local ok, accepted = pcall(requireAccessKey)
+    -- Если ключ проверял старый экземпляр, он не владеет состоянием нового.
+    if env.ARMY124_BOOT_TOKEN ~= CONFIG.BootToken then return CONFIG.BootToken end
     if gateScreen and gateScreen.Parent then
         -- Если создание UI завершилось исключением, подложка не останется в PlayerGui.
         pcall(function() gateScreen:Destroy() end)
@@ -447,7 +463,7 @@ do
         env.ARMY124_BOOT_PHASE = "key_denied"
         env.ARMY124_BOOT_ERROR = ok and "Ключ не введён" or "Экран ключа: " .. tostring(accepted)
         if not ok then warn("[124 Access] " .. tostring(accepted)) end
-        return
+        return CONFIG.BootToken
     end
     env.ARMY124_BOOT_PHASE = "authorized"
     env.ARMY124_BOOT_ERROR = nil
@@ -2505,6 +2521,7 @@ controller.spread = {
     candidateSet = setmetatable({}, {__mode = "k"}),
     watchers = {}, generation = 0, queued = false, applying = false,
     lastReactiveAt = -math.huge,
+    discoveryList = nil, discoveryIndex = 1, nextDiscoveryAt = 0,
 }
 local function isSpreadParameter(name)
     return type(name) == "string"
@@ -2516,6 +2533,9 @@ local function clearSpreadIndex()
     spread.generation = spread.generation + 1
     spread.queued = false
     spread.lastReactiveAt = -math.huge
+    spread.discoveryList = nil
+    spread.discoveryIndex = 1
+    spread.nextDiscoveryAt = 0
     for _, group in pairs(spread.watchers) do
         for _, connection in ipairs(group) do
             pcall(function() connection:Disconnect() end)
@@ -2683,6 +2703,32 @@ function controller.applySpread()
         end
         for _, descendant in ipairs(descendants) do
             registerSpreadCandidate(descendant)
+        end
+        spread.nextDiscoveryAt = os.clock() + CONFIG.SpreadDiscoverySeconds
+    elseif spread.discoveryList == nil and os.clock() >= spread.nextDiscoveryAt then
+        -- Атрибут Spread может появиться у уже существующего объекта:
+        -- обходим постепенно, не делаем полный GetAttributes в одном кадре.
+        local ok, items = pcall(function() return tool:GetDescendants() end)
+        spread.nextDiscoveryAt = os.clock() + CONFIG.SpreadDiscoverySeconds
+        if ok then
+            spread.discoveryList = items
+            spread.discoveryIndex = 1
+        end
+    end
+    if spread.discoveryList then
+        local items = spread.discoveryList
+        local last = math.min(#items,
+            spread.discoveryIndex + CONFIG.SpreadDiscoveryBatch - 1)
+        for i = spread.discoveryIndex, last do
+            local obj = items[i]
+            if obj and obj.Parent and not spread.candidateSet[obj] then
+                registerSpreadCandidate(obj)
+            end
+        end
+        spread.discoveryIndex = last + 1
+        if spread.discoveryIndex > #items then
+            spread.discoveryList = nil
+            spread.discoveryIndex = 1
         end
     end
     local changed = 0
@@ -8352,6 +8398,7 @@ refreshFovRing()
 print("[124 Community Visuals] " .. CONFIG.Version .. " загружен | MISC / MEMORY")
 end -- initializeHubUI; isolates UI locals from root Luau limit.
 
+if env.ARMY124_BOOT_TOKEN ~= CONFIG.BootToken then return CONFIG.BootToken end
 env.ARMY124_BOOT_PHASE = "initializing-ui"
 local initOk, initErr = xpcall(initializeHubUI, function(err)
     local msg = tostring(err)
@@ -8361,6 +8408,7 @@ local initOk, initErr = xpcall(initializeHubUI, function(err)
     end
     return msg
 end)
+if env.ARMY124_BOOT_TOKEN ~= CONFIG.BootToken then return CONFIG.BootToken end
 if not initOk then
     local registered = env.ARMY124_CLEANUP
     if type(registered) == "function" and registered ~= abortPartialHub then
@@ -8381,6 +8429,7 @@ elseif not PlayerGui:FindFirstChild("Army124CommunityVisualsGUI") then
     if not cleanupOk or cleaned == false then pcall(abortPartialHub) end
     bootFailure("GUI MISSING", "UI завершилась, но ScreenGui отсутствует.")
 else
+    if env.ARMY124_BOOT_TOKEN ~= CONFIG.BootToken then return CONFIG.BootToken end
     env.ARMY124_BOOT_PHASE = "ready"
     env.ARMY124_BOOT_ERROR = nil
     pcall(function()
@@ -8388,3 +8437,5 @@ else
         if old then old:Destroy() end
     end)
 end
+-- Даже при ошибке/отказе Start.lua проверяет, чей это результат.
+return CONFIG.BootToken
