@@ -11,8 +11,8 @@ import re
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = "1.4.0"
-BRANCH = "v1.4.0-player-visuals-test"
+VERSION = "1.4.1"
+BRANCH = "v1.4.1-deep-audit-fixes-test"
 CHECK_COUNT = [0]
 
 
