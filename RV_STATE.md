@@ -1,3 +1,16 @@
+# RV_STATE — v1.4.1 Deep Stability Audit (2026-11-12)
+
+- Fixed test branch: `v1.4.1-deep-audit-fixes-test` from v1.4.0; main unchanged.
+- Player Highlight now under LocalPlayer.Character, not PlayerGui; root removal watcher and emitter teardown prevent stale FX.
+- Rain RenderStepped handler checks exact owned GUI before any stopRain, preventing cross-generation OFF/ON cleanup.
+- Booster `playerFxOwned` weak-key registry protects exact instances. Player weather explicitly restores Booster Atmosphere snapshots before modification and returns ownership/optimized state on weather OFF.
+- Launcher checks payload `Version = "1.4.1"`. Builder/old test suites aligned to v1.4.1.
+- Tests: 60 release assertions; previous focused suites + `tests/DeepAudit141.test.cjs` (14 more); executable isolated Player/ESP/Key and actual Booster restore code via `tests/build-booster141-runtime.py`.
+- Reproducible compile/behavior CI `.github/workflows/v141-ci.yml`. See latest run result; do not assume success before observing it.
+- Detailed audit: `AUDIT_v1.4.1.md`. Still requires real Android/Roblox visual and FPS QA.
+
+---
+
 # RV_STATE — Player Visuals v1.4.0 (2026-11-12)
 
 - Test branch `v1.4.0-player-visuals-test`, based on v1.3.1 deep audit; main unchanged.
