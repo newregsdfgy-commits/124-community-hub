@@ -23,7 +23,8 @@ Test branch: `v1.4.2-ui-layout-repair-test` (base: `v1.4.1-deep-audit-fixes-test
 - `tools/verify_release.py` exercises screenshot resolution and many desktop/mobile cases with updated geometry rather than stale fixed 950×520 expectations.
 - `tests/UI142Layout.test.cjs` asserts exact legacy overlay removal, native ESP control preservation, no unsafe GUI sweeping, readable section headings, 5-section nav and full module integrity.
 - `tests/build-ui142-runtime.py` extracts actual production `windowMetrics` Luau code and runs 11 deterministic viewport cases, including 1237×683.
-- `.github/workflows/v142-ui-ci.yml` runs source checks, regression suites, official Luau compiler on Hub.lua/Visuals.lua/Start.lua and actual isolated Player/Booster/ESP/Key and viewport functions.
+- **Observed PASS:** [GitHub Actions #43528411824](https://github.com/newregsdfgy-commits/124-community-hub/actions/runs/43528411824): exact 12-module Hub/Visuals bundle, **70/70 release integrity checks**, **76/76 Node regression tests**, official Luau parse and binary compilation of Hub.lua/Visuals.lua/Start.lua, and successful isolated runtime tests for production `windowMetrics` (11 screenshot/mobile/desktop scenarios), ESP, Key, Player FX and Booster.
+- `.github/workflows/v142-ui-ci.yml` reproduces the full checks; these are not real Roblox visual screenshots.
 
 ## Not yet verified
 No live Roblox renderer or screenshot comparison of the rebuilt UI has been run here. A pass in CI does not prove every display scale, executor, OS DPI setting or touch gesture. If the overlaid `Поиск ESP` bar remains visible in a *fresh session* with v1.4.2, capture Roblox PlayerGui children and the loaded branch/version: that would indicate another script instance not participating in the current cleanup.
