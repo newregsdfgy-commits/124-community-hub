@@ -100,36 +100,44 @@ def structural_errors(source: str) -> list[str]:
 
 
 def viewport_ok(x: int, y: int, mobile: bool) -> bool:
-    """Smoke-check the same layout dimensions used by the Purple Neon hub."""
+    """Match the production windowMetrics geometry and its safe margins."""
     vx, vy = x, max(160, y - (24 if mobile else 0))
     screenshot = mobile and vx >= 960 and vy >= 540 and vx >= vy * 1.35
     wide = screenshot or (not mobile and vx >= 770 and vy >= 560)
+    margin_x = 16 if mobile else 34
+    margin_y = 18 if mobile else 38
     if screenshot:
         width, height = 950, 520
-        scale = max(.36, min(1, (vx - 12) / 950, (vy - 12) / 520))
+        scale = max(.36, min(1,
+            (vx - margin_x * 2) / 950, (vy - margin_y * 2) / 520))
     else:
-        preferred_width = 950 if wide else (
+        preferred_width = 930 if wide else (
             610 if mobile and vx > vy else 460
         )
-        width = min(max(160, vx - (22 if mobile else 32)), preferred_width)
-        height = min(520 if wide else 610,
-                     max(120, vy - (22 if mobile else 38)))
+        width = min(max(160, vx - 2 * margin_x), preferred_width)
+        height = min(505 if wide else 590,
+                     max(120, vy - 2 * margin_y))
         scale = 1
-    sidebar = 196 if wide else (
+    sidebar = (184 if width >= 900 else 156) if wide else (
         68 if width < 340 else 78 if width < 430 else 94
     )
     content = width - sidebar - (11 if wide else 9) - (13 if wide else 9)
-    nav_top = 20 if wide else (5 if height < 320 else 11)
-    bottom = 90 if wide else (9 if height < 300 else 53)
+    nav_top = 14 if wide else (5 if height < 320 else 11)
+    bottom = 39 if wide else (9 if height < 300 else 53)
     nav_height = max(0, height - 76 - nav_top - bottom)
     header_touch = 42 * scale
-    nav_button = (55 if wide else 44) * scale
-    # Navigation is a ScrollingFrame; short viewports legitimately need it.
+    nav_button = (49 if wide else 44) * scale
+    # An undersized wide window becomes one column; never squeeze controls.
+    double_col = wide and content >= 700
+    horizontal_margin = (vx - width * scale) / 2
+    vertical_margin = (vy - height * scale) / 2
     return (width * scale <= vx and height * scale <= vy and
+            horizontal_margin >= (8 if mobile else 24) and
+            vertical_margin >= (4 if mobile else 18) and
             content >= 160 and nav_height >= 15 and
             header_touch >= 38 and nav_button >= 38 and
+            (not double_col or content / 2 - 5 >= 330) and
             height - 120 >= 20)
-
 
 def main() -> int:
     failures: list[str] = []
@@ -199,6 +207,22 @@ def main() -> int:
           "PURPLE NEON 2.0" in hub, failures)
     check("Mobile wide only near native size",
           "view.X >= 960" in hub and "view.Y >= 540" in hub, failures)
+    check("Safe desktop and mobile margins",
+          "local marginX = mobile and 16 or 34" in hub and
+          "local marginY = mobile and 18 or 38" in hub and
+          "local preferredWidth = wide and 930" in hub, failures)
+    check("Compact layout switches to one column before truncation",
+          "width - contentX - contentRight < 700" in hub, failures)
+    check("Five visible navigation tabs, including Player",
+          'buttons == 5' in hub and 'key = "PLAYER", label = "Player"' in hub,
+          failures)
+    check("Section headings do not paint under title text",
+          "Size = UDim2.fromOffset(hero and 4 or 3, hero and 23 or 19)" in hub
+          and "Position = UDim2.fromOffset(18, hero and 5 or 3)" in hub,
+          failures)
+    check("Old same-name windows cleaned without broad GUI deletion",
+          'existing.Name == "Army124CommunityVisualsGUI"' in hub
+          and "staleVisualWindows" in hub, failures)
     check("Accessible header targets",
           'Size = UDim2.fromOffset(42, 42)' in hub, failures)
     check("No overlapping toggle tweens",
@@ -262,6 +286,7 @@ def main() -> int:
           not structural_errors(launcher), failures)
 
     viewports = [
+        (1237, 683, False), (950, 600, False), (900, 580, False),
         (873, 393, True), (640, 360, True), (480, 260, True),
         (393, 873, True), (320, 568, True), (280, 500, True),
         (1280, 800, True), (800, 1280, True), (1366, 768, False),
