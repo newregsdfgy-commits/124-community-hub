@@ -1556,7 +1556,7 @@ local function applyResponsiveLayout()
             -- Two columns need genuinely usable width (labels, sliders and
             -- switches cannot fit in an arbitrary 250px half-column).
             local singleColumn = (not wide) or page == pages.ESP
-                or (width - contentX - contentRight < 700)
+                or (width - contentX - contentRight < 720)
             if singleColumn then
                 info.left.Position = UDim2.fromScale(0, 0)
                 info.left.Size = UDim2.fromScale(1, 1)
