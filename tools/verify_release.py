@@ -128,7 +128,7 @@ def viewport_ok(x: int, y: int, mobile: bool) -> bool:
     header_touch = 42 * scale
     nav_button = (49 if wide else 44) * scale
     # An undersized wide window becomes one column; never squeeze controls.
-    double_col = wide and content >= 700
+    double_col = wide and content >= 720
     horizontal_margin = (vx - width * scale) / 2
     vertical_margin = (vy - height * scale) / 2
     return (width * scale <= vx and height * scale <= vy and
@@ -212,7 +212,7 @@ def main() -> int:
           "local marginY = mobile and 18 or 38" in hub and
           "local preferredWidth = wide and 930" in hub, failures)
     check("Compact layout switches to one column before truncation",
-          "width - contentX - contentRight < 700" in hub, failures)
+          "width - contentX - contentRight < 720" in hub, failures)
     check("Five visible navigation tabs, including Player",
           'buttons == 5' in hub and 'key = "PLAYER", label = "Player"' in hub,
           failures)
