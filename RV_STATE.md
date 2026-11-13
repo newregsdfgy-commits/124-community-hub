@@ -1,3 +1,16 @@
+# RV_STATE — v1.4.3 FPS Booster Deep Stability (2026-11-14)
+
+- Working/test branch `v1.4.3-booster-stability-test`, base `v1.4.2-ui-layout-repair-test`; `main` unchanged.
+- **Critical fix:** `restoreBoosterProperty` no longer uses `written and written[key] or nil`, which loses boolean false and skipped restoring disabled PostEffects/CastShadow. Explicit `if written then lastWritten = written[key] end` passed actual Luau tests.
+- `optimizeObject` snapshots actual readback and detects denied/no-op/clamped writes, with `deniedWrites` / `unverifiedWrites` diagnostics.
+- Terrain material rollback now respects game-owned color changes, retains only failed restore snapshots and skips already-white/no-op writes; grass ownership also preserved on external updates.
+- Lighting post-effects optimized before expensive WHITE/ULTRA Workspace traversal. BALANCED retains fast path. Client PlayerFX excluded from queue.
+- 12-source Luau bundle rebuilt: `Hub.lua` and `Visuals.lua` byte-identical; `Start.lua` branch/version v1.4.3.
+- **Verified GitHub Actions #43530511917 SUCCESS:** 75/75 release checks, 93/93 regression tests, official Luau parse and binary compile on Hub/Visuals/Start and executable source callbacks for Booster/Terrain/Player/ESP/Key/UI.
+- `AUDIT_BOOSTER_v1.4.3.md` contains findings, code changes and required QA. **No real Roblox/Android FPS/renderer test was done.** Do not promote to main without a fresh test session.
+
+---
+
 # RV_STATE — UI repair v1.4.2 (2026-11-14)
 
 - Test branch `v1.4.2-ui-layout-repair-test` from v1.4.1. Main untouched. Detail: `AUDIT_UI_v1.4.2.md`.
