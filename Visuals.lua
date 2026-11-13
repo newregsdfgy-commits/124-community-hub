@@ -1,11 +1,11 @@
--- 124 Visuals v1.4.2 | Responsive UI Layout Repair / Duplicate GUI Guard
+-- 124 Visuals v1.4.3 | FPS Booster Deep Stability and Terrain Rollback
 -- Первый плейс: 18537079992. Запуск поддерживает все игровые PlaceId.
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.4.2",
+    Version = "1.4.3",
     OriginalPlaceId = 18537079992,
     EspRefreshSeconds = 0.35, -- Быстрый поиск персонажей, без обновления UI каждый кадр.
     EspEventMinSeconds = 0.18, -- Коалесцированные события не запускают 16 полных сканов/сек.
@@ -628,7 +628,8 @@ local boosterPro = {
     queueDropped = 0, scanned = 0, repairing = false,
     repairCoveredDrops = 0, repairRetryAt = 0, repairErrors = 0,
     queueLastAt = 0, slicePeakMs = 0, queuePeakMs = 0,
-    changedProperties = 0, phase = "OFF", lastError = nil,
+    changedProperties = 0, unverifiedWrites = 0, deniedWrites = 0,
+    phase = "OFF", lastError = nil,
     -- Weak object keys track values actively written by Booster.
     graphicsWritten = setmetatable({}, {__mode = "k"}),
     -- Exact instances owned by Player FX; name-based protection is unsafe.
@@ -1753,40 +1754,60 @@ end
 local function hideTerrainGrass()
     local terrain = Workspace:FindFirstChildOfClass("Terrain")
     if not terrain then return false end
-    if savedTerrainDecoration then
-        -- При переключении BALANCED -> WHITE исходная копия могла сохраниться
-        -- после временного сбоя восстановления. Просто снова выключаем траву.
-        local saved = savedTerrainDecoration
-        local ok = pcall(saved.setter, saved.terrain, "Decoration", false)
-        return ok
+    local saved = savedTerrainDecoration
+    if saved then
+        -- If the game changed grass while Booster was active, remember its
+        -- newest choice instead of restoring an obsolete pre-Booster value.
+        if saved.terrain ~= terrain then return false end
+        local ok, current = pcall(saved.getter, terrain, "Decoration")
+        if not ok or type(current) ~= "boolean" then return false end
+        if current == false then return true end
+        saved.original = current
+        local wrote = pcall(saved.setter, terrain, "Decoration", false)
+        if not wrote then return false end
+        local checked, applied = pcall(saved.getter, terrain, "Decoration")
+        return checked and applied == false
     end
     local getter, setter = terrainAccessor("read"), terrainAccessor("write")
     if not getter or not setter then return false end
-    local okRead, original = pcall(getter, terrain, "Decoration")
-    if not okRead or type(original) ~= "boolean" then return false end
-    local okWrite = pcall(setter, terrain, "Decoration", false)
-    if not okWrite then return false end
-    savedTerrainDecoration = {terrain = terrain, original = original, setter = setter, getter = getter}
-    return true
+    local read, original = pcall(getter, terrain, "Decoration")
+    if not read or type(original) ~= "boolean" then return false end
+    if original == false then return true end -- Already optimized by the game.
+    local wrote = pcall(setter, terrain, "Decoration", false)
+    if not wrote then return false end
+    -- Keep original even when the readback fails: a setter may have mutated
+    -- the property and rollback must still know what to attempt.
+    savedTerrainDecoration = {
+        terrain = terrain, original = original, getter = getter, setter = setter,
+    }
+    local checked, applied = pcall(getter, terrain, "Decoration")
+    return checked and applied == false
 end
 
 local function restoreTerrainGrass()
     local saved = savedTerrainDecoration
     if not saved then return true end
+    if not saved.terrain.Parent then
+        savedTerrainDecoration = nil -- Destroyed Terrain cannot be restored.
+        return true
+    end
     local ok = pcall(function()
-        saved.setter(saved.terrain, "Decoration", saved.original)
-        -- При наличии функции чтения проверяем, что значение реально вернулось.
-        if saved.getter then
-            local value = saved.getter(saved.terrain, "Decoration")
-            if value ~= saved.original then error("Terrain grass restore mismatch") end
+        local current = saved.getter(saved.terrain, "Decoration")
+        if type(current) ~= "boolean" then error("Terrain grass readback invalid") end
+        if current == false and current ~= saved.original then
+            saved.setter(saved.terrain, "Decoration", saved.original)
+            if saved.getter(saved.terrain, "Decoration") ~= saved.original then
+                error("Terrain grass restore mismatch")
+            end
         end
+        -- External edits are now the game's property; never overwrite them.
     end)
     if ok then
         savedTerrainDecoration = nil
     else
         boosterPro.restoreFailures = boosterPro.restoreFailures + 1
         if boosterPro.restoreFailures <= 3 then
-            warn("[124 Community Visuals] Booster: не удалось восстановить траву; снимок сохранён")
+            warn("[124 Visuals] Booster: Terrain grass restore pending")
         end
     end
     return ok
@@ -1799,56 +1820,86 @@ local terrainMaterialNames = {
     "Mud", "Snow", "Ice", "Glacier", "Concrete", "Brick", "Cobblestone",
     "Asphalt", "Basalt", "Pavement", "Limestone", "Salt", "CrackedLava",
 }
+local terrainWhite = Color3.new(1, 1, 1)
+-- Terrain snapshots record the last value actually written by Booster.
+-- A game-owned color update must never be overwritten during OFF or Unload.
 local function whitenTerrain()
-    if savedTerrainColors then
-        -- Снимок сохранён после частичного отката; заново красим уже известные
-        -- материалы в белый, не перезаписывая их оригинальные значения.
-        for _, item in ipairs(savedTerrainColors.items) do
-            pcall(function()
-                savedTerrainColors.terrain:SetMaterialColor(item[1], Color3.fromRGB(255, 255, 255))
-            end)
-        end
-        return
-    end
     local terrain = Workspace:FindFirstChildOfClass("Terrain")
     if not terrain then return end
-    local originals = {}
+    local previous = savedTerrainColors
+    if previous and previous.terrain ~= terrain then
+        -- Never discard pending restore entries for a detached old Terrain.
+        -- An older Terrain still has pending snapshots; leave it untouched.
+        return
+    end
+    local items = previous and previous.items or {}
+    local known = {}
+    for _, item in ipairs(items) do known[item[1]] = item end
     for _, name in ipairs(terrainMaterialNames) do
         local material = Enum.Material[name]
         if material then
-            local ok, value = pcall(function() return terrain:GetMaterialColor(material) end)
-            if ok and value then
-                local changed = pcall(function()
-                    terrain:SetMaterialColor(material, Color3.fromRGB(255, 255, 255))
+            local okRead, current = pcall(function() return terrain:GetMaterialColor(material) end)
+            if okRead and current and current ~= terrainWhite then
+                local item = known[material]
+                if item and current ~= item[3] then
+                    -- External changes since our last write are the new original.
+                    item[2] = current
+                end
+                local wrote = pcall(function()
+                    terrain:SetMaterialColor(material, terrainWhite)
                 end)
-                if changed then originals[#originals + 1] = {material, value} end
+                local checked, applied = pcall(function()
+                    return terrain:GetMaterialColor(material)
+                end)
+                -- No-op/denied setters must not create fake snapshots.
+                -- A setter that throws AFTER mutating still needs rollback.
+                if (checked and applied ~= current) or (wrote and not checked) then
+                    if not item then
+                        item = {material, current, terrainWhite}
+                        items[#items + 1] = item
+                        known[material] = item
+                    end
+                    if checked then item[3] = applied end
+                end
             end
         end
     end
-    if #originals > 0 then savedTerrainColors = {terrain = terrain, items = originals} end
+    if #items > 0 then savedTerrainColors = {terrain = terrain, items = items} end
 end
 local function restoreTerrainColors()
     local data = savedTerrainColors
     if not data then return true end
-    -- Даже при частичном откате сохраняем ВСЕ оригиналы: иначе при следующем
-    -- включении WHITE потеряем цвета уже восстановленных материалов.
-    local complete = true
+    if not data.terrain.Parent then
+        savedTerrainColors = nil -- Destroyed Terrain is no longer visible.
+        return true
+    end
+    local pending = {}
     for _, item in ipairs(data.items) do
+        local material, original, imposed = item[1], item[2], item[3]
         local ok = pcall(function()
-            data.terrain:SetMaterialColor(item[1], item[2])
-            local current = data.terrain:GetMaterialColor(item[1])
-            if current ~= item[2] then error("Terrain material restore mismatch") end
+            local current = data.terrain:GetMaterialColor(material)
+            if current == imposed and current ~= original then
+                data.terrain:SetMaterialColor(material, original)
+                if data.terrain:GetMaterialColor(material) ~= original then
+                    error("Terrain material restore mismatch")
+                end
+            end
+            -- If changed externally, leave the game's newer color untouched.
         end)
         if not ok then
-            complete = false
+            pending[#pending + 1] = item
             boosterPro.restoreFailures = boosterPro.restoreFailures + 1
             if boosterPro.restoreFailures <= 3 then
-                warn("[124 Community Visuals] Booster: не удалось вернуть цвет Terrain; снимок сохранён")
+                warn("[124 Visuals] Booster Terrain: restore pending for " .. tostring(material))
             end
         end
     end
-    if complete then savedTerrainColors = nil end
-    return complete
+    if #pending > 0 then
+        data.items = pending
+        return false
+    end
+    savedTerrainColors = nil
+    return true
 end
 
 -- FPS Booster Pro: три ступени, снимки ТОЛЬКО изменённых свойств.
@@ -2032,24 +2083,32 @@ local function optimizeObject(obj, alreadyScreened)
     for key, target in pairs(desired) do
         local read, current = pcall(function() return obj[key] end)
         if read and current ~= target then
-            local previousWrite = boosterPro.graphicsWritten[obj]
-            if snap and snap[key] ~= nil and previousWrite
-                and previousWrite[key] ~= nil and current ~= previousWrite[key] then
-                -- The game changed this property while Booster was active:
-                -- remember the newer baseline before applying the new mode.
-                snap[key] = current
-            end
             local wrote = pcall(function() obj[key] = target end)
-            if wrote then
+            local checked, applied = pcall(function() return obj[key] end)
+            -- A successful setter may be ignored or clamp the target. Never
+            -- pretend the property changed and then lose its real baseline.
+            if checked and applied ~= current then
+                if not snap then snap = {}; savedGraphics[obj] = snap end
+                local written = boosterPro.graphicsWritten[obj]
+                if not written then written = {}; boosterPro.graphicsWritten[obj] = written end
+                if snap[key] == nil or (written[key] ~= nil
+                    and current ~= written[key]) then
+                    -- The game may update a property while Booster is ON.
+                    snap[key] = current
+                end
+                written[key] = applied
+                boosterPro.changedProperties = boosterPro.changedProperties + 1
+            elseif wrote and not checked then
+                -- We cannot confirm whether the setter mutated the object.
+                -- Keep a rollback attempt rather than dropping the original.
                 if not snap then snap = {}; savedGraphics[obj] = snap end
                 if snap[key] == nil then snap[key] = current end
                 local written = boosterPro.graphicsWritten[obj]
                 if not written then written = {}; boosterPro.graphicsWritten[obj] = written end
                 written[key] = target
-                local checked, applied = pcall(function() return obj[key] end)
-                if checked and applied == target then
-                    boosterPro.changedProperties = boosterPro.changedProperties + 1
-                end
+                boosterPro.unverifiedWrites = boosterPro.unverifiedWrites + 1
+            elseif not wrote then
+                boosterPro.deniedWrites = boosterPro.deniedWrites + 1
             end
         end
     end
@@ -2168,14 +2227,15 @@ function boosterPro.diagnosticStatus()
     local snap = boosterPro.snapshotStatus()
     local work = snap.work
     return string.format(
-        "v%s | FPS %d | %s/%s | GPU snapshots %d%s (%d props) | Terrain %s | Lighting %s | Queue %d/%d (drop %d) | Workers scan:%d restore:%d repair:%d avatar:%d | errors:%d | hooks:%d",
+        "v%s | FPS %d | %s/%s | GPU snapshots %d%s (%d props) | Terrain %s | Lighting %s | Queue %d/%d (drop %d) | Workers scan:%d restore:%d repair:%d avatar:%d | errors:%d | denied:%d | uncertain:%d | hooks:%d",
         CONFIG.Version, measuredFps, tostring(boosterPro.phase),
         tostring(state.boosterMode), snap.objects, snap.capped and "+" or "",
         snap.properties, snap.terrain and "pending" or "ok",
         snap.lighting and "pending" or "ok",
         boosterPro.queueCount, boosterPro.queueCap, boosterPro.queueDropped,
         work.scan, work.restore, work.repair, work.avatar,
-        boosterPro.restoreFailures, #connections
+        boosterPro.restoreFailures, boosterPro.deniedWrites,
+        boosterPro.unverifiedWrites, #connections
     )
 end
 function boosterPro.readout()
@@ -2324,6 +2384,7 @@ local function setBooster(enabled, keepBaseline)
     boosterPro.queueLastAt = 0
     boosterPro.slicePeakMs, boosterPro.queuePeakMs = 0, 0
     boosterPro.changedProperties = 0
+    boosterPro.deniedWrites, boosterPro.unverifiedWrites = 0, 0
     boosterPro.phase = enabled and "SCANNING" or "RESTORING"
     boosterPro.repairing = false
     boosterPro.repairCoveredDrops, boosterPro.repairRetryAt, boosterPro.repairErrors = 0, 0, 0
@@ -2367,11 +2428,12 @@ local function setBooster(enabled, keepBaseline)
             end
             local terrain = Workspace:FindFirstChildOfClass("Terrain")
             if terrain then optimizeObject(terrain) end
-            -- BALANCED: быстрый путь, карта не перебирается и не изменяется.
-            -- WHITE/ULTRA: полный обход по CPU-срезам, только по выбору игрока.
+            -- Apply Lighting post effects first; a huge streamed Workspace
+            -- must not delay the first visible benefit of the Booster.
+            if not optimizeHierarchy(Lighting, revision) then return end
+            -- BALANCED intentionally skips the expensive Workspace traversal.
             if state.boosterMode ~= "BALANCED"
                 and not optimizeHierarchy(Workspace, revision) then return end
-            if not optimizeHierarchy(Lighting, revision) then return end
             if revision ~= boosterRevision or not state.booster then return end
             boosterPro.complete = true
             boosterPro.phase = state.boosterMode == "BALANCED" and "READY FAST" or "READY"
@@ -6913,6 +6975,8 @@ addButton(pages.MEMORY, "Диагностика Booster", "Режим, прог�
         .. " | Записано свойств: " .. tostring(boosterPro.changedProperties)
         .. " | Очередь: " .. tostring(boosterPro.queueCount)
         .. " | Переполнение: " .. tostring(boosterPro.queueDropped)
+        .. " | Неудачные записи: " .. tostring(boosterPro.deniedWrites)
+        .. " | Непроверенные записи: " .. tostring(boosterPro.unverifiedWrites)
         .. " | Ошибка: " .. errorText)
 end)
 addButton(pages.MEMORY, "Аудит ресурсов / восстановления",
@@ -8310,6 +8374,7 @@ function boosterPro.queueObject(obj)
     if not alive or not state.booster or boosterPro.queuedSeen[obj] then return end
     -- Track meaningful streaming activity only. Unrelated UI/models must not
     -- postpone rescan recovery of earlier dropped graphics indefinitely.
+    if boosterPro.playerFxOwned[obj] then return end
     if not graphicsProperty(obj) then return end
     boosterPro.queueLastAt = os.clock()
     if boosterPro.queueCount >= boosterPro.queueCap then
