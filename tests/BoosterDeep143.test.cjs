@@ -105,7 +105,7 @@ test("GUI retains FPS Booster modes and non-Booster features",()=>{
     for(const token of ['"FPS Booster Pro"','{value = "BALANCED"', 
         '{value = "WHITE"','{value = "ULTRA"',
         "local playerFX = (function()", "local function refreshESP()",
-        "function controller.restoreSpread()", "Purple Neon"])
+        "function controller.restoreSpread()", "PURPLE NEON 2.0"])
         assert.ok(release.includes(token),token);
 });
 test("new executable fault injection harness isolates source functions",()=>{
