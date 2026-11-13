@@ -119,40 +119,60 @@ end
 local function hideTerrainGrass()
     local terrain = Workspace:FindFirstChildOfClass("Terrain")
     if not terrain then return false end
-    if savedTerrainDecoration then
-        -- При переключении BALANCED -> WHITE исходная копия могла сохраниться
-        -- после временного сбоя восстановления. Просто снова выключаем траву.
-        local saved = savedTerrainDecoration
-        local ok = pcall(saved.setter, saved.terrain, "Decoration", false)
-        return ok
+    local saved = savedTerrainDecoration
+    if saved then
+        -- If the game changed grass while Booster was active, remember its
+        -- newest choice instead of restoring an obsolete pre-Booster value.
+        if saved.terrain ~= terrain then return false end
+        local ok, current = pcall(saved.getter, terrain, "Decoration")
+        if not ok or type(current) ~= "boolean" then return false end
+        if current == false then return true end
+        saved.original = current
+        local wrote = pcall(saved.setter, terrain, "Decoration", false)
+        if not wrote then return false end
+        local checked, applied = pcall(saved.getter, terrain, "Decoration")
+        return checked and applied == false
     end
     local getter, setter = terrainAccessor("read"), terrainAccessor("write")
     if not getter or not setter then return false end
-    local okRead, original = pcall(getter, terrain, "Decoration")
-    if not okRead or type(original) ~= "boolean" then return false end
-    local okWrite = pcall(setter, terrain, "Decoration", false)
-    if not okWrite then return false end
-    savedTerrainDecoration = {terrain = terrain, original = original, setter = setter, getter = getter}
-    return true
+    local read, original = pcall(getter, terrain, "Decoration")
+    if not read or type(original) ~= "boolean" then return false end
+    if original == false then return true end -- Already optimized by the game.
+    local wrote = pcall(setter, terrain, "Decoration", false)
+    if not wrote then return false end
+    -- Keep original even when the readback fails: a setter may have mutated
+    -- the property and rollback must still know what to attempt.
+    savedTerrainDecoration = {
+        terrain = terrain, original = original, getter = getter, setter = setter,
+    }
+    local checked, applied = pcall(getter, terrain, "Decoration")
+    return checked and applied == false
 end
 
 local function restoreTerrainGrass()
     local saved = savedTerrainDecoration
     if not saved then return true end
+    if not saved.terrain.Parent then
+        savedTerrainDecoration = nil -- Destroyed Terrain cannot be restored.
+        return true
+    end
     local ok = pcall(function()
-        saved.setter(saved.terrain, "Decoration", saved.original)
-        -- При наличии функции чтения проверяем, что значение реально вернулось.
-        if saved.getter then
-            local value = saved.getter(saved.terrain, "Decoration")
-            if value ~= saved.original then error("Terrain grass restore mismatch") end
+        local current = saved.getter(saved.terrain, "Decoration")
+        if type(current) ~= "boolean" then error("Terrain grass readback invalid") end
+        if current == false and current ~= saved.original then
+            saved.setter(saved.terrain, "Decoration", saved.original)
+            if saved.getter(saved.terrain, "Decoration") ~= saved.original then
+                error("Terrain grass restore mismatch")
+            end
         end
+        -- External edits are now the game's property; never overwrite them.
     end)
     if ok then
         savedTerrainDecoration = nil
     else
         boosterPro.restoreFailures = boosterPro.restoreFailures + 1
         if boosterPro.restoreFailures <= 3 then
-            warn("[124 Community Visuals] Booster: не удалось восстановить траву; снимок сохранён")
+            warn("[124 Visuals] Booster: Terrain grass restore pending")
         end
     end
     return ok
@@ -214,6 +234,10 @@ end
 local function restoreTerrainColors()
     local data = savedTerrainColors
     if not data then return true end
+    if not data.terrain.Parent then
+        savedTerrainColors = nil -- Destroyed Terrain is no longer visible.
+        return true
+    end
     local pending = {}
     for _, item in ipairs(data.items) do
         local material, original, imposed = item[1], item[2], item[3]
