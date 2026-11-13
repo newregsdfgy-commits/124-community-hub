@@ -223,6 +223,16 @@ def main() -> int:
     check("Old same-name windows cleaned without broad GUI deletion",
           'existing.Name == "Army124CommunityVisualsGUI"' in hub
           and "staleVisualWindows" in hub, failures)
+    check("Retired screenshot ESP cannot overlay native header",
+          "buildReferenceMenu()" not in hub and
+          "ReferenceSearch" not in hub and
+          "ReferenceActive" not in hub and
+          "ScreenshotESP" not in hub, failures)
+    check("Native ESP controls survive removal of reference preview",
+          'addToggle(pages.ESP, "ESP подсветка"' in hub and
+          'addToggle(pages.ESP, "Линия над игроками"' in hub and
+          'addToggle(pages.ESP, "2D Box"' in hub and
+          'addToggle(pages.ESP, "Локальный прицел"' in hub, failures)
     check("Accessible header targets",
           'Size = UDim2.fromOffset(42, 42)' in hub, failures)
     check("No overlapping toggle tweens",
