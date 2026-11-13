@@ -6,7 +6,7 @@
 - Safe desktop/mobile margins, 930×505 desktop preference, auto single-column when usable content <720px, shorter desktop nav, five-tab UI audit, corrected vertical heading accent.
 - Exact-name stale screen guard for `Army124CommunityVisualsGUI` only.
 - Both `Hub.lua` and `Visuals.lua` generated from 12 source fragments; launch branch and Version = 1.4.2.
-- `tests/UI142Layout.test.cjs`, `tests/build-ui142-runtime.py` and CI `.github/workflows/v142-ui-ci.yml` created. Real on-device screenshot comparison pending.
+- **Observed GitHub Actions #43528411824 SUCCESS**: exact source bundle, 70/70 release checks, 76/76 regression tests, real Luau compilation of Hub.lua/Visuals.lua/Start.lua, isolated Luau viewport, ESP, Key, Player and Booster tests passed. Roblox live visual screenshot comparison still pending.
 
 ---
 
