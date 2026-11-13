@@ -88,7 +88,8 @@ local boosterPro = {
     queueDropped = 0, scanned = 0, repairing = false,
     repairCoveredDrops = 0, repairRetryAt = 0, repairErrors = 0,
     queueLastAt = 0, slicePeakMs = 0, queuePeakMs = 0,
-    changedProperties = 0, phase = "OFF", lastError = nil,
+    changedProperties = 0, unverifiedWrites = 0, deniedWrites = 0,
+    phase = "OFF", lastError = nil,
     -- Weak object keys track values actively written by Booster.
     graphicsWritten = setmetatable({}, {__mode = "k"}),
     -- Exact instances owned by Player FX; name-based protection is unsafe.
