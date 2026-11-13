@@ -2038,7 +2038,10 @@ end
 -- changed this property after we wrote it, keep that new value intact.
 function boosterPro.restoreBoosterProperty(obj, snapshot, key, original)
     local written = boosterPro.graphicsWritten[obj]
-    local lastWritten = written and written[key] or nil
+    -- Explicit false is a real Booster write (Enabled, CastShadow).
+    -- 'written and written[key] or nil' loses false and silently skips rollback.
+    local lastWritten = nil
+    if written then lastWritten = written[key] end
     local ok = pcall(function()
         if not obj.Parent then return end
         local current = obj[key]
