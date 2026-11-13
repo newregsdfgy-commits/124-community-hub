@@ -70,10 +70,24 @@ test("UI root still includes clipping and independent native scrollers",()=>{
     assert.match(ui,/AutomaticCanvasSize = Enum\.AutomaticSize\.Y/);
     assert.match(ui,/ScrollingDirection = Enum\.ScrollingDirection\.Y/);
 });
-test("the screenshot overlay wording does not originate in this release",()=>{
-    for(const term of ["Поиск ESP...", "00:00:09", "● Ready"]){
+test("legacy screenshot ESP preview and header overlay are entirely removed",()=>{
+    for(const term of ["Поиск ESP...", "ReferenceSearch", "ReferenceSafe",
+                        "ReferenceTimer", "ReferenceActive", "ScreenshotESP",
+                        "buildReferenceMenu()", "referenceESP"]){
         assert.equal(hub.includes(term),false,term);
     }
+    assert.match(ui,/Name = "BrandTitle"/);
+    assert.match(ui,/Name = "CurrentPageTitle"/);
+    assert.match(ui,/Name = "CloseHub"/);
+    assert.match(ui,/Name = "Minimize"/);
+});
+test("retiring the duplicate ESP preview keeps all actual native controls",()=>{
+    const widgets=read("src/08_ui_controls.lua");
+    for(const title of ["ESP подсветка", "Линия над игроками", "2D Box",
+          "Имена", "Здоровье", "Дистанция", "Цвет ESP", "Локальный прицел"]){
+       assert.ok(widgets.includes(title),title);
+    }
+    assert.ok(!read("src/09_misc_and_diagnostics.lua").includes("buildReferenceMenu"));
 });
 test("previous actual Player, ESP and diagnostics code not replaced by a mock",()=>{
     for(const token of ["local playerFX = (function()",
