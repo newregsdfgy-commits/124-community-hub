@@ -33,7 +33,8 @@ Examined Booster's graphics ownership, mode transitions, scene hierarchy iterati
 - `tests/BoosterDeep143.test.cjs`: 17 new regression checks against actual source, including the critical false-valued property restoration path.
 - `tests/build-booster143-runtime.py`: extracts real production `optimizeObject`, `restoreBoosterProperty`, `restoreObject`, `whitenTerrain`, `restoreTerrainColors`, `hideTerrainGrass`, `restoreTerrainGrass`; executes in Luau with mocks for Roblox property read/write.
 - The new runtime suite tests boolean false post-effects restoration, ignored setters, clamped setters, denied setters, normal mode downgrades, changed external colors, partial material restoration, repeated whiten, grass restoration, plus the existing Player/Booster Atmosphere and ESP/Key/UI fixtures.
-- Official Luau parse/compile of Hub.lua, Visuals.lua and Start.lua in GitHub Actions: `.github/workflows/v143-booster-ci.yml`.
+- **Observed CI SUCCESS:** [GitHub Actions #43530511917](https://github.com/newregsdfgy-commits/124-community-hub/actions/runs/43530511917): 12-module deterministic bundle, **75/75 release assertions**, **93/93 targeted Node regressions**, official Luau parser/binary compiler on Hub.lua, Visuals.lua and Start.lua, executed production Booster property/Terrain controller tests (including false-property rollback, clamped/denied/no-op writes, partial color restore, game-owned updates and grass), plus previous Atmosphere Player FX, ESP, Key and viewport behavior tests.
+- Official CI definition: `.github/workflows/v143-booster-ci.yml`. Passing isolated Luau tests does **not** mean that the Roblox runtime or real device FPS has been benchmarked.
 
 ## Mandatory live QA before merging
 1. In a fresh Roblox session, record before/after **FPS average and 1% low** on the same map/camera and run each mode over at least 1–2 minutes. Account for map streaming and client graphic settings; don't assume FPS rises.
