@@ -6,26 +6,29 @@ local function addSection(page, title, subtitle)
         or title == "MOVEMENT" or title == "UTILITY"
     local container = mk("Frame", {
         Name = title .. "Heading", BackgroundTransparency = 1,
-        Size = UDim2.new(1, 0, 0, hero and 62 or 42),
+        Size = UDim2.new(1, 0, 0, hero and 62 or 48),
     }, columnFor(page))
     registerWidget(page, container)
+    -- Every heading uses a vertical rule with reserved text padding.
+    -- The old 19px *horizontal* rule literally ran across "ADVANCED".
     local sectionBar = mk("Frame", {Name = "SectionAccent", BackgroundColor3 = P.accent,
-        BorderSizePixel = 0, Position = UDim2.fromOffset(4, hero and 11 or 14),
-        Size = UDim2.fromOffset(hero and 4 or 19, hero and 23 or 2)}, container)
+        BorderSizePixel = 0, Position = UDim2.fromOffset(4, hero and 11 or 7),
+        Size = UDim2.fromOffset(hero and 4 or 3, hero and 23 or 19)}, container)
     round(sectionBar, 2)
     mk("TextLabel", {
         BackgroundTransparency = 1,
-        Position = UDim2.fromOffset(hero and 18 or 8, hero and 5 or 3),
-        Size = UDim2.new(1, hero and -26 or -16, 0, hero and 29 or 19),
-        Text = title, Font = Enum.Font.GothamBold, TextSize = hero and 18 or 12,
+        Position = UDim2.fromOffset(18, hero and 5 or 3),
+        Size = UDim2.new(1, -28, 0, hero and 29 or 21),
+        Text = title, Font = Enum.Font.GothamBold, TextSize = hero and 18 or 13,
         TextColor3 = P.text, TextXAlignment = Enum.TextXAlignment.Left,
+        TextTruncate = Enum.TextTruncate.AtEnd,
     }, container)
     mk("TextLabel", {
         BackgroundTransparency = 1,
-        Position = UDim2.fromOffset(hero and 19 or 8, hero and 39 or 24),
-        Size = UDim2.new(1, hero and -25 or -12, 0, 14),
+        Position = UDim2.fromOffset(18, hero and 39 or 27),
+        Size = UDim2.new(1, -28, 0, 14),
         Text = subtitle, Font = Enum.Font.Gotham,
-        TextSize = hero and 10 or 9, TextColor3 = P.dim,
+        TextSize = hero and 10 or 10, TextColor3 = P.dim,
         TextXAlignment = Enum.TextXAlignment.Left,
         TextTruncate = Enum.TextTruncate.AtEnd,
     }, container)
