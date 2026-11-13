@@ -86,6 +86,22 @@ env.ARMY124_CLEANUP = abortPartialHub
 local function initializeHubUI()
 -- 124 Community Visuals / Purple Dashboard — pure Roblox GUI, no external UI dependency.
 -- Две колонки на больших экранах, одна колонка на телефонах.
+-- Old/external executor contexts may leave duplicate 124 Visuals windows
+-- after hot-reload. Remove ONLY our exact former window name; never sweep
+-- unrelated PlayerGui objects (e.g. another game's HUD).
+local staleVisualWindows = 0
+for _, existing in ipairs(PlayerGui:GetChildren()) do
+    if existing:IsA("ScreenGui") and existing.Name == "Army124CommunityVisualsGUI" then
+        staleVisualWindows = staleVisualWindows + 1
+        pcall(function()
+            existing.Enabled = false
+            existing:Destroy()
+        end)
+    end
+end
+if staleVisualWindows > 0 then
+    warn("[124 Visuals] Removed stale same-name UI: " .. tostring(staleVisualWindows))
+end
 local gui = mk("ScreenGui", {
     Name = "Army124CommunityVisualsGUI",
     ResetOnSpawn = false,
@@ -728,8 +744,8 @@ local function isReferenceLandscape(view)
     return UserInputService.TouchEnabled and view.X >= 960
         and view.Y >= 540 and view.X >= view.Y * 1.35
 end
--- Mobile landscape uses the same full reference layout, with a single
--- uniform scale. Portrait and undersized desktop keep readable legacy lists.
+-- Window never hugs the screen border: the screenshot exposed too-small
+-- margins, unreadable columns and controls fighting for the header region.
 local wideLayout = isReferenceLandscape(uiSafeView(viewport))
     or ((not UserInputService.TouchEnabled) and viewport.X >= 770 and viewport.Y >= 560)
 local function windowMetrics(view)
@@ -737,17 +753,21 @@ local function windowMetrics(view)
     local mobile = UserInputService.TouchEnabled
     local screenshotMobile = isReferenceLandscape(view)
     local wide = screenshotMobile or ((not mobile) and view.X >= 770 and view.Y >= 560)
+    local marginX = mobile and 16 or 34
+    local marginY = mobile and 18 or 38
     if screenshotMobile then
-        local scale = math.clamp(math.min((view.X - 12) / 950,
-            (view.Y - 12) / 520), 0.36, 1)
+        -- Keep native touch targets in 950x520 reference coordinates.
+        -- A physical safe margin must remain even when landscape is short.
+        local scale = math.clamp(math.min((view.X - marginX * 2) / 950,
+            (view.Y - marginY * 2) / 520), 0.36, 1)
         return 950, 520, true, scale
     end
     local landscape = view.X > view.Y
-    local availableWidth = math.max(160, view.X - (mobile and 22 or 32))
-    local preferredWidth = wide and 950 or (mobile and landscape and 610 or 460)
+    local availableWidth = math.max(160, view.X - marginX * 2)
+    local preferredWidth = wide and 930 or (mobile and landscape and 610 or 460)
     local width = math.min(availableWidth, preferredWidth)
-    local availableHeight = math.max(120, view.Y - (mobile and 22 or 38))
-    local height = math.min(wide and 520 or 610, availableHeight)
+    local availableHeight = math.max(120, view.Y - marginY * 2)
+    local height = math.min(wide and 505 or 590, availableHeight)
     return width, height, wide, 1
 end
 local winWidth, winHeight, _, initialScale = windowMetrics(viewport)
@@ -1477,20 +1497,22 @@ local function applyResponsiveLayout()
     wideLayout = wide
     -- Compact touch sidebar: prioritize readable content and actual tap areas.
     -- No global scale on small phones; navigation remains scrollable.
-    local sidebarWidth = wide and 196 or (width < 340 and 68 or width < 430 and 78 or 94)
+    local sidebarWidth = wide and (width >= 900 and 184 or 156)
+        or (width < 340 and 68 or width < 430 and 78 or 94)
     local contentX = sidebarWidth + (wide and 11 or 9)
     local contentRight = wide and 13 or 9
     contentPlate.Position = UDim2.fromOffset(contentX, 81)
     contentPlate.Size = UDim2.new(1, -contentX - contentRight, 1, wide and -121 or -120)
     -- On very short displays, keep the footer outside the scrollable content.
     contentPlate.ClipsDescendants = true
-    pageHeader.Visible, pageSubHeader.Visible = wide, wide
+    pageHeader.Visible, pageSubHeader.Visible = wide and width >= 850,
+        wide and width >= 850
     -- Единая шапка 76px не перекрывается навигацией.
     local sidebarHeader = 76
     local compactShort = not wide and height < 320
-    local navTop = wide and 20 or (compactShort and 5 or 11)
-    local bottomReserve = wide and 90 or (height < 300 and 9 or 53)
-    local buttonHeight = wide and 55 or 44 -- Scroll navigation, never shrink touch targets.
+    local navTop = wide and 14 or (compactShort and 5 or 11)
+    local bottomReserve = wide and 39 or (height < 300 and 9 or 53)
+    local buttonHeight = wide and 49 or 44 -- Keep 5 tabs within ordinary desktop height.
     tabs.Position = UDim2.fromOffset(0, sidebarHeader)
     tabs.Size = UDim2.new(0, sidebarWidth, 1, -sidebarHeader)
     navSlots.Position = UDim2.fromOffset(0, navTop)
@@ -1499,13 +1521,13 @@ local function applyResponsiveLayout()
     navigationLayout.FillDirection = Enum.FillDirection.Vertical
     navigationLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
     navigationLayout.VerticalAlignment = Enum.VerticalAlignment.Top
-    navigationLayout.Padding = UDim.new(0, wide and 8 or (compactShort and 3 or 5))
+    navigationLayout.Padding = UDim.new(0, wide and 6 or (compactShort and 3 or 5))
     for _, nav in ipairs(navigation) do
         local button = tabButtons[nav.key]
         if wide then
             button.Size = UDim2.new(1, -6, 0, buttonHeight)
-            button.Text = "  " .. nav.symbol .. "     " .. nav.label
-            button.TextSize = 14
+            button.Text = "  " .. nav.symbol .. "   " .. nav.label
+            button.TextSize = 13
             button.TextXAlignment = Enum.TextXAlignment.Left
         else
             button.Size = UDim2.new(1, -4, 0, buttonHeight)
@@ -1531,7 +1553,10 @@ local function applyResponsiveLayout()
         if info then
             -- The ESP page matches the reference image: one full-width
             -- scrolling stack of violet cards instead of an old split preview.
+            -- Two columns need genuinely usable width (labels, sliders and
+            -- switches cannot fit in an arbitrary 250px half-column).
             local singleColumn = (not wide) or page == pages.ESP
+                or (width - contentX - contentRight < 700)
             if singleColumn then
                 info.left.Position = UDim2.fromScale(0, 0)
                 info.left.Size = UDim2.fromScale(1, 1)
@@ -1592,10 +1617,11 @@ local function showPage(key)
     end
     currentPage = key
     local titles = {HOME = "Dashboard", ESP = "Visuals", AIM = "Aim",
-        MISC = "Misc", MEMORY = "Memory"}
+        PLAYER = "Player", MISC = "Misc", MEMORY = "Memory"}
     local descriptions = {HOME = "Live game performance and optimization overview",
         ESP = "Player overlays and visibility controls",
         AIM = "Targeting, weapon filters and FOV",
+        PLAYER = "Local aura, glow, weather and environment",
         MISC = "Movement and character tools",
         MEMORY = "Client graphics, monitoring and performance"}
     pageHeader.Text = titles[key] or key
@@ -1639,7 +1665,7 @@ boosterPro.uiAudit = function()
             and contentPlate.AbsoluteSize.Y >= 20},
         {"левая навигация", tabs.AbsoluteSize.X >= 60
             and navSlots.AbsoluteSize.Y >= 15},
-        {"разделы ESP/Aim/Misc/Memory", buttons == 4},
+        {"разделы ESP/Aim/Player/Misc/Memory", buttons == 5},
         {"размер кнопок", minHeight >= 38},
         {"кнопки закрытия/сворачивания", close.AbsoluteSize.X >= 38
             and hide.AbsoluteSize.X >= 38},
