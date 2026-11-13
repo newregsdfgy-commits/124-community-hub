@@ -1,3 +1,15 @@
+# RV_STATE — UI repair v1.4.2 (2026-11-14)
+
+- Test branch `v1.4.2-ui-layout-repair-test` from v1.4.1. Main untouched. Detail: `AUDIT_UI_v1.4.2.md`.
+- Screenshot 1237×683 exposed legacy `buildReferenceMenu()` still creating search/status/timer and overwriting Close/Minimize even though its ESP pane was hidden. Removed the entire 550-line legacy screenshot UI in `src/09_misc_and_diagnostics.lua`; removed dead optional hooks in `src/06_gui_runtime.lua` and `src/10_run_and_cleanup.lua`.
+- Native ESP section remains in `src/08_ui_controls.lua`; no feature was moved to an external UI library.
+- Safe desktop/mobile margins, 930×505 desktop preference, auto single-column when usable content <720px, shorter desktop nav, five-tab UI audit, corrected vertical heading accent.
+- Exact-name stale screen guard for `Army124CommunityVisualsGUI` only.
+- Both `Hub.lua` and `Visuals.lua` generated from 12 source fragments; launch branch and Version = 1.4.2.
+- `tests/UI142Layout.test.cjs`, `tests/build-ui142-runtime.py` and CI `.github/workflows/v142-ui-ci.yml` created. Real on-device screenshot comparison pending.
+
+---
+
 # RV_STATE — v1.4.1 Deep Stability Audit (2026-11-12)
 
 - Fixed test branch: `v1.4.1-deep-audit-fixes-test` from v1.4.0; main unchanged.
