@@ -724,6 +724,7 @@ local function setBooster(enabled, keepBaseline)
     boosterPro.queueLastAt = 0
     boosterPro.slicePeakMs, boosterPro.queuePeakMs = 0, 0
     boosterPro.changedProperties = 0
+    boosterPro.deniedWrites, boosterPro.unverifiedWrites = 0, 0
     boosterPro.phase = enabled and "SCANNING" or "RESTORING"
     boosterPro.repairing = false
     boosterPro.repairCoveredDrops, boosterPro.repairRetryAt, boosterPro.repairErrors = 0, 0, 0
@@ -767,11 +768,12 @@ local function setBooster(enabled, keepBaseline)
             end
             local terrain = Workspace:FindFirstChildOfClass("Terrain")
             if terrain then optimizeObject(terrain) end
-            -- BALANCED: быстрый путь, карта не перебирается и не изменяется.
-            -- WHITE/ULTRA: полный обход по CPU-срезам, только по выбору игрока.
+            -- Apply Lighting post effects first; a huge streamed Workspace
+            -- must not delay the first visible benefit of the Booster.
+            if not optimizeHierarchy(Lighting, revision) then return end
+            -- BALANCED intentionally skips the expensive Workspace traversal.
             if state.boosterMode ~= "BALANCED"
                 and not optimizeHierarchy(Workspace, revision) then return end
-            if not optimizeHierarchy(Lighting, revision) then return end
             if revision ~= boosterRevision or not state.booster then return end
             boosterPro.complete = true
             boosterPro.phase = state.boosterMode == "BALANCED" and "READY FAST" or "READY"
