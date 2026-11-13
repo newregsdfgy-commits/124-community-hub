@@ -30,7 +30,7 @@ SOURCE_NAMES = (
 )
 OUTPUT_NAMES = ("Hub.lua", "Visuals.lua")
 SOURCE_HEADERS = (
-    b"-- 124 Visuals v1.4.1",
+    b"-- 124 Visuals v1.4.2",
     b"-- \xd0\x91\xd0\xbb\xd0\xbe\xd0\xba\xd0\xb8\xd1\x80\xd0\xbe\xd0\xb2\xd0\xba\xd0\xb0 \xd0\xb7\xd0\xb0\xd0\xbf\xd1\x83\xd1\x81\xd0\xba\xd0\xb0:",
     b"local state = {",
     b"-- ESP: ",
