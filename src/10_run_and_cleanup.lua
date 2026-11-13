@@ -238,7 +238,6 @@ task.spawn(function()
         if not state.booster then boosterPro.retryPendingGraphics() end
         stats.Visible = state.hud
         if boosterPro.dashboard then boosterPro.dashboard.update() end
-        if referenceESP and referenceESP.tick then referenceESP.tick() end
         if boosterPro.label and boosterPro.label.Parent then
             boosterPro.label.Text = boosterPro.readout()
         end
