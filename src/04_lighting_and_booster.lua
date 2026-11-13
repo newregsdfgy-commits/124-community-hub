@@ -165,56 +165,82 @@ local terrainMaterialNames = {
     "Mud", "Snow", "Ice", "Glacier", "Concrete", "Brick", "Cobblestone",
     "Asphalt", "Basalt", "Pavement", "Limestone", "Salt", "CrackedLava",
 }
+local terrainWhite = Color3.new(1, 1, 1)
+-- Terrain snapshots record the last value actually written by Booster.
+-- A game-owned color update must never be overwritten during OFF or Unload.
 local function whitenTerrain()
-    if savedTerrainColors then
-        -- Снимок сохранён после частичного отката; заново красим уже известные
-        -- материалы в белый, не перезаписывая их оригинальные значения.
-        for _, item in ipairs(savedTerrainColors.items) do
-            pcall(function()
-                savedTerrainColors.terrain:SetMaterialColor(item[1], Color3.fromRGB(255, 255, 255))
-            end)
-        end
-        return
-    end
     local terrain = Workspace:FindFirstChildOfClass("Terrain")
     if not terrain then return end
-    local originals = {}
+    local previous = savedTerrainColors
+    if previous and previous.terrain ~= terrain then
+        -- Never discard pending restore entries for a detached old Terrain.
+        -- An older Terrain still has pending snapshots; leave it untouched.
+        return
+    end
+    local items = previous and previous.items or {}
+    local known = {}
+    for _, item in ipairs(items) do known[item[1]] = item end
     for _, name in ipairs(terrainMaterialNames) do
         local material = Enum.Material[name]
         if material then
-            local ok, value = pcall(function() return terrain:GetMaterialColor(material) end)
-            if ok and value then
-                local changed = pcall(function()
-                    terrain:SetMaterialColor(material, Color3.fromRGB(255, 255, 255))
+            local okRead, current = pcall(function() return terrain:GetMaterialColor(material) end)
+            if okRead and current and current ~= terrainWhite then
+                local item = known[material]
+                if item and current ~= item[3] then
+                    -- External changes since our last write are the new original.
+                    item[2] = current
+                end
+                local wrote = pcall(function()
+                    terrain:SetMaterialColor(material, terrainWhite)
                 end)
-                if changed then originals[#originals + 1] = {material, value} end
+                if wrote then
+                    local checked, applied = pcall(function()
+                        return terrain:GetMaterialColor(material)
+                    end)
+                    if not item then
+                        item = {material, current, terrainWhite}
+                        items[#items + 1] = item
+                        known[material] = item
+                    end
+                    -- An API may clamp the requested color; preserve what it
+                    -- actually wrote so restoration can recognize ownership.
+                    if checked then item[3] = applied end
+                end
             end
         end
     end
-    if #originals > 0 then savedTerrainColors = {terrain = terrain, items = originals} end
+    if #items > 0 then savedTerrainColors = {terrain = terrain, items = items} end
 end
 local function restoreTerrainColors()
     local data = savedTerrainColors
     if not data then return true end
-    -- Даже при частичном откате сохраняем ВСЕ оригиналы: иначе при следующем
-    -- включении WHITE потеряем цвета уже восстановленных материалов.
-    local complete = true
+    local pending = {}
     for _, item in ipairs(data.items) do
+        local material, original, imposed = item[1], item[2], item[3]
         local ok = pcall(function()
-            data.terrain:SetMaterialColor(item[1], item[2])
-            local current = data.terrain:GetMaterialColor(item[1])
-            if current ~= item[2] then error("Terrain material restore mismatch") end
+            local current = data.terrain:GetMaterialColor(material)
+            if current == imposed and current ~= original then
+                data.terrain:SetMaterialColor(material, original)
+                if data.terrain:GetMaterialColor(material) ~= original then
+                    error("Terrain material restore mismatch")
+                end
+            end
+            -- If changed externally, leave the game's newer color untouched.
         end)
         if not ok then
-            complete = false
+            pending[#pending + 1] = item
             boosterPro.restoreFailures = boosterPro.restoreFailures + 1
             if boosterPro.restoreFailures <= 3 then
-                warn("[124 Community Visuals] Booster: не удалось вернуть цвет Terrain; снимок сохранён")
+                warn("[124 Visuals] Booster Terrain: restore pending for " .. tostring(material))
             end
         end
     end
-    if complete then savedTerrainColors = nil end
-    return complete
+    if #pending > 0 then
+        data.items = pending
+        return false
+    end
+    savedTerrainColors = nil
+    return true
 end
 
 -- FPS Booster Pro: три ступени, снимки ТОЛЬКО изменённых свойств.
