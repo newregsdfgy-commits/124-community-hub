@@ -1029,7 +1029,6 @@ local navigationLayout = mk("UIListLayout", {
     Padding = UDim.new(0, 4),
 }, navSlots)
 local tabButtons, tabUnderline, tabOutlines, pages, pageColumns = {}, {}, {}, {}, {}
-local referenceESP = nil
 local currentPage = "ESP"
 -- Защита от ложных нажатий: палец сдвигает страницу, а не переключатель.
 local scrollFrames = {navSlots}
@@ -1574,18 +1573,6 @@ local function applyResponsiveLayout()
             end
         end
     end
-    if referenceESP then
-        if referenceESP.cancelInteraction then referenceESP.cancelInteraction() end
-        -- Keep legacy reference widgets allocated for compatibility but hidden.
-        -- Native ESP cards are the only active / visible ESP controls.
-        referenceESP.root.Visible = false
-        local espColumns = pageColumns[pages.ESP]
-        if espColumns then
-            espColumns.left.Visible = true
-            espColumns.right.Visible = false
-        end
-        referenceESP.layout(wide)
-    end
     if boosterPro.dashboard then boosterPro.dashboard.layout(wide) end
     if boosterPro.uiFooter and boosterPro.uiFooter.Parent then
         boosterPro.uiFooter.Position = UDim2.new(0, contentX, 1, -29)
@@ -1604,13 +1591,7 @@ end
 
 local function showPage(key)
     if not pages[key] then return end
-    if key ~= "ESP" and referenceESP and referenceESP.clearSearch then
-        referenceESP.clearSearch()
-    end
     sliderDrag = nil -- Смена вкладки отменяет незавершённое перетаскивание.
-    if referenceESP and referenceESP.cancelInteraction then
-        referenceESP.cancelInteraction()
-    end
     if key ~= "AIM" and captureAimKey then
         captureAimKey = false
         repaintAimKeybind()
