@@ -1083,6 +1083,8 @@ addButton(pages.MEMORY, "Диагностика Booster", "Режим, прог�
         .. " | Записано свойств: " .. tostring(boosterPro.changedProperties)
         .. " | Очередь: " .. tostring(boosterPro.queueCount)
         .. " | Переполнение: " .. tostring(boosterPro.queueDropped)
+        .. " | Неудачные записи: " .. tostring(boosterPro.deniedWrites)
+        .. " | Непроверенные записи: " .. tostring(boosterPro.unverifiedWrites)
         .. " | Ошибка: " .. errorText)
 end)
 addButton(pages.MEMORY, "Аудит ресурсов / восстановления",
