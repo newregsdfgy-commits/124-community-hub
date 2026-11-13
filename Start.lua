@@ -1,4 +1,4 @@
--- 124 Visuals / serialized key-gate launcher (payload v1.4.2)
+-- 124 Visuals / serialized key-gate launcher (payload v1.4.3)
 -- Второй запуск Start.lua не уничтожает уже открытую форму ключа.
 local launchEnv = _G
 if type(getgenv) == "function" then
@@ -18,8 +18,8 @@ pcall(function()
     local old = playerGui and playerGui:FindFirstChild("Army124StartupError")
     if old then old:Destroy() end
 end)
--- 124 Visuals / v1.4.2 audited key-gated launcher
-local url = "https://raw.githubusercontent.com/newregsdfgy-commits/124-community-hub/v1.4.2-ui-layout-repair-test/Visuals.lua"
+-- 124 Visuals / v1.4.3 audited key-gated launcher
+local url = "https://raw.githubusercontent.com/newregsdfgy-commits/124-community-hub/v1.4.3-booster-stability-test/Visuals.lua"
 local function failure(stage, reason)
     local text = "[124 START / " .. tostring(stage) .. "] " .. tostring(reason)
     warn(text)
@@ -35,8 +35,8 @@ if not fetched then return failure("NETWORK", source) end
 if type(source) ~= "string" or #source < 100000 then
     return failure("DOWNLOAD", "Неполный Lua: " .. tostring(type(source) == "string" and #source or type(source)))
 end
-if not source:find('Version = "1.4.2"', 1, true) then
-    return failure("VERSION", "Вместо v1.4.2 GitHub вернул другую версию")
+if not source:find('Version = "1.4.3"', 1, true) then
+    return failure("VERSION", "Вместо v1.4.3 GitHub вернул другую версию")
 end
 -- Проверяем наличие основного экрана допуска до исполнения Lua.
 -- Это проверка целостности сборки, не серверная защита от редактирования.
@@ -84,7 +84,7 @@ if env.ARMY124_BOOT_PHASE ~= "ready" then
     return failure(env.ARMY124_BOOT_PHASE or "UNKNOWN",
         env.ARMY124_BOOT_ERROR or "GUI не подтвердил запуск. Проверь PlayerGui и Output.")
 end
-print("[124 START] v1.4.2 GUI ready")
+print("[124 START] v1.4.3 GUI ready")
 return true
 
 end
