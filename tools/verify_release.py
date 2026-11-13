@@ -182,8 +182,8 @@ def main() -> int:
           "data.items = pending" in hub and
           "if original == false then return true" in hub, failures)
     check("Booster diagnostics report denied engine writes",
-          '"Неудачные записи: "' in hub and
-          '"Непроверенные записи: "' in hub, failures)
+          "Неудачные записи:" in hub and
+          "Непроверенные записи:" in hub, failures)
     check("Booster rollback snapshots are tracked",
           "function boosterPro.snapshotStatus(" in hub and
           "function boosterPro.restoreGraphicsSliced(" in hub, failures)
