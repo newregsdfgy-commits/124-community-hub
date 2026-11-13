@@ -213,17 +213,17 @@ local function whitenTerrain()
                 local wrote = pcall(function()
                     terrain:SetMaterialColor(material, terrainWhite)
                 end)
-                if wrote then
-                    local checked, applied = pcall(function()
-                        return terrain:GetMaterialColor(material)
-                    end)
+                local checked, applied = pcall(function()
+                    return terrain:GetMaterialColor(material)
+                end)
+                -- No-op/denied setters must not create fake snapshots.
+                -- A setter that throws AFTER mutating still needs rollback.
+                if (checked and applied ~= current) or (wrote and not checked) then
                     if not item then
                         item = {material, current, terrainWhite}
                         items[#items + 1] = item
                         known[material] = item
                     end
-                    -- An API may clamp the requested color; preserve what it
-                    -- actually wrote so restoration can recognize ownership.
                     if checked then item[3] = applied end
                 end
             end
