@@ -168,6 +168,11 @@ def main() -> int:
           "BoosterBatch = 64" in hub and
           "BoosterQueueBatch = 24" in hub and
           "BoosterSliceMs = 0.75" in hub, failures)
+    check("Boolean false property restores retain explicit last written value",
+          "local lastWritten = nil" in hub and
+          "if written then lastWritten = written[key] end" in hub and
+          "local lastWritten = written and written[key] or nil" not in hub,
+          failures)
     check("Booster records only actually applied graphics writes",
           "if checked and applied ~= current then" in hub and
           "written[key] = applied" in hub and
