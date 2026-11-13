@@ -530,7 +530,7 @@ end
 -- DragBar even while the screenshot ESP pane was hidden. They obscured the
 -- genuine header and reparented close/minimize into unrelated sidebar slots.
 -- Native ESP controls are in 08_ui_controls.lua and remain fully functional.
--- referenceESP deliberately stays nil; its optional legacy hooks are inert.
+-- The obsolete controller and its timers are not instantiated or referenced.
 
 -- v1.1.6 Air Motion Reliability Fix. Пассивная эвристика: не утверждает, что пользователь
 -- читер или модератор, не просматривает роли и не вмешивается в сетевые вызовы.
