@@ -11,8 +11,8 @@ import re
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = "1.4.2"
-BRANCH = "v1.4.2-ui-layout-repair-test"
+VERSION = "1.4.3"
+BRANCH = "v1.4.3-booster-stability-test"
 CHECK_COUNT = [0]
 
 
