@@ -34,6 +34,11 @@ test("writes denied by engine do not become fake graphics snapshots",()=>{
         body.indexOf("if not snap then snap = {}; savedGraphics[obj] = snap end"));
     assert.match(body,/boosterPro\.deniedWrites = boosterPro\.deniedWrites \+ 1/);
 });
+test("boolean false writes are preserved in rollback metadata",()=>{
+    assert.match(booster,/local lastWritten = nil\s+if written then lastWritten = written\[key\] end/);
+    assert.doesNotMatch(booster,/local lastWritten = written and written\[key\] or nil/);
+    assert.match(booster,/if lastWritten ~= nil and current == lastWritten then/);
+});
 test("clamped setter snapshots are restored using last actually applied value",()=>{
     assert.match(booster,/written\[key\] = applied/);
     assert.match(booster,/if lastWritten ~= nil and current == lastWritten then/);
