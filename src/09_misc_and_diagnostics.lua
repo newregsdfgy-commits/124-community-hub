@@ -1125,6 +1125,7 @@ function boosterPro.queueObject(obj)
     if not alive or not state.booster or boosterPro.queuedSeen[obj] then return end
     -- Track meaningful streaming activity only. Unrelated UI/models must not
     -- postpone rescan recovery of earlier dropped graphics indefinitely.
+    if boosterPro.playerFxOwned[obj] then return end
     if not graphicsProperty(obj) then return end
     boosterPro.queueLastAt = os.clock()
     if boosterPro.queueCount >= boosterPro.queueCap then
