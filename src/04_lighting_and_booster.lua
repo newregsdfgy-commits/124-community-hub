@@ -424,24 +424,32 @@ local function optimizeObject(obj, alreadyScreened)
     for key, target in pairs(desired) do
         local read, current = pcall(function() return obj[key] end)
         if read and current ~= target then
-            local previousWrite = boosterPro.graphicsWritten[obj]
-            if snap and snap[key] ~= nil and previousWrite
-                and previousWrite[key] ~= nil and current ~= previousWrite[key] then
-                -- The game changed this property while Booster was active:
-                -- remember the newer baseline before applying the new mode.
-                snap[key] = current
-            end
             local wrote = pcall(function() obj[key] = target end)
-            if wrote then
+            local checked, applied = pcall(function() return obj[key] end)
+            -- A successful setter may be ignored or clamp the target. Never
+            -- pretend the property changed and then lose its real baseline.
+            if checked and applied ~= current then
+                if not snap then snap = {}; savedGraphics[obj] = snap end
+                local written = boosterPro.graphicsWritten[obj]
+                if not written then written = {}; boosterPro.graphicsWritten[obj] = written end
+                if snap[key] == nil or (written[key] ~= nil
+                    and current ~= written[key]) then
+                    -- The game may update a property while Booster is ON.
+                    snap[key] = current
+                end
+                written[key] = applied
+                boosterPro.changedProperties = boosterPro.changedProperties + 1
+            elseif wrote and not checked then
+                -- We cannot confirm whether the setter mutated the object.
+                -- Keep a rollback attempt rather than dropping the original.
                 if not snap then snap = {}; savedGraphics[obj] = snap end
                 if snap[key] == nil then snap[key] = current end
                 local written = boosterPro.graphicsWritten[obj]
                 if not written then written = {}; boosterPro.graphicsWritten[obj] = written end
                 written[key] = target
-                local checked, applied = pcall(function() return obj[key] end)
-                if checked and applied == target then
-                    boosterPro.changedProperties = boosterPro.changedProperties + 1
-                end
+                boosterPro.unverifiedWrites = boosterPro.unverifiedWrites + 1
+            elseif not wrote then
+                boosterPro.deniedWrites = boosterPro.deniedWrites + 1
             end
         end
     end
