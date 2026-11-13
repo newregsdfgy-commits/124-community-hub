@@ -11,6 +11,7 @@ Examined Booster's graphics ownership, mode transitions, scene hierarchy iterati
 
 | ID | Severity | Source behavior in v1.4.2 | Code change in v1.4.3 |
 |---|---|---|---|
+| BOOST-143-00 | **Critical** | `restoreBoosterProperty` computed `lastWritten = written and written[key] or nil`; the Lua `or` operator discards a legitimate `false`, so PostEffect.Enabled=false and CastShadow=false could skip rollback | Read the last value with an explicit `if written then lastWritten = written[key] end`, preserving boolean `false`; executable Luau regression now asserts restoring Enabled from false to true |
 | BOOST-143-01 | High | `restoreTerrainColors()` rewrote every cached material regardless of whether a game script had since changed its color | Track the last Booster-written value per Terrain material and restore only when it still owns that value |
 | BOOST-143-02 | Medium | A partial Terrain restore retried *all* materials, even successful ones; repeated writes could cause small spikes and overwrite later game updates | Keep **only failed entries** in the retry list and drop successful/external-owned entries immediately |
 | BOOST-143-03 | Medium | `whitenTerrain()` treated a successful setter call as a successful material change without a readback, including silent no-ops | Verify actual value, ignore originally white materials, create no new snapshot for a confirmed no-op; keep conservative snapshot if readback fails |
@@ -29,9 +30,9 @@ Examined Booster's graphics ownership, mode transitions, scene hierarchy iterati
 ## Verification
 - `tools/build_visuals.py --check`: exact 12 ordered Lua fragments must equal both Hub.lua and Visuals.lua.
 - `tools/verify_release.py`: release integrity plus 4 new Booster guards.
-- `tests/BoosterDeep143.test.cjs`: 16 new regression checks against actual source.
+- `tests/BoosterDeep143.test.cjs`: 17 new regression checks against actual source, including the critical false-valued property restoration path.
 - `tests/build-booster143-runtime.py`: extracts real production `optimizeObject`, `restoreBoosterProperty`, `restoreObject`, `whitenTerrain`, `restoreTerrainColors`, `hideTerrainGrass`, `restoreTerrainGrass`; executes in Luau with mocks for Roblox property read/write.
-- The new runtime suite tests ignored setters, clamped setters, denied setters, normal mode downgrades, changed external colors, partial material restoration, repeated whiten, grass restoration, plus the existing Player/Booster Atmosphere and ESP/Key/UI fixtures.
+- The new runtime suite tests boolean false post-effects restoration, ignored setters, clamped setters, denied setters, normal mode downgrades, changed external colors, partial material restoration, repeated whiten, grass restoration, plus the existing Player/Booster Atmosphere and ESP/Key/UI fixtures.
 - Official Luau parse/compile of Hub.lua, Visuals.lua and Start.lua in GitHub Actions: `.github/workflows/v143-booster-ci.yml`.
 
 ## Mandatory live QA before merging
