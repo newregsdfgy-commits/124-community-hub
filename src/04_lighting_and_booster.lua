@@ -592,14 +592,15 @@ function boosterPro.diagnosticStatus()
     local snap = boosterPro.snapshotStatus()
     local work = snap.work
     return string.format(
-        "v%s | FPS %d | %s/%s | GPU snapshots %d%s (%d props) | Terrain %s | Lighting %s | Queue %d/%d (drop %d) | Workers scan:%d restore:%d repair:%d avatar:%d | errors:%d | hooks:%d",
+        "v%s | FPS %d | %s/%s | GPU snapshots %d%s (%d props) | Terrain %s | Lighting %s | Queue %d/%d (drop %d) | Workers scan:%d restore:%d repair:%d avatar:%d | errors:%d | denied:%d | uncertain:%d | hooks:%d",
         CONFIG.Version, measuredFps, tostring(boosterPro.phase),
         tostring(state.boosterMode), snap.objects, snap.capped and "+" or "",
         snap.properties, snap.terrain and "pending" or "ok",
         snap.lighting and "pending" or "ok",
         boosterPro.queueCount, boosterPro.queueCap, boosterPro.queueDropped,
         work.scan, work.restore, work.repair, work.avatar,
-        boosterPro.restoreFailures, #connections
+        boosterPro.restoreFailures, boosterPro.deniedWrites,
+        boosterPro.unverifiedWrites, #connections
     )
 end
 function boosterPro.readout()
