@@ -168,6 +168,22 @@ def main() -> int:
           "BoosterBatch = 64" in hub and
           "BoosterQueueBatch = 24" in hub and
           "BoosterSliceMs = 0.75" in hub, failures)
+    check("Booster records only actually applied graphics writes",
+          "if checked and applied ~= current then" in hub and
+          "written[key] = applied" in hub and
+          "boosterPro.deniedWrites = boosterPro.deniedWrites + 1" in hub,
+          failures)
+    check("Booster prioritizes Lighting before the full map",
+          hub.find("if not optimizeHierarchy(Lighting, revision) then return end")
+          < hub.find("and not optimizeHierarchy(Workspace, revision) then return end"),
+          failures)
+    check("Terrain partial rollback respects newer game colors",
+          "if current == imposed and current ~= original then" in hub and
+          "data.items = pending" in hub and
+          "if original == false then return true" in hub, failures)
+    check("Booster diagnostics report denied engine writes",
+          '"Неудачные записи: "' in hub and
+          '"Непроверенные записи: "' in hub, failures)
     check("Booster rollback snapshots are tracked",
           "function boosterPro.snapshotStatus(" in hub and
           "function boosterPro.restoreGraphicsSliced(" in hub, failures)
