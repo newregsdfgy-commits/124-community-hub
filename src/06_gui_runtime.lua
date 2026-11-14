@@ -1106,8 +1106,9 @@ end
 local function safeActivate(control, callback)
     local lastActivatedAt = -1e8
     local pressNumber, consumedPress = 0, -1
-    -- Distinct physical presses must work immediately, even within 380 ms.
-    -- Activated and the legacy MouseButton1Click fallback share one press ID.
+    -- Roblox may deliver Activated or MouseButton1Click without delivering
+    -- InputBegan to this TextButton (e.g. after a child consumes the press).
+    -- A consumed press ID must not make the control dead until reload.
     connect(control.InputBegan, function(input)
         if input and (input.UserInputType == Enum.UserInputType.MouseButton1
             or input.UserInputType == Enum.UserInputType.Touch) then
@@ -1120,11 +1121,17 @@ local function safeActivate(control, callback)
         local pointer = input == nil
             or input.UserInputType == Enum.UserInputType.MouseButton1
             or input.UserInputType == Enum.UserInputType.Touch
-        if pointer and pressNumber > 0 then
-            if consumedPress == pressNumber then return end
-            consumedPress = pressNumber
-        elseif now - lastActivatedAt < (pointer and 0.38 or 0.18) then
-            -- Legacy clients without InputBegan still need a timed fallback.
+        if pointer then
+            if pressNumber > 0 and consumedPress ~= pressNumber then
+                -- Distinct physical press: never hold it behind a long cooldown.
+                consumedPress = pressNumber
+            elseif now - lastActivatedAt < 0.14 then
+                -- The paired legacy callback from the SAME click is ignored.
+                return
+            end
+            -- After 140ms permit a fresh click even if the engine did not
+            -- expose another InputBegan to this individual GUI control.
+        elseif now - lastActivatedAt < 0.12 then
             return
         end
         lastActivatedAt = now
@@ -1133,7 +1140,6 @@ local function safeActivate(control, callback)
     end
     local primary = connect(control.Activated, fire)
     if control:IsA("TextButton") or control:IsA("ImageButton") then
-        -- Fallback for clients that send only MouseButton1Click.
         connect(control.MouseButton1Click, function() fire(nil) end)
     end
     return primary
