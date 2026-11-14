@@ -51,7 +51,7 @@ jobs:
       - name: Execute actual UI input, weather, Player, ESP, Key and Booster source
         run: |
           set -euo pipefail
-          node tests/build-aim-recoil141-audit.cjs
+          node tests/build-legacy-aim149-runtime.cjs
           node tests/build-buttons149-runtime.cjs
           node tests/build-movement148-runtime.cjs
           python3 tests/build-deep145-runtime.py
@@ -61,7 +61,7 @@ jobs:
           python3 tests/build-booster143-runtime.py
           python3 tests/build-booster141-runtime.py
           python3 tests/build-131-runtime-audit.py
-          ./luau-build/luau /tmp/Army124-AimRecoil141.luau
+          ./luau-build/luau /tmp/Army124-LegacyAim149.luau
           ./luau-build/luau /tmp/Army124-Buttons149.luau
           ./luau-build/luau /tmp/Army124-Movement148.luau
           ./luau-build/luau /tmp/Army124-Deep145.luau
