@@ -1604,6 +1604,16 @@ local function applyResponsiveLayout()
                 info.right.Size = UDim2.new(0.5, -5, 1, 0)
                 info.right.Visible = true
             end
+            -- Reserve a fixed, non-scrollable AIM control strip above
+            -- both ScrollingFrames. Otherwise it would cover the old toggle.
+            if page == pages.AIM then
+                local reserved = 52
+                for _, scroll in ipairs({info.left, info.right}) do
+                    local pos, size = scroll.Position, scroll.Size
+                    scroll.Position = UDim2.new(pos.X.Scale, pos.X.Offset, 0, reserved)
+                    scroll.Size = UDim2.new(size.X.Scale, size.X.Offset, 1, -reserved)
+                end
+            end
             info.singleColumn = singleColumn
             for _, item in ipairs(info.widgets) do
                 local desired = singleColumn and info.left or info[item.side]
