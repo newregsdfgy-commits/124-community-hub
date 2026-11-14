@@ -139,34 +139,44 @@ local playerFX = (function()
                 controller.auraEmitter = newOwned("ParticleEmitter", {
                     Name = "Army124PlayerAura",
                     Texture = "rbxasset://textures/particles/sparkles_main.dds",
-                    Rate = 10 + strength * 5,
-                    Lifetime = NumberRange.new(0.75, 1.25),
-                    Speed = NumberRange.new(0.45, 1.8),
-                    SpreadAngle = Vector2.new(175, 175),
+                    -- The old 0.14-0.27 stud particles were nearly invisible
+                    -- around a full R15 body. Keep the effect bounded but vivid.
+                    Rate = 24 + strength * 10,
+                    Lifetime = NumberRange.new(0.95, 1.7),
+                    Speed = NumberRange.new(0.65, 2.1),
+                    SpreadAngle = Vector2.new(180, 180),
                     Size = NumberSequence.new({
-                        NumberSequenceKeypoint.new(0, 0.14),
-                        NumberSequenceKeypoint.new(0.5, 0.27),
-                        NumberSequenceKeypoint.new(1, 0),
+                        NumberSequenceKeypoint.new(0, 0.26),
+                        NumberSequenceKeypoint.new(0.42, 0.50),
+                        NumberSequenceKeypoint.new(1, 0.04),
                     }),
                     Transparency = NumberSequence.new({
-                        NumberSequenceKeypoint.new(0, 0.26),
-                        NumberSequenceKeypoint.new(0.7, 0.48),
+                        NumberSequenceKeypoint.new(0, 0.12),
+                        NumberSequenceKeypoint.new(0.55, 0.31),
                         NumberSequenceKeypoint.new(1, 1),
                     }),
-                    LightEmission = 0.75,
+                    LightEmission = 0.90,
                     LightInfluence = 0,
                     LockedToPart = false,
                     Enabled = true,
                 }, controller.auraAttachment)
             end
             controller.auraEmitter.Color = ColorSequence.new(color)
-            controller.auraEmitter.Rate = 10 + strength * 5
+            controller.auraEmitter.Rate = 24 + strength * 10
+            local size = 0.32 + strength * 0.09
+            controller.auraEmitter.Size = NumberSequence.new({
+                NumberSequenceKeypoint.new(0, size * 0.5),
+                NumberSequenceKeypoint.new(0.42, size),
+                NumberSequenceKeypoint.new(1, 0.04),
+            })
         else
             safeDestroy(controller.auraEmitter)
             safeDestroy(controller.auraAttachment)
             controller.auraEmitter, controller.auraAttachment = nil, nil
         end
-        if state.playerGlowEnabled then
+        -- A visible contour belongs to Aura too: players should not need to
+        -- enable the independent Glow switch to actually see an aura.
+        if state.playerGlowEnabled or state.playerAuraEnabled then
             if not controller.glowHighlight or controller.glowHighlight.Parent ~= character then
                 safeDestroy(controller.glowHighlight)
                 controller.glowHighlight = newOwned("Highlight", {
@@ -181,6 +191,15 @@ local playerFX = (function()
             controller.glowHighlight.Adornee = character
             controller.glowHighlight.FillColor = color
             controller.glowHighlight.OutlineColor = color
+            controller.glowHighlight.FillTransparency =
+                state.playerGlowEnabled and 0.70 or 0.88
+            controller.glowHighlight.OutlineTransparency =
+                state.playerGlowEnabled and 0.10 or 0.38
+        else
+            safeDestroy(controller.glowHighlight)
+            controller.glowHighlight = nil
+        end
+        if state.playerGlowEnabled then
             if not controller.glowLight or controller.glowLight.Parent ~= root then
                 safeDestroy(controller.glowLight)
                 controller.glowLight = newOwned("PointLight", {
@@ -191,12 +210,11 @@ local playerFX = (function()
                 }, root)
             end
             controller.glowLight.Color = color
-            controller.glowLight.Brightness = 0.4 + strength * 0.35
-            controller.glowLight.Range = 8 + strength * 1.5
+            controller.glowLight.Brightness = 0.6 + strength * 0.48
+            controller.glowLight.Range = 10 + strength * 1.8
         else
-            safeDestroy(controller.glowHighlight)
             safeDestroy(controller.glowLight)
-            controller.glowHighlight, controller.glowLight = nil, nil
+            controller.glowLight = nil
         end
     end
     -- Save only Fog properties that this module changes. Dynamic game
