@@ -11,8 +11,8 @@ import re
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = "1.4.8"
-BRANCH = "v1.4.8-full-stability-audit-test"
+VERSION = "1.4.9"
+BRANCH = "v1.4.9-legacy-aim-controls-weather-fix-test"
 CHECK_COUNT = [0]
 
 
