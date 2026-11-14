@@ -124,8 +124,126 @@ local function addToggle(page, title, description, key, onChanged)
         requestSave()
     end
     row.Active = true
-    -- One centralized input path for AIM and every other switch.
-    safeActivate(row, onRowActivated)
+    if key == "aimbot" then
+        -- AIM INPUT HOTFIX: the legacy generic button was not reliably
+        -- receiving Activated when a switch/label or another UI layer was
+        -- chosen as the input target. Give AIM its own full-row hit surface.
+        -- The global InputEnded path is a fallback, not an extra activation.
+        local surface = mk("TextButton", {
+            Name = "AimFullRowHitSurface", Size = UDim2.fromScale(1, 1),
+            Position = UDim2.fromScale(0, 0), BackgroundTransparency = 1,
+            Text = "", AutoButtonColor = false, Active = true,
+            Selectable = true, ZIndex = 25,
+        }, row)
+        local debug = {
+            presses = 0, activated = 0, recovered = 0,
+            blocked = 0, lastSource = "ready", lastError = "",
+        }
+        boosterPro.aimClickDebug = debug
+        local serial, consumedSerial = 0, -1
+        local lastStarted, lastFired = -1e8, -1e8
+        local latestInput, downInput, downPosition = nil, nil, nil
+        local function inside(position)
+            if not position or not alive or not gui.Enabled
+                or not panel.Visible or not page.Visible
+                or not row.Parent or not row.Visible then return false end
+            local at, size = row.AbsolutePosition, row.AbsoluteSize
+            if not at or not size or size.X < 24 or size.Y < 24 then return false end
+            return position.X >= at.X and position.X <= at.X + size.X
+                and position.Y >= at.Y and position.Y <= at.Y + size.Y
+        end
+        local function exposed(position)
+            -- Do not route a click through an unrelated topmost modal/button.
+            local ok, objects = pcall(PlayerGui.GetGuiObjectsAtPosition,
+                PlayerGui, position.X, position.Y)
+            if not ok or type(objects) ~= "table" or #objects == 0 then
+                return true -- Degraded executor API: geometry still works.
+            end
+            local first = objects[1]
+            if not first then return true end
+            local insideRow = first == row or first == surface
+            if not insideRow then
+                local checkOk, value = pcall(function() return first:IsDescendantOf(row) end)
+                insideRow = checkOk and value
+            end
+            if not insideRow then
+                debug.blocked = debug.blocked + 1
+                debug.lastError = "UI covered by " .. tostring(first.Name or "?")
+            end
+            return insideRow
+        end
+        local function activate(source, token)
+            if not alive or not gui.Enabled or not panel.Visible or not page.Visible
+                or not row.Parent then return end
+            local now = os.clock()
+            if token ~= nil and consumedSerial == token then return end
+            if token == nil and now - lastFired < 0.14 then return end
+            if token ~= nil then consumedSerial = token end
+            lastFired = now
+            debug.presses = debug.presses + 1
+            debug.lastSource = source
+            local previous = state.aimbot
+            local ok, err = pcall(onRowActivated)
+            if not ok then
+                debug.lastError = tostring(err)
+                tell("AIM button callback: " .. tostring(err))
+            elseif previous == state.aimbot then
+                debug.lastError = "state unchanged; see Output"
+                tell("AIM: нажатие получено, но состояние не изменилось")
+            else
+                debug.lastError = ""
+            end
+        end
+        -- These events come from UserInputService, so a dropped TextButton
+        -- Activated does not leave the visible switch completely unresponsive.
+        connect(UserInputService.InputBegan, function(input)
+            local kind = input.UserInputType
+            if kind ~= Enum.UserInputType.MouseButton1
+                and kind ~= Enum.UserInputType.Touch then return end
+            local position = input.Position
+            if inside(position) and exposed(position) then
+                serial = serial + 1
+                lastStarted = os.clock()
+                latestInput, downInput, downPosition = input, input, position
+            end
+        end)
+        connect(UserInputService.InputEnded, function(input)
+            if input ~= downInput then return end
+            downInput = nil
+            local position = input.Position
+            if not inside(position) or not exposed(position) then return end
+            if downPosition then
+                local dx = position.X - downPosition.X
+                local dy = position.Y - downPosition.Y
+                if dx * dx + dy * dy > 144 then return end
+            end
+            debug.recovered = debug.recovered + 1
+            activate("input-ended", serial)
+        end)
+        local function eventToken(input)
+            if serial > 0 and os.clock() - lastStarted < 0.50
+                and (input == nil or input == latestInput) then
+                return serial
+            end
+            return nil
+        end
+        connect(surface.Activated, function(input)
+            if not allowTap(input) then return end
+            debug.activated = debug.activated + 1
+            activate("surface-activated", eventToken(input))
+        end)
+        connect(surface.MouseButton1Click, function()
+            activate("surface-click", eventToken(nil))
+        end)
+        -- If the Roblox client does not emit Activated on the surface but
+        -- emits it on the underlying row, still route it through one token.
+        connect(row.Activated, function(input)
+            if not allowTap(input) then return end
+            activate("row-activated", eventToken(input))
+        end)
+    else
+        safeActivate(row, onRowActivated)
+    end
     update()
     return row
 end
