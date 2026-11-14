@@ -1302,14 +1302,38 @@ addToggle(pages.PLAYER, "Свечение тела", "Контур + мягки�
     "playerGlowEnabled", function() playerFX.syncAvatar() end)
 
 addSection(pages.PLAYER, "LOCAL WEATHER", "Клиентская погода · туман, дождь, ночной фильтр")
-addToggle(pages.PLAYER, "Изменить погоду", "Локальный Fog и цветокоррекция, без изменения сервера",
-    "playerWeatherEnabled", function() playerFX.syncWeather() end)
+addToggle(pages.PLAYER, "Изменить погоду", "Включить погоду. CLEAR при первом запуске станет FOG",
+    "playerWeatherEnabled", function(enabled)
+        local previousMode = state.playerWeatherMode
+        if enabled and previousMode == "CLEAR" then
+            state.playerWeatherMode = "FOG"
+        end
+        local ok, err = pcall(playerFX.syncWeather)
+        if not ok then
+            state.playerWeatherMode = previousMode
+            error(err)
+        end
+        if refreshChoices.playerWeatherMode then refreshChoices.playerWeatherMode() end
+        tell(enabled and ("Погода: " .. state.playerWeatherMode) or "Погода: CLEAR / OFF")
+    end)
 addChoice(pages.PLAYER, "Пресет погоды", {
     {value = "CLEAR", label = "CLEAR"},
     {value = "FOG", label = "FOG"},
     {value = "RAIN", label = "RAIN"},
     {value = "NIGHT", label = "NIGHT"},
-}, "playerWeatherMode", function() playerFX.syncWeather() end)
+}, "playerWeatherMode", function(mode)
+    -- A mode choice is a real action, not a hidden preference behind another
+    -- OFF toggle. Choosing CLEAR restores the game's weather immediately.
+    local previousEnabled = state.playerWeatherEnabled
+    state.playerWeatherEnabled = mode ~= "CLEAR"
+    local ok, err = pcall(playerFX.syncWeather)
+    if not ok then
+        state.playerWeatherEnabled = previousEnabled
+        error(err)
+    end
+    if refreshToggles.playerWeatherEnabled then refreshToggles.playerWeatherEnabled() end
+    tell(mode == "CLEAR" and "Погода: исходная / OFF" or ("Погода: " .. mode))
+end)
 
 addSection(pages.PLAYER, "ENVIRONMENT COLOR", "Тон окружения, не меняет детали карты")
 addToggle(pages.PLAYER, "Цвет окружения", "Собственный ColorCorrectionEffect без репликации",
