@@ -1,11 +1,11 @@
--- 124 Visuals v1.4.7 | UI Input, Weather, Aura and Lifecycle Repair
+-- 124 Visuals v1.4.8 | UI Input, Weather, Aura and Lifecycle Repair
 -- Первый плейс: 18537079992. Запуск поддерживает все игровые PlaceId.
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.4.7",
+    Version = "1.4.8",
     OriginalPlaceId = 18537079992,
     EspRefreshSeconds = 0.35, -- Быстрый поиск персонажей, без обновления UI каждый кадр.
     EspEventMinSeconds = 0.18, -- Коалесцированные события не запускают 16 полных сканов/сек.
@@ -4348,7 +4348,12 @@ local function abortPartialHub()
         pcall(applyLighting)
         local weatherOk, weatherRestored = pcall(playerFX.restoreWeather)
         local uiOk, uiRestored = pcall(emergencyUIRollback)
-        return graphicsOk and graphicsRestored == true
+        local movementOK = true
+        if boosterPro.movement then
+            local ok, done = pcall(boosterPro.movement.retryPending)
+            movementOK = ok and done == true and not boosterPro.movement.pending()
+        end
+        return movementOK and graphicsOk and graphicsRestored == true
             and weatherOk and weatherRestored == true and not playerFX.pending()
             and savedLighting == nil and savedTerrainDecoration == nil
             and savedTerrainColors == nil
@@ -4493,8 +4498,7 @@ local function setAimEnabled(enabled, activateKeyAim)
         -- Быстрый режим: горячая клавиша сразу начинает наведение без ПКМ.
         aimHeldKey = true
     end
-    aimTarget = nil
-    aimNextScan = 0
+    aimPro.reset()
     if refreshToggles.aimbot then refreshToggles.aimbot() end
     refreshFovRing()
     repaintAimTouch()
@@ -4974,8 +4978,7 @@ local function applySettings(incoming, autoLoad)
     if boosterPro.setLocalCrosshair then
         boosterPro.setLocalCrosshair(state.crosshairLocal == true)
     end
-    aimTarget = nil
-    aimNextScan = 0
+    aimPro.reset()
     end)
     if not ok then
         warn("[124 Community Visuals] Ошибка применения профиля: " .. tostring(err))
@@ -6579,8 +6582,7 @@ local function addAimModeSelector(page)
         safeActivate(button, function()
             if not alive then return end
             state.aimMode = mode.value
-            aimTarget = nil
-            aimNextScan = 0
+            aimPro.reset()
             repaint()
             requestSave()
         end)
@@ -6834,20 +6836,21 @@ addButton(pages.AIM, "Очистить список оружия",
     end)
 repaintAimKeybind = addAimKeybind(pages.AIM)
 addToggle(pages.AIM, "Проверка команды", "Игнорировать союзников", "teamCheck", function()
-    aimTarget = nil
-    aimNextScan = 0
+    aimPro.reset()
 end)
 addToggle(pages.AIM, "Visible Check", "ON: только видимые | OFF: через стены", "visibleCheck", function()
-    aimTarget = nil
-    aimNextScan = 0
+    aimPro.reset()
 end)
 addToggle(pages.AIM, "Target Lock", "Удерживать выбранную цель", "targetLock", function()
-    aimTarget = nil; aimNextScan = 0
+    aimPro.reset()
 end)
 addSection(pages.AIM, "ADVANCED", "Точность и упреждение")
-addToggle(pages.AIM, "Prediction", "Упреждение движения персонажа", "prediction")
+addToggle(pages.AIM, "Prediction", "Упреждение движения персонажа", "prediction", function()
+    aimPro.reset()
+end)
 addSlider(pages.AIM, "Упреждение", "Прогноз 0–0.25 секунды", "predictionSeconds", 0, 0.25, 0.01,
-    function(v) return string.format("%.2f s", v) end)
+    function(v) return string.format("%.2f s", v) end,
+    function() aimPro.reset() end)
 addSlider(pages.AIM, "Скорость по горизонтали", "Множитель плавности X", "aimSmoothX", 1, 10, 1,
     function(v) return tostring(v) .. " / 10" end)
 addSlider(pages.AIM, "Скорость по вертикали", "Множитель плавности Y", "aimSmoothY", 1, 10, 1,
@@ -6857,7 +6860,7 @@ addToggle(pages.AIM, "Показывать FOV", "Круг на экране п�
 addSlider(pages.AIM, "Радиус FOV", "40–400 пикселей, размер зоны захвата", "aimFovPixels",
     CONFIG.AimFovMinPixels, CONFIG.AimFovMaxPixels, 5,
     function(value) return tostring(value) .. " px" end,
-    function() aimTarget = nil; aimNextScan = 0; refreshFovRing() end)
+    function() aimPro.reset(); refreshFovRing() end)
 addSlider(pages.AIM, "Толщина FOV", "Тонкая или выраженная окружность", "fovThickness",
     1, 4, 1, function(value) return tostring(value) .. " px" end,
     refreshFovRing)
@@ -6881,7 +6884,7 @@ addSection(pages.AIM, "CONTROL", "Дистанция и плавность")
 addSlider(pages.AIM, "Дистанция AIM", "5–180 метров, граница захвата", "aimRangeMeters",
     CONFIG.AimRangeMinMeters, CONFIG.AimRangeMaxMeters, 5,
     function(value) return tostring(value) .. " м" end,
-    function() aimTarget = nil; aimNextScan = 0 end)
+    function() aimPro.reset() end)
 addSlider(pages.AIM, "Скорость AIM", "0 = быстро, но без резких рывков · 10 = плавно", "aimSmoothness",
     0, 10, 1,
     function(value) return value == 0 and "MAX" or "Smooth " .. tostring(value) end)
@@ -6908,44 +6911,104 @@ local movement = {
     attachment = nil, velocity = nil, orientation = nil,
     noclipCharacter = nil, noclipAdded = nil,
     collisionOriginals = setmetatable({}, {__mode = "k"}),
+    pendingSpeeds = setmetatable({}, {__mode = "k"}),
+    pendingAutoRotates = setmetatable({}, {__mode = "k"}),
     stepConnection = nil, lastSpeedApply = 0, lastAppliedSpeed = nil, lastErrorAt = 0,
     nextPassiveAt = 0, nextNoclipAt = 0, lastFlatForward = Vector3.new(0, 0, -1),
     lastFacing = nil,
 }
 boosterPro.movement = movement
 
+-- Pending writes are independent of the active character: a failed Roblox
+-- setter must never lose the previous humanoid's baseline on respawn/unload.
 function movement.restoreSpeed()
     if movement.speedHumanoid and movement.originalSpeed ~= nil
         and movement.lastAppliedSpeed ~= nil then
-        pcall(function()
-            -- Если сама игра поменяла скорость после последней записи,
-            -- не перезаписываем новое значение устаревшим снимком.
-            if movement.speedHumanoid.Parent
-                and movement.speedHumanoid.WalkSpeed == movement.lastAppliedSpeed then
-                movement.speedHumanoid.WalkSpeed = movement.originalSpeed
-            end
-        end)
+        movement.pendingSpeeds[movement.speedHumanoid] = {
+            original = movement.originalSpeed, last = movement.lastAppliedSpeed,
+        }
     end
     movement.speedHumanoid, movement.originalSpeed, movement.lastAppliedSpeed = nil, nil, nil
+    return movement.retrySpeeds()
+end
+
+function movement.retrySpeeds()
+    local complete = true
+    for humanoid, snapshot in pairs(movement.pendingSpeeds) do
+        local readOK, current = pcall(function()
+            if not humanoid.Parent then return nil end
+            return humanoid.WalkSpeed
+        end)
+        if not readOK then
+            complete = false
+        elseif current == nil or current ~= snapshot.last then
+            -- A newer game-owned value must not be overwritten.
+            movement.pendingSpeeds[humanoid] = nil
+        else
+            -- Even a setter that mutates then throws is considered restored
+            -- when readback confirms the original value.
+            pcall(function() humanoid.WalkSpeed = snapshot.original end)
+            local ok, after = pcall(function() return humanoid.WalkSpeed end)
+            if ok and after == snapshot.original then
+                movement.pendingSpeeds[humanoid] = nil
+            elseif ok and after ~= snapshot.last then
+                -- Another script took ownership or the engine clamped it.
+                movement.pendingSpeeds[humanoid] = nil
+            else
+                complete = false
+            end
+        end
+    end
+    return complete
 end
 
 function movement.restoreCollision()
     if movement.noclipAdded then
-        movement.noclipAdded:Disconnect()
+        pcall(function() movement.noclipAdded:Disconnect() end)
         movement.noclipAdded = nil
     end
+    local complete = true
     for part, original in pairs(movement.collisionOriginals) do
-        pcall(function()
-            -- Noclip записывал только false. Не затираем true,
-            -- установленное другой системой после активации.
-            if part.Parent and original == true and part.CanCollide == false then
-                part.CanCollide = true
-            end
+        local readOK, current = pcall(function()
+            if not part.Parent then return nil end
+            return part.CanCollide
         end)
-        movement.collisionOriginals[part] = nil
+        if not readOK then
+            complete = false
+        elseif current == nil or original == false or current == true then
+            movement.collisionOriginals[part] = nil
+        else
+            -- Only restore false -> true if this feature originally changed it.
+            pcall(function() part.CanCollide = true end)
+            local ok, after = pcall(function() return part.CanCollide end)
+            if ok and after == true then
+                movement.collisionOriginals[part] = nil
+            else
+                complete = false
+            end
+        end
     end
     movement.noclipCharacter = nil
     movement.nextNoclipAt = 0
+    return complete
+end
+
+function movement.pending()
+    return movement.speedHumanoid ~= nil and movement.lastAppliedSpeed ~= nil
+        or next(movement.pendingSpeeds) ~= nil
+        or next(movement.collisionOriginals) ~= nil
+        or next(movement.pendingAutoRotates) ~= nil
+end
+
+function movement.retryPending()
+    -- Only invoke while Noclip is OFF: its active snapshots must stay intact.
+    local speedOK = movement.retrySpeeds()
+    local autoRotateOK = movement.retryAutoRotates()
+    if not state.noclip then
+        local collisionOK = movement.restoreCollision()
+        return speedOK and autoRotateOK and collisionOK and not movement.pending()
+    end
+    return speedOK and autoRotateOK
 end
 
 function movement.recordPart(obj)
@@ -6967,25 +7030,51 @@ function movement.startNoclip(character)
     end)
 end
 
+function movement.retryAutoRotates()
+    local complete = true
+    for humanoid, original in pairs(movement.pendingAutoRotates) do
+        local readOK, current = pcall(function()
+            if not humanoid.Parent then return nil end
+            return humanoid.AutoRotate
+        end)
+        if not readOK then
+            complete = false
+        elseif current == nil or current == original or current ~= false then
+            -- A newer game setting must be preserved.
+            movement.pendingAutoRotates[humanoid] = nil
+        else
+            pcall(function() humanoid.AutoRotate = original end)
+            local ok, after = pcall(function() return humanoid.AutoRotate end)
+            if ok and after == original then
+                movement.pendingAutoRotates[humanoid] = nil
+            else
+                complete = false
+            end
+        end
+    end
+    return complete
+end
+
 function movement.restoreFly()
     if movement.velocity then pcall(function() movement.velocity:Destroy() end) end
     if movement.orientation then pcall(function() movement.orientation:Destroy() end) end
     if movement.attachment then pcall(function() movement.attachment:Destroy() end) end
     movement.velocity, movement.orientation, movement.attachment = nil, nil, nil
-    if movement.flyHumanoid and movement.originalAutoRotate ~= nil then
+    local humanoid = movement.flyHumanoid
+    if humanoid and movement.originalAutoRotate ~= nil then
+        movement.pendingAutoRotates[humanoid] = movement.originalAutoRotate
+        -- Restore humanoid physics independently from the AutoRotate setter.
         pcall(function()
-            if movement.flyHumanoid.Parent then
-                movement.flyHumanoid.AutoRotate = movement.originalAutoRotate
-                if movement.flyHumanoid.Health > 0 and not movement.flyHumanoid.Sit
-                    and movement.flyHumanoid.SeatPart == nil
-                    and movement.flyHumanoid:GetState() == Enum.HumanoidStateType.Physics then
-                    movement.flyHumanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
-                end
+            if humanoid.Parent and humanoid.Health > 0 and not humanoid.Sit
+                and humanoid.SeatPart == nil
+                and humanoid:GetState() == Enum.HumanoidStateType.Physics then
+                humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
             end
         end)
     end
     movement.flyHumanoid, movement.flyRoot, movement.originalAutoRotate = nil, nil, nil
     movement.lastFacing = nil
+    return movement.retryAutoRotates()
 end
 
 function movement.ensureFly(humanoid, root)
@@ -7020,25 +7109,23 @@ function movement.ensureFly(humanoid, root)
         align.Responsiveness = 20
         align.Parent = root
         movement.originalAutoRotate = humanoid.AutoRotate
+        movement.flyHumanoid, movement.flyRoot = humanoid, root
         humanoid.AutoRotate = false
         humanoid:ChangeState(Enum.HumanoidStateType.Physics)
         movement.attachment, movement.velocity, movement.orientation =
             attachment, linear, align
-        movement.flyHumanoid, movement.flyRoot = humanoid, root
     end)
     if not ok then
         for _, obj in ipairs(built) do pcall(function() obj:Destroy() end) end
         movement.restoreFly()
+        -- If this second best-effort rollback also fails, retain the
+        -- true preflight baseline for next worker/relaunch recovery.
         pcall(function()
-            if humanoid.Parent then
-                humanoid.AutoRotate = originalRotate
-                if humanoid.Health > 0 and not humanoid.Sit
-                    and humanoid.SeatPart == nil
-                    and humanoid:GetState() == Enum.HumanoidStateType.Physics then
-                    humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
-                end
-            end
+            if humanoid.Parent then humanoid.AutoRotate = originalRotate end
         end)
+        local restored = false
+        pcall(function() restored = humanoid.AutoRotate == originalRotate end)
+        if not restored then movement.pendingAutoRotates[humanoid] = originalRotate end
         state.fly = false
         if refreshToggles.fly then pcall(refreshToggles.fly) end
         -- Не оставляем пустой physics callback после отказа запуска.
@@ -7091,8 +7178,12 @@ function movement.step()
                     and humanoid.WalkSpeed ~= movement.lastAppliedSpeed then
                     movement.originalSpeed = humanoid.WalkSpeed
                 end
-                humanoid.WalkSpeed = state.speedValue
+                -- Record intent BEFORE the setter: engine writes may mutate
+                -- then throw, and shutdown must still know what to restore.
                 movement.lastAppliedSpeed = state.speedValue
+                humanoid.WalkSpeed = state.speedValue
+                -- Some games clamp WalkSpeed without throwing.
+                movement.lastAppliedSpeed = humanoid.WalkSpeed
             end
             movement.lastSpeedApply = os.clock()
         end
@@ -7231,6 +7322,7 @@ function movement.shutdown()
         movement.stepConnection = nil
     end
     movement.releaseCharacter()
+    return movement.retryPending()
 end
 
 addSection(pages.MEMORY, "AIR MOTION WATCH", "Подозрительное перемещение — не определение модераторов")
@@ -8553,8 +8645,7 @@ connect(aimTouchButton.Activated, function()
     else
         aimHeldTouch = true
     end
-    aimTarget = nil
-    aimNextScan = 0
+    aimPro.reset()
     repaintAimTouch()
 end)
 repaintAimTouch()
@@ -9055,7 +9146,8 @@ cleanup = function(safeStop)
     if savedLighting or savedTerrainDecoration or savedTerrainColors
         or next(savedGraphics) ~= nil or next(memoryFX.camera.saved) ~= nil
         or next(memoryFX.spin.pending) ~= nil or recoil.spread.pending()
-        or playerFX.pending() then
+        or playerFX.pending()
+        or (boosterPro.movement and boosterPro.movement.pending()) then
         local previousRecovery = env.ARMY124_RECOVERY
         local pendingRecovery
         pendingRecovery = function()
@@ -9072,14 +9164,20 @@ cleanup = function(safeStop)
             local cameraOK = pcall(memoryFX.camera.reset)
             local spinOK = pcall(memoryFX.spin.restorePending)
             local spreadOK, spreadRestored = pcall(recoil.restoreSpread)
+            local movementOK, movementRestored = true, true
+            if boosterPro.movement then
+                movementOK, movementRestored = pcall(boosterPro.movement.retryPending)
+            end
             local done = lightingOK and weatherOK and weatherRestored == true
                 and grassOK and colorsOK and graphicsOK
                 and cameraOK and spinOK and spreadOK and spreadRestored == true
+                and movementOK and movementRestored == true
                 and not (savedLighting or savedTerrainDecoration or savedTerrainColors)
                 and next(savedGraphics) == nil
                 and next(memoryFX.camera.saved) == nil
                 and next(memoryFX.spin.pending) == nil
                 and not recoil.spread.pending() and not playerFX.pending()
+                and (not boosterPro.movement or not boosterPro.movement.pending())
             if done and oldDone and env.ARMY124_RECOVERY == pendingRecovery then
                 env.ARMY124_RECOVERY = nil
             end
@@ -9298,6 +9396,12 @@ task.spawn(function()
         -- Это уже существующий редкий HUD-цикл, нового worker не создаём.
         if not state.noSpread and recoil.spread.pending() then
             pcall(recoil.restoreSpread)
+        end
+        -- Reuse the existing HUD worker to retry Movement recovery,
+        -- never a new render or physics loop.
+        if boosterPro.movement and not state.speedEnabled and not state.noclip
+            and boosterPro.movement.pending() then
+            pcall(boosterPro.movement.retryPending)
         end
         -- Отложенный откат после временного отказа записи API: до полной успешности
         -- не забываем исходные свойства. Не восстанавливаем Terrain при WHITE/ULTRA.
