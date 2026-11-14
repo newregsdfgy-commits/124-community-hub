@@ -61,7 +61,7 @@ local function columnFor(page)return page end
 local function registerWidget(page,row)end
 local rows={}
 local function mk(kind,props,parent)
-    local obj={Parent=parent or {},ClassName=kind,
+    local obj={Parent=parent or {},ClassName=kind,Visible=true,
         Activated=signal(),MouseButton1Click=signal(),InputBegan=signal()}
     for k,v in pairs(props)do obj[k]=v end
     function obj:IsA(c)return self.ClassName==c end
