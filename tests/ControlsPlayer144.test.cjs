@@ -46,9 +46,10 @@ test("choice widgets refresh automatically on profile changes",()=>{
     assert.match(ui,/refreshChoices\[key\] = repaint/);
     assert.match(gui,/for _, update in pairs\(refreshChoices\) do pcall\(update\) end/);
 });
-test("all switches use one central activation handler",()=>{
-    assert.match(ui,/row\.Active = true\s+-- One centralized input path/);
-    assert.match(ui,/safeActivate\(row, onRowActivated\)/);
+test("regular switches share safeActivate; AIM has its own input-safe hitbox",()=>{
+    assert.match(ui,/row\.Active = true\s+if key == "aimbot" then/);
+    assert.match(ui,/Name = "AimFullRowHitSurface"/);
+    assert.match(ui,/else\s+safeActivate\(row, onRowActivated\)/);
     assert.doesNotMatch(ui,/connect\(row\.MouseButton1Click, onRowActivated\)/);
     assert.doesNotMatch(ui,/lastMouseActivation/);
 });
