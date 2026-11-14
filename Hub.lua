@@ -1,11 +1,11 @@
--- 124 Visuals v1.4.8 | UI Input, Weather, Aura and Lifecycle Repair
+-- 124 Visuals v1.4.9 | UI Input, Weather, Aura and Lifecycle Repair
 -- Первый плейс: 18537079992. Запуск поддерживает все игровые PlaceId.
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.4.8",
+    Version = "1.4.9",
     OriginalPlaceId = 18537079992,
     EspRefreshSeconds = 0.35, -- Быстрый поиск персонажей, без обновления UI каждый кадр.
     EspEventMinSeconds = 0.18, -- Коалесцированные события не запускают 16 полных сканов/сек.
@@ -51,10 +51,7 @@ local CONFIG = {
     AimLockTolerance = 1.18, -- При сопровождении допускаем небольшой выход из первоначального FOV.
     AimVisibleRaycastChecks = 6, -- Пропускаем прозрачные служебные детали.
     AimLosCandidatesPerScan = 8, -- Ограничиваем число LOS-проверок при плотных серверах.
-    AimOcclusionGraceSeconds = 0.16, -- Короткий LOS miss не переключает цель.
-    AimLockLostGraceSeconds = 0.20, -- Удержание идентичности при FOV/streaming miss, но без наведения.
-    AimSwitchConfirmSeconds = 0.16, -- Подтверждение другой цели прежде чем менять lock.
-    AimPredictionResponseHz = 18, -- Сглаживание шумного velocity lead, не частота кадров.
+    AimOcclusionGraceSeconds = 0.12, -- Один короткий сбой LOS не переключает цель.
     AimPredictionMaxStuds = 10, -- Исключаем рывки от аномальной скорости сборки.
     AimMaxTurnDegreesPerSecond = 360, -- Предел поворота в режиме Smooth.
     AimRangeMaxMeters = 180,
@@ -565,8 +562,6 @@ local state = {
     aimSmoothness = 3, -- 0 = мгновенно, 1 = быстро, 10 = максимально плавно.
     aimSmoothX = 5,
     aimSmoothY = 5,
-    aimStability = 3, -- 1..5: время подтверждения смены цели и FOV grace.
-    aimDeadzonePixels = 2, -- 0..12: без микродвижения возле центра.
     prediction = false,
     predictionSeconds = 0.08,
     targetLock = true,
@@ -884,9 +879,6 @@ local aimPro = {
     equipped = nil,
     nextLos = 0,
     blockedSince = 0,
-    lostSince = 0, switchCandidate = nil, switchSince = 0,
-    leadPart = nil, leadPoint = nil,
-    lastCamera = nil, lastLocalCharacter = nil,
     rayParams = RaycastParams.new(),
     rayIgnore = {},
     candidates = {},
@@ -900,11 +892,6 @@ function aimPro.reset()
     aimNextScan = 0
     aimPro.nextLos = 0
     aimPro.blockedSince = 0
-    aimPro.lostSince = 0
-    aimPro.switchCandidate = nil
-    aimPro.switchSince = 0
-    aimPro.leadPart = nil
-    aimPro.leadPoint = nil
 end
 function aimPro.equippedTool()
     local tool = aimPro.equipped
@@ -2586,10 +2573,7 @@ local function canSee(camera, point, targetCharacter)
     local params = aimPro.rayParams
     for _ = 1, CONFIG.AimVisibleRaycastChecks do
         params.FilterDescendantsInstances = exclusions
-        -- A transient Raycast API failure is not proof of visibility.
-        -- Fail closed instead of breaking the render callback.
-        local ok, result = pcall(Workspace.Raycast, Workspace, origin, direction, params)
-        if not ok then return false end
+        local result = Workspace:Raycast(origin, direction, params)
         if not result then return true end
         if result.Instance:IsDescendantOf(targetCharacter) then return true end
         if result.Instance:IsA("BasePart") and result.Instance.Transparency >= 0.98 then
@@ -2609,8 +2593,6 @@ local function predictedPoint(part)
     if ok and typeof(velocity) == "Vector3" then
         local offset = velocity * state.predictionSeconds
         local distance = offset.Magnitude
-        -- Streaming/physics spikes must not poison CFrame math with NaN/Inf.
-        if distance ~= distance or distance == math.huge then return point end
         if distance > CONFIG.AimPredictionMaxStuds then
             offset = offset * (CONFIG.AimPredictionMaxStuds / distance)
         end
@@ -2652,56 +2634,34 @@ local function findAimTarget(camera)
     end
     local me = LocalPlayer.Character
     local myRoot = me and me:FindFirstChild("HumanoidRootPart")
-    if not myRoot or not myRoot:IsA("BasePart") then return done(nil) end
+    if not myRoot then return done(nil) end
     local viewport = camera.ViewportSize
     local center = Vector2.new(viewport.X * 0.5, viewport.Y * 0.5)
     local fov = state.aimFovPixels
-    local now = os.clock()
-    local stability = math.clamp(tonumber(state.aimStability) or 3, 1, 5)
-    local graceScale = 0.65 + stability * 0.12
-    local previous = aimTarget
-    local previousValid = state.targetLock and previous
-        and previous.player and previous.player.Parent == Players
-        and previous.character and previous.player.Character == previous.character
-        and not sameTeam(previous.player)
-    if previousValid then
-        local humanoid = previous.character:FindFirstChildOfClass("Humanoid")
-        previousValid = humanoid ~= nil and humanoid.Health > 0
-    end
 
-    if previousValid then
-        local chosen = targetPart(previous.character)
-        local kept = chosen and examineTarget(camera, previous.player, chosen, myRoot,
-            center, fov * CONFIG.AimLockTolerance, false)
-        if kept then
-            aimPro.lostSince = 0
-            if not state.visibleCheck or canSee(camera, chosen.Position, kept.character) then
-                aimPro.blockedSince = 0
-                aimPro.switchCandidate, aimPro.switchSince = nil, 0
-                return done(kept)
-            end
-            -- Brief LOS failures hold identity but NEVER steer through walls.
-            if aimPro.blockedSince == 0 then aimPro.blockedSince = now end
-            if now - aimPro.blockedSince <
-                CONFIG.AimOcclusionGraceSeconds * graceScale then
-                kept.blocked = true
-                return done(kept)
-            end
-        else
-            -- FOV boundary / brief streaming gaps: do not lock a new player
-            -- instantly, and never steer using an unverified stale part.
-            if aimPro.lostSince == 0 then aimPro.lostSince = now end
-            if now - aimPro.lostSince < CONFIG.AimLockLostGraceSeconds * graceScale then
-                return done({
-                    player = previous.player, part = chosen or previous.part,
-                    character = previous.character, humanoid = previous.humanoid,
-                    blocked = true,
-                })
+    if state.targetLock and aimTarget and aimTarget.player.Parent == Players then
+        local chosen = targetPart(aimTarget.character)
+        if chosen then
+            local kept = examineTarget(camera, aimTarget.player, chosen, myRoot,
+                center, fov * CONFIG.AimLockTolerance, false)
+            if kept then
+                if not state.visibleCheck or canSee(camera, chosen.Position, kept.character) then
+                    aimPro.blockedSince = 0
+                    return done(kept)
+                end
+                -- Keep the same target briefly without moving the camera
+                -- through a wall. A single streaming/LOS miss won't retarget.
+                local now = os.clock()
+                if aimPro.blockedSince == 0 then aimPro.blockedSince = now end
+                if now - aimPro.blockedSince < CONFIG.AimOcclusionGraceSeconds then
+                    kept.blocked = true
+                    return done(kept)
+                end
             end
         end
     end
 
-    -- No Visible Check: scan for closest FOV candidate without sorting.
+    -- Без Visible Check не создаём сортированный список: ищем один минимум.
     local candidates = aimPro.candidates
     table.clear(candidates)
     local best = nil
@@ -2721,39 +2681,19 @@ local function findAimTarget(camera)
             end
         end
     end
-    if state.visibleCheck then
-        table.sort(candidates, function(a, b)
-            return a.pixelsSquared < b.pixelsSquared
-        end)
-        local tested = 0
-        for _, candidate in ipairs(candidates) do
-            if tested >= CONFIG.AimLosCandidatesPerScan then break end
-            tested = tested + 1
-            if canSee(camera, candidate.part.Position, candidate.character) then
-                best = candidate
-                break
-            end
-        end
-    end
-    if best and previousValid and best.player ~= previous.player then
-        -- A second target must remain best across consecutive scans.
-        -- While confirming it, park the old target without camera movement.
-        if aimPro.switchCandidate ~= best.player then
-            aimPro.switchCandidate = best.player
-            aimPro.switchSince = now
-        end
-        if now - aimPro.switchSince < CONFIG.AimSwitchConfirmSeconds * graceScale then
-            return done({
-                player = previous.player, part = previous.part,
-                character = previous.character, humanoid = previous.humanoid,
-                blocked = true,
-            })
+    if not state.visibleCheck then return done(best) end
+    table.sort(candidates, function(a, b) return a.pixelsSquared < b.pixelsSquared end)
+    local tested = 0
+    for _, candidate in ipairs(candidates) do
+        if tested >= CONFIG.AimLosCandidatesPerScan then break end
+        tested = tested + 1
+        if canSee(camera, candidate.part.Position, candidate.character) then
+            aimPro.blockedSince = 0
+            return done(candidate)
         end
     end
     aimPro.blockedSince = 0
-    aimPro.lostSince = 0
-    aimPro.switchCandidate, aimPro.switchSince = nil, 0
-    return done(best)
+    return done(nil)
 end
 
 -- Один и тот же безопасный источник статуса системного меню для AIM и горячих клавиш.
@@ -2764,10 +2704,10 @@ local function isRobloxMenuOpen()
 end
 
 local function aimFrame(dt)
-    -- No Tool or no explicit input: never change the camera.
+    -- Отсутствие Tool — абсолютный запрет движения камеры, даже при F6/ПКМ/touch.
     if not alive or not state.aimbot or not (aimHeldMouse or aimHeldTouch or aimHeldKey)
         or not aimPro.equippedTool() then
-        if aimTarget or aimPro.leadPart then aimPro.reset() end
+        aimTarget = nil
         return
     end
     if isRobloxMenuOpen() then
@@ -2776,12 +2716,7 @@ local function aimFrame(dt)
     end
     if UserInputService:GetFocusedTextBox() ~= nil then return end
     local camera = Workspace.CurrentCamera
-    local me = LocalPlayer.Character
-    if not camera or not me then aimPro.reset(); return end
-    if aimPro.lastCamera ~= camera or aimPro.lastLocalCharacter ~= me then
-        aimPro.reset()
-        aimPro.lastCamera, aimPro.lastLocalCharacter = camera, me
-    end
+    if not camera then aimTarget = nil; return end
     local now = os.clock()
     local tier = perfTier()
     local scanEvery = tier == "ECO" and 0.24
@@ -2796,105 +2731,73 @@ local function aimFrame(dt)
         aimTarget = findAimTarget(camera)
         if not aimTarget or (previous and previous.player ~= aimTarget.player) then
             aimPro.blockedSince = 0
-            aimPro.leadPart, aimPro.leadPoint = nil, nil
         end
         scannedThisFrame = true
         if aimTarget then
+            -- Новый поиск уже сделал LOS при включённом Visible Check.
             aimPro.nextLos = now + losInterval
         end
     end
     local current = aimTarget
+    -- Отсутствие цели НЕ обнуляет таймер поиска (было до 60 сканов/с).
     if not current then return end
-    -- Retained occluded/streaming target is never used for aim movement.
+    -- Occluded lock is retained for stability but NEVER drives the camera.
     if current.blocked then return end
     local part = current.part
     if not part or not part.Parent or not current.player
         or current.player.Character ~= current.character or sameTeam(current.player)
-        or not part:IsDescendantOf(current.character)
         or not current.humanoid or current.humanoid.Health <= 0 then
-        aimPro.reset()
-        aimNextScan = now + CONFIG.AimLostRescanSeconds
+        aimTarget = nil
+        aimNextScan = math.min(aimNextScan, now + CONFIG.AimLostRescanSeconds)
         return
     end
     local origin = camera.CFrame.Position
     local point = part.Position
-    local myRoot = me:FindFirstChild("HumanoidRootPart")
-    if not myRoot or not myRoot:IsA("BasePart")
-        or (point - origin).Magnitude <= 0.05
+    local myCharacter = LocalPlayer.Character
+    local myRoot = myCharacter and myCharacter:FindFirstChild("HumanoidRootPart")
+    if not myRoot or (point - origin).Magnitude <= 0.05
         or (point - myRoot.Position).Magnitude * CONFIG.StudMeters > state.aimRangeMeters then
-        aimPro.reset()
-        aimNextScan = now + CONFIG.AimLostRescanSeconds
+        aimTarget = nil
+        aimNextScan = math.min(aimNextScan, now + CONFIG.AimLostRescanSeconds)
         return
     end
+    -- Проверка видимости прицеливания остаётся активной, но Raycast реже.
     if state.visibleCheck and not scannedThisFrame and now >= aimPro.nextLos then
         if not canSee(camera, point, current.character) then
             if state.targetLock then
                 if aimPro.blockedSince == 0 then aimPro.blockedSince = now end
-                if now - aimPro.blockedSince < CONFIG.AimOcclusionGraceSeconds
-                    * (0.65 + math.clamp(tonumber(state.aimStability) or 3, 1, 5) * 0.12) then
+                if now - aimPro.blockedSince < CONFIG.AimOcclusionGraceSeconds then
                     current.blocked = true
                     aimNextScan = math.min(aimNextScan, now + CONFIG.AimLostRescanSeconds)
                     return
                 end
             end
-            aimPro.reset()
-            aimNextScan = now + CONFIG.AimLostRescanSeconds
+            aimPro.blockedSince = 0
+            aimTarget = nil
+            aimNextScan = math.min(aimNextScan, now + CONFIG.AimLostRescanSeconds)
             return
         end
         aimPro.blockedSince = 0
         aimPro.nextLos = now + losInterval
     end
-    local dtSafe = math.clamp(tonumber(dt) or 0, 0, 0.05)
-    if dtSafe == 0 then return end
-    local desired = predictedPoint(part)
-    -- Damp noisy AssemblyLinearVelocity updates, without rebuilding a target
-    -- cache on every scan: target tables change, BasePart identity does not.
-    if state.prediction then
-        if aimPro.leadPart == part and aimPro.leadPoint then
-            local factor = 1 - math.exp(-CONFIG.AimPredictionResponseHz * dtSafe)
-            desired = aimPro.leadPoint:Lerp(desired, factor)
-        end
-        aimPro.leadPart, aimPro.leadPoint = part, desired
+    local goal = CFrame.lookAt(origin, predictedPoint(part))
+    if state.aimSmoothness == 0 then
+        camera.CFrame = goal
     else
-        aimPro.leadPart, aimPro.leadPoint = nil, nil
+        -- Frame-rate independent smoothing with a bounded angular step.
+        -- Avoid a sudden jump on a late frame without altering Smooth=0.
+        local cx, cy, cz = camera.CFrame:ToOrientation()
+        local gx, gy = goal:ToOrientation()
+        local speed = CONFIG.AimSmoothnessBaseline / state.aimSmoothness
+        local dtSafe = math.clamp(dt, 0, 0.05)
+        local alphaX = math.clamp(1 - math.exp(-speed * state.aimSmoothX / 5 * dtSafe), 0, 1)
+        local alphaY = math.clamp(1 - math.exp(-speed * state.aimSmoothY / 5 * dtSafe), 0, 1)
+        local maxStep = math.rad(CONFIG.AimMaxTurnDegreesPerSecond) * dtSafe
+        local pitchStep = math.clamp(signedAngle(cx, gx) * alphaY, -maxStep, maxStep)
+        local yawStep = math.clamp(signedAngle(cy, gy) * alphaX, -maxStep, maxStep)
+        camera.CFrame = CFrame.new(origin) * CFrame.fromOrientation(
+            cx + pitchStep, cy + yawStep, cz)
     end
-    local toTarget = desired - origin
-    local distance = toTarget.Magnitude
-    if distance ~= distance or distance == math.huge or distance <= 0.05 then return end
-    local localLook = camera.CFrame:VectorToObjectSpace(toTarget.Unit)
-    -- No Euler ToOrientation() near +/-pi: rotate in camera-local space.
-    -- World-to-viewport already rejects behind-camera acquisition; refuse
-    -- one-frame behind-camera jumps before the next scanner pass.
-    if localLook.Z >= -0.001 then return end
-    local projected, onScreen = camera:WorldToViewportPoint(desired)
-    if onScreen then
-        local viewport = camera.ViewportSize
-        local deadzone = math.clamp(tonumber(state.aimDeadzonePixels) or 2, 0, 12)
-        if math.abs(projected.X - viewport.X * 0.5) <= deadzone
-            and math.abs(projected.Y - viewport.Y * 0.5) <= deadzone then
-            return
-        end
-    end
-    local horizontal = math.sqrt(localLook.X * localLook.X + localLook.Z * localLook.Z)
-    local yaw = -math.atan2(localLook.X, -localLook.Z)
-    local pitch = math.atan2(localLook.Y, horizontal)
-    -- Smooth=0 is now FAST BUT BOUNDED, not an instant camera teleport.
-    local smoothness = tonumber(state.aimSmoothness) or 3
-    local speed = smoothness == 0 and CONFIG.AimSmoothnessBaseline * 2
-        or CONFIG.AimSmoothnessBaseline / math.max(smoothness, 0.1)
-    local alphaX = math.clamp(1 - math.exp(-speed * state.aimSmoothX / 5 * dtSafe), 0, 1)
-    local alphaY = math.clamp(1 - math.exp(-speed * state.aimSmoothY / 5 * dtSafe), 0, 1)
-    local maxStep = math.rad(CONFIG.AimMaxTurnDegreesPerSecond) * dtSafe
-    local pitchStep = math.clamp(pitch * alphaY, -maxStep, maxStep)
-    local yawStep = math.clamp(yaw * alphaX, -maxStep, maxStep)
-    -- Combined two-axis motion must also respect the single angular budget.
-    local magnitude = math.sqrt(pitchStep * pitchStep + yawStep * yawStep)
-    if magnitude > maxStep then
-        local scale = maxStep / magnitude
-        pitchStep, yawStep = pitchStep * scale, yawStep * scale
-    end
-    if magnitude <= 1e-6 then return end
-    camera.CFrame = camera.CFrame * CFrame.Angles(pitchStep, yawStep, 0)
 end
 
 local recoil = (function()
@@ -3596,6 +3499,7 @@ local playerFX = (function()
         rainGui = nil, rainLines = {}, rainConnection = nil,
         fog = {}, atmosphere = {}, atmosphereObject = nil,
         rainElapsed = 0, lastError = nil,
+        weatherFallback = false,
     }
     local white = Color3.new(1, 1, 1)
     local avatarColors = {
@@ -4171,36 +4075,49 @@ local playerFX = (function()
         if not active() then return end
         local mode = state.playerWeatherEnabled and state.playerWeatherMode or "CLEAR"
         local profile = weather[mode]
+        controller.weatherFallback = false
         if profile then
-            -- Lighting.Fog* is ignored when a game has Atmosphere.
-            -- Only adjust the existing Atmosphere if it exists, with owned
-            -- snapshots. Never insert a second Atmosphere or destroy the game's.
-            local atmosphere = Lighting:FindFirstChildOfClass("Atmosphere")
-            if atmosphere then
-                if not restoreFog() then error("Player FX: Fog restore pending") end
-                if controller.atmosphereObject
-                    and controller.atmosphereObject ~= atmosphere
-                    and not controller.restoreAtmosphere() then
-                    error("Player FX: previous Atmosphere restore pending")
-                end
-                if controller.atmosphereObject ~= atmosphere then
-                    -- Restore Booster-owned original before recording Player's baseline.
-                    if not boosterPro.releaseAtmosphereToPlayer(atmosphere) then
-                        error("Player FX: Booster Atmosphere restore pending")
+            -- Rendering Atmosphere and Fog can be protected by game code,
+            -- disabled by the executor, or rejected by a custom client.
+            -- A denied property write must NOT make the Weather toggle dead:
+            -- still apply our own local ColorCorrection and rain overlay.
+            local ok, reason = pcall(function()
+                local atmosphere = Lighting:FindFirstChildOfClass("Atmosphere")
+                if atmosphere then
+                    if not restoreFog() then error("Player FX: Fog restore pending") end
+                    if controller.atmosphereObject
+                        and controller.atmosphereObject ~= atmosphere
+                        and not controller.restoreAtmosphere() then
+                        error("Player FX: previous Atmosphere restore pending")
                     end
+                    if controller.atmosphereObject ~= atmosphere then
+                        if not boosterPro.releaseAtmosphereToPlayer(atmosphere) then
+                            error("Player FX: Booster Atmosphere restore pending")
+                        end
+                    end
+                    writeAtmosphere(atmosphere, "Density", profile.density)
+                    writeAtmosphere(atmosphere, "Haze", profile.haze)
+                    writeAtmosphere(atmosphere, "Color", profile.skyColor)
+                    writeAtmosphere(atmosphere, "Decay", profile.skyDecay)
+                else
+                    if not controller.restoreAtmosphere() then
+                        error("Player FX: Atmosphere restore pending")
+                    end
+                    writeFog("FogEnd", profile.distance)
+                    writeFog("FogStart", profile.start)
+                    writeFog("FogColor", profile.fogColor)
                 end
-                writeAtmosphere(atmosphere, "Density", profile.density)
-                writeAtmosphere(atmosphere, "Haze", profile.haze)
-                writeAtmosphere(atmosphere, "Color", profile.skyColor)
-                writeAtmosphere(atmosphere, "Decay", profile.skyDecay)
+            end)
+            if not ok then
+                controller.weatherFallback = true
+                controller.lastError = tostring(reason)
+                -- Attempt rollback of partially applied properties, retaining
+                -- snapshots when the engine refuses restoration. Never touch
+                -- a newer external value.
+                pcall(restoreFog)
+                pcall(controller.restoreAtmosphere)
             else
-                if not controller.restoreAtmosphere() then
-                    error("Player FX: Atmosphere restore pending")
-                end
-                -- Fog settings work only without an active Atmosphere.
-                writeFog("FogEnd", profile.distance)
-                writeFog("FogStart", profile.start)
-                writeFog("FogColor", profile.fogColor)
+                controller.lastError = nil
             end
             local tone = ensureTone("weatherTone", "Army124PlayerWeatherTone")
             tone.TintColor = profile.tint
@@ -4208,8 +4125,14 @@ local playerFX = (function()
             tone.Contrast = profile.contrast
             tone.Saturation = profile.saturation
         else
+            -- OFF is always an actual button action. Restore failures retain
+            -- snapshots for the existing maintenance worker rather than
+            -- leaving a weather effect visibly enabled.
             if not controller.restoreWeather() then
-                error("Player FX: не удалось вернуть погоду, повторим при выгрузке")
+                controller.lastError = "Player FX: weather restore pending"
+                controller.weatherFallback = true
+            else
+                controller.lastError = nil
             end
             safeDestroy(controller.weatherTone)
             controller.weatherTone = nil
@@ -4257,13 +4180,14 @@ local playerFX = (function()
     end
     function controller.diagnostics()
         return string.format("Aura=%s Glow=%s | Quality=%s/%s Pulse=%s | Weather=%s/%s | Tint=%s/%s"
-            .. " | Rain=%s | PendingWeather=%s | Root=%s | Error=%s",
+            .. " | Rain=%s | Fallback=%s | PendingWeather=%s | Root=%s | Error=%s",
             tostring(state.playerAuraEnabled), tostring(state.playerGlowEnabled),
             tostring(state.playerAuraQuality), tostring(controller.lastQuality),
             tostring(state.playerGlowPulse),
             tostring(state.playerWeatherEnabled), tostring(state.playerWeatherMode),
             tostring(state.playerEnvironmentEnabled), tostring(state.playerEnvironmentColor),
             tostring(controller.rainGui ~= nil),
+            tostring(controller.weatherFallback),
             tostring(controller.pending()),
             tostring(controller.character ~= nil
                 and controller.character:FindFirstChild("HumanoidRootPart") ~= nil),
@@ -4705,7 +4629,6 @@ local storedKeys = {
     "performanceGuard", "moduleCpuMonitor", "lazyLoading",
     "sessionDiagnostics",
     "aimbot", "aimRangeMeters", "aimSmoothness", "aimSmoothX", "aimSmoothY",
-    "aimStability", "aimDeadzonePixels",
     "prediction", "predictionSeconds", "targetLock", "aimFovPixels", "aimMode",
     "aimOnlyRegisteredWeapons", "aimWeaponNames",
     "fovVisible", "fovThickness", "visibleCheck", "teamCheck", "fullbright", "booster",
@@ -4723,7 +4646,6 @@ local numericRules = {
     espLineThickness = {1, 2},
     aimRangeMeters = {5, 180}, aimSmoothness = {0, 10},
     aimSmoothX = {1, 10}, aimSmoothY = {1, 10},
-    aimStability = {1, 5}, aimDeadzonePixels = {0, 12},
     predictionSeconds = {0, 0.25}, aimFovPixels = {40, 400},
     fovThickness = {1, 4}, recoilStrength = {0, 100},
     cameraFovDegrees = {55, 110}, antiAimSpeed = {180, 1440}, antiAimTilt = {0, 25},
@@ -5404,8 +5326,9 @@ end
 local function safeActivate(control, callback)
     local lastActivatedAt = -1e8
     local pressNumber, consumedPress = 0, -1
-    -- Distinct physical presses must work immediately, even within 380 ms.
-    -- Activated and the legacy MouseButton1Click fallback share one press ID.
+    -- Roblox may deliver Activated or MouseButton1Click without delivering
+    -- InputBegan to this TextButton (e.g. after a child consumes the press).
+    -- A consumed press ID must not make the control dead until reload.
     connect(control.InputBegan, function(input)
         if input and (input.UserInputType == Enum.UserInputType.MouseButton1
             or input.UserInputType == Enum.UserInputType.Touch) then
@@ -5418,11 +5341,17 @@ local function safeActivate(control, callback)
         local pointer = input == nil
             or input.UserInputType == Enum.UserInputType.MouseButton1
             or input.UserInputType == Enum.UserInputType.Touch
-        if pointer and pressNumber > 0 then
-            if consumedPress == pressNumber then return end
-            consumedPress = pressNumber
-        elseif now - lastActivatedAt < (pointer and 0.38 or 0.18) then
-            -- Legacy clients without InputBegan still need a timed fallback.
+        if pointer then
+            if pressNumber > 0 and consumedPress ~= pressNumber then
+                -- Distinct physical press: never hold it behind a long cooldown.
+                consumedPress = pressNumber
+            elseif now - lastActivatedAt < 0.14 then
+                -- The paired legacy callback from the SAME click is ignored.
+                return
+            end
+            -- After 140ms permit a fresh click even if the engine did not
+            -- expose another InputBegan to this individual GUI control.
+        elseif now - lastActivatedAt < 0.12 then
             return
         end
         lastActivatedAt = now
@@ -5431,7 +5360,6 @@ local function safeActivate(control, callback)
     end
     local primary = connect(control.Activated, fire)
     if control:IsA("TextButton") or control:IsA("ImageButton") then
-        -- Fallback for clients that send only MouseButton1Click.
         connect(control.MouseButton1Click, function() fire(nil) end)
     end
     return primary
@@ -6780,7 +6708,22 @@ addSection(pages.AIM, "TARGETING", "Точка наведения и управ�
 addToggle(pages.AIM, "Aimbot", "Кнопка и горячая клавиша включают наведение одинаково", "aimbot", function(enabled)
     -- Раньше меню включало модуль без aimHeldKey: без ПКМ наведения не было.
     setAimEnabled(enabled, enabled)
-    tell(enabled and "AIM: ON (активирован кнопкой)" or "AIM: OFF")
+    if enabled then
+        local held = aimPro.equippedTool()
+        local message = "AIM: ON (активирован кнопкой)"
+        if not held then
+            if not aimPro.equipped then
+                message = message .. " | Возьми Tool в руки"
+            elseif state.aimOnlyRegisteredWeapons then
+                message = message .. " | Запомни оружие либо отключи фильтр оружия"
+            else
+                message = message .. " | Подожди загрузки Tool/персонажа"
+            end
+        end
+        tell(message)
+    else
+        tell("AIM: OFF")
+    end
 end)
 addAimModeSelector(pages.AIM)
 -- Без знаний об оружии игры не гадаем по названиям. Игрок может один раз
@@ -6885,14 +6828,9 @@ addSlider(pages.AIM, "Дистанция AIM", "5–180 метров, грани
     CONFIG.AimRangeMinMeters, CONFIG.AimRangeMaxMeters, 5,
     function(value) return tostring(value) .. " м" end,
     function() aimPro.reset() end)
-addSlider(pages.AIM, "Скорость AIM", "0 = быстро, но без резких рывков · 10 = плавно", "aimSmoothness",
+addSlider(pages.AIM, "Скорость AIM", "0 = максимум · 10 = плавно", "aimSmoothness",
     0, 10, 1,
     function(value) return value == 0 and "MAX" or "Smooth " .. tostring(value) end)
-addSlider(pages.AIM, "Стабильность цели", "1 = быстрый захват · 5 = меньше переключений",
-    "aimStability", 1, 5, 1, function(v) return tostring(v) .. " / 5" end,
-    function() aimPro.reset() end)
-addSlider(pages.AIM, "Мёртвая зона", "0–12 px: убрать дрожание в центре",
-    "aimDeadzonePixels", 0, 12, 1, function(v) return tostring(v) .. " px" end)
 addButton(pages.AIM, "Управление", "ПКМ: удерживать | клавиша: ON/OFF | телефон: AIM | нужен Tool", function()
     local tool = aimPro.equipped
     local eligible = aimPro.equippedTool() ~= nil
@@ -7677,7 +7615,9 @@ addToggle(pages.PLAYER, "Изменить погоду", "Включить по�
             error(err)
         end
         if refreshChoices.playerWeatherMode then refreshChoices.playerWeatherMode() end
-        tell(enabled and ("Погода: " .. state.playerWeatherMode) or "Погода: CLEAR / OFF")
+        tell(enabled and ("Погода: " .. state.playerWeatherMode
+            .. (playerFX.weatherFallback and " (локальный фильтр: Atmosphere недоступна)" or ""))
+            or "Погода: CLEAR / OFF")
     end)
 addChoice(pages.PLAYER, "Пресет погоды", {
     {value = "CLEAR", label = "CLEAR"},
@@ -7695,7 +7635,9 @@ addChoice(pages.PLAYER, "Пресет погоды", {
         error(err)
     end
     if refreshToggles.playerWeatherEnabled then refreshToggles.playerWeatherEnabled() end
-    tell(mode == "CLEAR" and "Погода: исходная / OFF" or ("Погода: " .. mode))
+    tell(mode == "CLEAR" and "Погода: исходная / OFF"
+        or ("Погода: " .. mode
+            .. (playerFX.weatherFallback and " (локальный фильтр)" or "")))
 end)
 
 addSection(pages.PLAYER, "ENVIRONMENT COLOR", "Тон окружения, не меняет детали карты")
@@ -9396,6 +9338,11 @@ task.spawn(function()
         -- Это уже существующий редкий HUD-цикл, нового worker не создаём.
         if not state.noSpread and recoil.spread.pending() then
             pcall(recoil.restoreSpread)
+        end
+        -- A denied Fog/Atmosphere restore must be retried after Weather OFF.
+        -- Keep this in the existing HUD maintenance worker, no new loop.
+        if not state.playerWeatherEnabled and playerFX.pending() then
+            pcall(playerFX.restoreWeather)
         end
         -- Reuse the existing HUD worker to retry Movement recovery,
         -- never a new render or physics loop.
