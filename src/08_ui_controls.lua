@@ -650,6 +650,7 @@ local movement = {
     noclipCharacter = nil, noclipAdded = nil,
     collisionOriginals = setmetatable({}, {__mode = "k"}),
     pendingSpeeds = setmetatable({}, {__mode = "k"}),
+    pendingAutoRotates = setmetatable({}, {__mode = "k"}),
     stepConnection = nil, lastSpeedApply = 0, lastAppliedSpeed = nil, lastErrorAt = 0,
     nextPassiveAt = 0, nextNoclipAt = 0, lastFlatForward = Vector3.new(0, 0, -1),
     lastFacing = nil,
@@ -734,16 +735,18 @@ function movement.pending()
     return movement.speedHumanoid ~= nil and movement.lastAppliedSpeed ~= nil
         or next(movement.pendingSpeeds) ~= nil
         or next(movement.collisionOriginals) ~= nil
+        or next(movement.pendingAutoRotates) ~= nil
 end
 
 function movement.retryPending()
     -- Only invoke while Noclip is OFF: its active snapshots must stay intact.
     local speedOK = movement.retrySpeeds()
+    local autoRotateOK = movement.retryAutoRotates()
     if not state.noclip then
         local collisionOK = movement.restoreCollision()
-        return speedOK and collisionOK and not movement.pending()
+        return speedOK and autoRotateOK and collisionOK and not movement.pending()
     end
-    return speedOK
+    return speedOK and autoRotateOK
 end
 
 function movement.recordPart(obj)
@@ -765,25 +768,51 @@ function movement.startNoclip(character)
     end)
 end
 
+function movement.retryAutoRotates()
+    local complete = true
+    for humanoid, original in pairs(movement.pendingAutoRotates) do
+        local readOK, current = pcall(function()
+            if not humanoid.Parent then return nil end
+            return humanoid.AutoRotate
+        end)
+        if not readOK then
+            complete = false
+        elseif current == nil or current == original or current ~= false then
+            -- A newer game setting must be preserved.
+            movement.pendingAutoRotates[humanoid] = nil
+        else
+            pcall(function() humanoid.AutoRotate = original end)
+            local ok, after = pcall(function() return humanoid.AutoRotate end)
+            if ok and after == original then
+                movement.pendingAutoRotates[humanoid] = nil
+            else
+                complete = false
+            end
+        end
+    end
+    return complete
+end
+
 function movement.restoreFly()
     if movement.velocity then pcall(function() movement.velocity:Destroy() end) end
     if movement.orientation then pcall(function() movement.orientation:Destroy() end) end
     if movement.attachment then pcall(function() movement.attachment:Destroy() end) end
     movement.velocity, movement.orientation, movement.attachment = nil, nil, nil
-    if movement.flyHumanoid and movement.originalAutoRotate ~= nil then
+    local humanoid = movement.flyHumanoid
+    if humanoid and movement.originalAutoRotate ~= nil then
+        movement.pendingAutoRotates[humanoid] = movement.originalAutoRotate
+        -- Restore humanoid physics independently from the AutoRotate setter.
         pcall(function()
-            if movement.flyHumanoid.Parent then
-                movement.flyHumanoid.AutoRotate = movement.originalAutoRotate
-                if movement.flyHumanoid.Health > 0 and not movement.flyHumanoid.Sit
-                    and movement.flyHumanoid.SeatPart == nil
-                    and movement.flyHumanoid:GetState() == Enum.HumanoidStateType.Physics then
-                    movement.flyHumanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
-                end
+            if humanoid.Parent and humanoid.Health > 0 and not humanoid.Sit
+                and humanoid.SeatPart == nil
+                and humanoid:GetState() == Enum.HumanoidStateType.Physics then
+                humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
             end
         end)
     end
     movement.flyHumanoid, movement.flyRoot, movement.originalAutoRotate = nil, nil, nil
     movement.lastFacing = nil
+    return movement.retryAutoRotates()
 end
 
 function movement.ensureFly(humanoid, root)
@@ -818,25 +847,23 @@ function movement.ensureFly(humanoid, root)
         align.Responsiveness = 20
         align.Parent = root
         movement.originalAutoRotate = humanoid.AutoRotate
+        movement.flyHumanoid, movement.flyRoot = humanoid, root
         humanoid.AutoRotate = false
         humanoid:ChangeState(Enum.HumanoidStateType.Physics)
         movement.attachment, movement.velocity, movement.orientation =
             attachment, linear, align
-        movement.flyHumanoid, movement.flyRoot = humanoid, root
     end)
     if not ok then
         for _, obj in ipairs(built) do pcall(function() obj:Destroy() end) end
         movement.restoreFly()
+        -- If this second best-effort rollback also fails, retain the
+        -- true preflight baseline for next worker/relaunch recovery.
         pcall(function()
-            if humanoid.Parent then
-                humanoid.AutoRotate = originalRotate
-                if humanoid.Health > 0 and not humanoid.Sit
-                    and humanoid.SeatPart == nil
-                    and humanoid:GetState() == Enum.HumanoidStateType.Physics then
-                    humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
-                end
-            end
+            if humanoid.Parent then humanoid.AutoRotate = originalRotate end
         end)
+        local restored = false
+        pcall(function() restored = humanoid.AutoRotate == originalRotate end)
+        if not restored then movement.pendingAutoRotates[humanoid] = originalRotate end
         state.fly = false
         if refreshToggles.fly then pcall(refreshToggles.fly) end
         -- Не оставляем пустой physics callback после отказа запуска.
