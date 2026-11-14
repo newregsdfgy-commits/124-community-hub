@@ -11,8 +11,8 @@ import re
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = "1.4.3"
-BRANCH = "v1.4.3-booster-stability-test"
+VERSION = "1.4.4"
+BRANCH = "v1.4.4-controls-player-ui-fix-test"
 CHECK_COUNT = [0]
 
 
