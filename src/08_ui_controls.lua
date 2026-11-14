@@ -1287,7 +1287,7 @@ end
 addSection(pages.PLAYER, "PLAYER AURA", "Мягкие частицы вокруг собственного персонажа")
 addToggle(pages.PLAYER, "Аура тела", "Локальное сияние без изменения персонажа на сервере",
     "playerAuraEnabled", function() playerFX.syncAvatar() end)
-addSlider(pages.PLAYER, "Интенсивность ауры", "Частицы и яркость свечения · 1–5",
+addSlider(pages.PLAYER, "Интенсивность ауры", "Объём, искры и свет · 1–5",
     "playerGlowPower", 1, 5, 1, function(v) return tostring(v) .. " / 5" end,
     function() playerFX.syncAvatar() end)
 addChoice(pages.PLAYER, "Цвет ауры и свечения", {
@@ -1296,10 +1296,17 @@ addChoice(pages.PLAYER, "Цвет ауры и свечения", {
     {value = "GOLD", label = "GOLD"},
     {value = "GREEN", label = "GREEN"},
 }, "playerAuraColor", function() playerFX.syncAvatar() end)
+addChoice(pages.PLAYER, "Качество эффектов", {
+    {value = "AUTO", label = "AUTO"},
+    {value = "ECO", label = "ECO"},
+    {value = "ULTRA", label = "ULTRA"},
+}, "playerAuraQuality", function() playerFX.syncAvatar() end)
 
 addSection(pages.PLAYER, "PLAYER GLOW", "Контур и PointLight только у своего тела")
 addToggle(pages.PLAYER, "Свечение тела", "Контур + мягкий локальный свет, без замены материалов",
     "playerGlowEnabled", function() playerFX.syncAvatar() end)
+addToggle(pages.PLAYER, "Пульсация сияния", "Плавное дыхание контура и света · без постоянного RenderStep",
+    "playerGlowPulse", function() playerFX.syncAvatar() end)
 
 addSection(pages.PLAYER, "LOCAL WEATHER", "Клиентская погода · туман, дождь, ночной фильтр")
 addToggle(pages.PLAYER, "Изменить погоду", "Включить погоду. CLEAR при первом запуске станет FOG",
@@ -1366,6 +1373,6 @@ addButton(pages.PLAYER, "Выключить эффекты Player",
     end)
 addButton(pages.PLAYER, "Диагностика Player FX",
     "Только локальные объекты, режим погоды и состояние отката", function()
-        tell("Player 1.0 | " .. playerFX.diagnostics())
+        tell("Player 2.0 | " .. playerFX.diagnostics())
     end)
 

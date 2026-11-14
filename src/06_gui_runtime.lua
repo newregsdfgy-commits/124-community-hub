@@ -413,6 +413,7 @@ local storedKeys = {
     "speedEnabled", "speedValue", "noclip", "fly", "flySpeed",
     "musicId", "musicVolume", "musicLoop",
     "playerAuraEnabled", "playerGlowEnabled", "playerAuraColor", "playerGlowPower",
+    "playerAuraQuality", "playerGlowPulse",
     "playerWeatherEnabled", "playerWeatherMode",
     "playerEnvironmentEnabled", "playerEnvironmentColor", "playerEnvironmentStrength",
 }
@@ -434,6 +435,7 @@ local textRules = {
     performanceMode = {AUTO = true, ECO = true, QUALITY = true},
     boosterMode = {BALANCED = true, WHITE = true, ULTRA = true},
     playerAuraColor = {PURPLE = true, CYAN = true, GOLD = true, GREEN = true},
+    playerAuraQuality = {AUTO = true, ECO = true, ULTRA = true},
     playerWeatherMode = {CLEAR = true, FOG = true, RAIN = true, NIGHT = true},
     playerEnvironmentColor = {VIOLET = true, CYAN = true, WARM = true, GREEN = true},
 }
