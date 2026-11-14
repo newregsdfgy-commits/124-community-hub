@@ -117,6 +117,7 @@ local aimBound = false
 local aimBindingName = "Army124CommunityAim_" .. tostring(LocalPlayer.UserId)
 local statusMessage = nil
 local refreshToggles = {}
+local refreshChoices = {}
 local measuredFps = 60
 local perfCounters = {espCount = 0, shapeCount = 0, aimScanMs = 0}
 perfCounters.guard = {level = 0, low = 0, critical = 0, good = 0, changed = 0}
