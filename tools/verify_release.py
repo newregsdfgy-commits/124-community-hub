@@ -11,8 +11,8 @@ import re
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = "1.4.9"
-BRANCH = "v1.4.9-legacy-aim-controls-weather-fix-test"
+VERSION = "1.5.0"
+BRANCH = "v1.5.0-aim-click-input-hotfix-test"
 CHECK_COUNT = [0]
 
 
@@ -239,6 +239,8 @@ def main() -> int:
           "info.singleColumn = singleColumn" in hub, failures)
     check("AIM and all toggles use a deduplicated input handler",
           'safeActivate(row, onRowActivated)' in hub and
+          'AimFullRowHitSurface' in hub and
+          'boosterPro.aimClickDebug = debug' in hub and
           'if pressNumber > 0 and consumedPress ~= pressNumber then' in hub and
           'connect(control.InputBegan, function(input)' in hub and
           'now - lastActivatedAt < 0.14 then' in hub and
