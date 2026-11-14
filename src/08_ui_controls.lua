@@ -649,44 +649,100 @@ local movement = {
     attachment = nil, velocity = nil, orientation = nil,
     noclipCharacter = nil, noclipAdded = nil,
     collisionOriginals = setmetatable({}, {__mode = "k"}),
+    pendingSpeeds = setmetatable({}, {__mode = "k"}),
     stepConnection = nil, lastSpeedApply = 0, lastAppliedSpeed = nil, lastErrorAt = 0,
     nextPassiveAt = 0, nextNoclipAt = 0, lastFlatForward = Vector3.new(0, 0, -1),
     lastFacing = nil,
 }
 boosterPro.movement = movement
 
+-- Pending writes are independent of the active character: a failed Roblox
+-- setter must never lose the previous humanoid's baseline on respawn/unload.
 function movement.restoreSpeed()
     if movement.speedHumanoid and movement.originalSpeed ~= nil
         and movement.lastAppliedSpeed ~= nil then
-        pcall(function()
-            -- Если сама игра поменяла скорость после последней записи,
-            -- не перезаписываем новое значение устаревшим снимком.
-            if movement.speedHumanoid.Parent
-                and movement.speedHumanoid.WalkSpeed == movement.lastAppliedSpeed then
-                movement.speedHumanoid.WalkSpeed = movement.originalSpeed
-            end
-        end)
+        movement.pendingSpeeds[movement.speedHumanoid] = {
+            original = movement.originalSpeed, last = movement.lastAppliedSpeed,
+        }
     end
     movement.speedHumanoid, movement.originalSpeed, movement.lastAppliedSpeed = nil, nil, nil
+    return movement.retrySpeeds()
+end
+
+function movement.retrySpeeds()
+    local complete = true
+    for humanoid, snapshot in pairs(movement.pendingSpeeds) do
+        local readOK, current = pcall(function()
+            if not humanoid.Parent then return nil end
+            return humanoid.WalkSpeed
+        end)
+        if not readOK then
+            complete = false
+        elseif current == nil or current ~= snapshot.last then
+            -- A newer game-owned value must not be overwritten.
+            movement.pendingSpeeds[humanoid] = nil
+        else
+            -- Even a setter that mutates then throws is considered restored
+            -- when readback confirms the original value.
+            pcall(function() humanoid.WalkSpeed = snapshot.original end)
+            local ok, after = pcall(function() return humanoid.WalkSpeed end)
+            if ok and after == snapshot.original then
+                movement.pendingSpeeds[humanoid] = nil
+            elseif ok and after ~= snapshot.last then
+                -- Another script took ownership or the engine clamped it.
+                movement.pendingSpeeds[humanoid] = nil
+            else
+                complete = false
+            end
+        end
+    end
+    return complete
 end
 
 function movement.restoreCollision()
     if movement.noclipAdded then
-        movement.noclipAdded:Disconnect()
+        pcall(function() movement.noclipAdded:Disconnect() end)
         movement.noclipAdded = nil
     end
+    local complete = true
     for part, original in pairs(movement.collisionOriginals) do
-        pcall(function()
-            -- Noclip записывал только false. Не затираем true,
-            -- установленное другой системой после активации.
-            if part.Parent and original == true and part.CanCollide == false then
-                part.CanCollide = true
-            end
+        local readOK, current = pcall(function()
+            if not part.Parent then return nil end
+            return part.CanCollide
         end)
-        movement.collisionOriginals[part] = nil
+        if not readOK then
+            complete = false
+        elseif current == nil or original == false or current == true then
+            movement.collisionOriginals[part] = nil
+        else
+            -- Only restore false -> true if this feature originally changed it.
+            pcall(function() part.CanCollide = true end)
+            local ok, after = pcall(function() return part.CanCollide end)
+            if ok and after == true then
+                movement.collisionOriginals[part] = nil
+            else
+                complete = false
+            end
+        end
     end
     movement.noclipCharacter = nil
     movement.nextNoclipAt = 0
+    return complete
+end
+
+function movement.pending()
+    return movement.speedHumanoid ~= nil and movement.lastAppliedSpeed ~= nil
+        or next(movement.pendingSpeeds) ~= nil
+        or next(movement.collisionOriginals) ~= nil
+end
+
+function movement.retryPending()
+    -- Only invoke while Noclip is OFF: its active snapshots must stay intact.
+    if not movement.retrySpeeds() then return false end
+    if not state.noclip then
+        return movement.restoreCollision() and not movement.pending()
+    end
+    return true
 end
 
 function movement.recordPart(obj)
@@ -832,8 +888,12 @@ function movement.step()
                     and humanoid.WalkSpeed ~= movement.lastAppliedSpeed then
                     movement.originalSpeed = humanoid.WalkSpeed
                 end
-                humanoid.WalkSpeed = state.speedValue
+                -- Record intent BEFORE the setter: engine writes may mutate
+                -- then throw, and shutdown must still know what to restore.
                 movement.lastAppliedSpeed = state.speedValue
+                humanoid.WalkSpeed = state.speedValue
+                -- Some games clamp WalkSpeed without throwing.
+                movement.lastAppliedSpeed = humanoid.WalkSpeed
             end
             movement.lastSpeedApply = os.clock()
         end
@@ -972,6 +1032,7 @@ function movement.shutdown()
         movement.stepConnection = nil
     end
     movement.releaseCharacter()
+    return movement.retryPending()
 end
 
 addSection(pages.MEMORY, "AIR MOTION WATCH", "Подозрительное перемещение — не определение модераторов")
