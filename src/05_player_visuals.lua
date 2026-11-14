@@ -12,6 +12,7 @@ local playerFX = (function()
         rainGui = nil, rainLines = {}, rainConnection = nil,
         fog = {}, atmosphere = {}, atmosphereObject = nil,
         rainElapsed = 0, lastError = nil,
+        weatherFallback = false,
     }
     local white = Color3.new(1, 1, 1)
     local avatarColors = {
@@ -587,36 +588,49 @@ local playerFX = (function()
         if not active() then return end
         local mode = state.playerWeatherEnabled and state.playerWeatherMode or "CLEAR"
         local profile = weather[mode]
+        controller.weatherFallback = false
         if profile then
-            -- Lighting.Fog* is ignored when a game has Atmosphere.
-            -- Only adjust the existing Atmosphere if it exists, with owned
-            -- snapshots. Never insert a second Atmosphere or destroy the game's.
-            local atmosphere = Lighting:FindFirstChildOfClass("Atmosphere")
-            if atmosphere then
-                if not restoreFog() then error("Player FX: Fog restore pending") end
-                if controller.atmosphereObject
-                    and controller.atmosphereObject ~= atmosphere
-                    and not controller.restoreAtmosphere() then
-                    error("Player FX: previous Atmosphere restore pending")
-                end
-                if controller.atmosphereObject ~= atmosphere then
-                    -- Restore Booster-owned original before recording Player's baseline.
-                    if not boosterPro.releaseAtmosphereToPlayer(atmosphere) then
-                        error("Player FX: Booster Atmosphere restore pending")
+            -- Rendering Atmosphere and Fog can be protected by game code,
+            -- disabled by the executor, or rejected by a custom client.
+            -- A denied property write must NOT make the Weather toggle dead:
+            -- still apply our own local ColorCorrection and rain overlay.
+            local ok, reason = pcall(function()
+                local atmosphere = Lighting:FindFirstChildOfClass("Atmosphere")
+                if atmosphere then
+                    if not restoreFog() then error("Player FX: Fog restore pending") end
+                    if controller.atmosphereObject
+                        and controller.atmosphereObject ~= atmosphere
+                        and not controller.restoreAtmosphere() then
+                        error("Player FX: previous Atmosphere restore pending")
                     end
+                    if controller.atmosphereObject ~= atmosphere then
+                        if not boosterPro.releaseAtmosphereToPlayer(atmosphere) then
+                            error("Player FX: Booster Atmosphere restore pending")
+                        end
+                    end
+                    writeAtmosphere(atmosphere, "Density", profile.density)
+                    writeAtmosphere(atmosphere, "Haze", profile.haze)
+                    writeAtmosphere(atmosphere, "Color", profile.skyColor)
+                    writeAtmosphere(atmosphere, "Decay", profile.skyDecay)
+                else
+                    if not controller.restoreAtmosphere() then
+                        error("Player FX: Atmosphere restore pending")
+                    end
+                    writeFog("FogEnd", profile.distance)
+                    writeFog("FogStart", profile.start)
+                    writeFog("FogColor", profile.fogColor)
                 end
-                writeAtmosphere(atmosphere, "Density", profile.density)
-                writeAtmosphere(atmosphere, "Haze", profile.haze)
-                writeAtmosphere(atmosphere, "Color", profile.skyColor)
-                writeAtmosphere(atmosphere, "Decay", profile.skyDecay)
+            end)
+            if not ok then
+                controller.weatherFallback = true
+                controller.lastError = tostring(reason)
+                -- Attempt rollback of partially applied properties, retaining
+                -- snapshots when the engine refuses restoration. Never touch
+                -- a newer external value.
+                pcall(restoreFog)
+                pcall(controller.restoreAtmosphere)
             else
-                if not controller.restoreAtmosphere() then
-                    error("Player FX: Atmosphere restore pending")
-                end
-                -- Fog settings work only without an active Atmosphere.
-                writeFog("FogEnd", profile.distance)
-                writeFog("FogStart", profile.start)
-                writeFog("FogColor", profile.fogColor)
+                controller.lastError = nil
             end
             local tone = ensureTone("weatherTone", "Army124PlayerWeatherTone")
             tone.TintColor = profile.tint
@@ -624,8 +638,14 @@ local playerFX = (function()
             tone.Contrast = profile.contrast
             tone.Saturation = profile.saturation
         else
+            -- OFF is always an actual button action. Restore failures retain
+            -- snapshots for the existing maintenance worker rather than
+            -- leaving a weather effect visibly enabled.
             if not controller.restoreWeather() then
-                error("Player FX: не удалось вернуть погоду, повторим при выгрузке")
+                controller.lastError = "Player FX: weather restore pending"
+                controller.weatherFallback = true
+            else
+                controller.lastError = nil
             end
             safeDestroy(controller.weatherTone)
             controller.weatherTone = nil
