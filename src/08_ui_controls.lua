@@ -105,16 +105,8 @@ local function addToggle(page, title, description, key, onChanged)
         rowBorder.Transparency = enabled and 0.29 or 0.63
     end
     refreshToggles[key] = update
-    local lastMouseActivation = -1e8
     local function onRowActivated()
         if not alive then return end
-        -- На некоторых клиентах MouseButton1Click и Activated приходят вместе.
-        -- Запасной обработчик AIM не должен переключать его дважды.
-        if key == "aimbot" then
-            local now = os.clock()
-            if now - lastMouseActivation < 0.12 then return end
-            lastMouseActivation = now
-        end
         local previous = state[key]
         state[key] = not previous
         if onChanged then
@@ -131,12 +123,9 @@ local function addToggle(page, title, description, key, onChanged)
         update(true)
         requestSave()
     end
+    row.Active = true
+    -- One centralized input path for AIM and every other switch.
     safeActivate(row, onRowActivated)
-    if key == "aimbot" then
-        row.Active = true
-        -- Запасной путь для клиентов, не отправляющих Activated на обычный клик.
-        connect(row.MouseButton1Click, onRowActivated)
-    end
     update()
     return row
 end
@@ -461,6 +450,7 @@ local function addChoice(page, label, choices, key, callback)
             requestSave()
         end)
     end
+    refreshChoices[key] = repaint
     repaint()
     return repaint
 end
