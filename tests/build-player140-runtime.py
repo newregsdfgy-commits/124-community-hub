@@ -345,8 +345,9 @@ Lighting=setmetatable({ChildAdded=signal(),ChildRemoved=signal(),
 })
 state.playerWeatherEnabled=true
 state.playerWeatherMode="FOG"
-assert(not pcall(playerFX.syncWeather),"injected Fog setter failure expected")
-assert(Lighting.FogEnd==150 and playerFX.pending(),"partial Fog write must be tracked")
+assert(pcall(playerFX.syncWeather),"denied Fog write should fall back to local tone")
+assert(playerFX.weatherFallback and playerFX.weatherTone.Parent == Lighting)
+assert(Lighting.FogEnd==910 and not playerFX.pending(),"partial Fog write must be rolled back")
 state.playerWeatherEnabled=false
 assert(pcall(playerFX.syncWeather),"Fog restore must not throw")
 assert(Lighting.FogEnd==910 and not playerFX.pending(),"Fog baseline was lost")
@@ -367,8 +368,9 @@ function Lighting:FindFirstChildOfClass(kind)
     if kind=="Atmosphere" then return atmo end
 end
 state.playerWeatherEnabled=true
-assert(not pcall(playerFX.syncWeather),"injected Atmosphere setter failure expected")
-assert(atmo.Density==0.56 and boosterPro.playerFxOwned[atmo]==true)
+assert(pcall(playerFX.syncWeather),"denied Atmosphere should use local tone")
+assert(playerFX.weatherFallback and playerFX.weatherTone.Parent == Lighting)
+assert(atmo.Density==0.12 and boosterPro.playerFxOwned[atmo]==nil)
 state.playerWeatherEnabled=false
 assert(pcall(playerFX.syncWeather),"Atmosphere restore must not throw")
 assert(atmo.Density==0.12 and not playerFX.pending())

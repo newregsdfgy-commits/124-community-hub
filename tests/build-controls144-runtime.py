@@ -86,6 +86,15 @@ button.InputBegan:Fire(mouse)
 button.Activated:Fire(mouse)
 button.MouseButton1Click:Fire()
 assert(calls==beforeFast+2,"fast second physical click should work without a duplicate")
+-- Some Roblox versions deliver a later Activated without any new InputBegan
+-- on the TextButton. It must not remain permanently consumed.
+now=now+0.18
+button.Activated:Fire(mouse)
+button.MouseButton1Click:Fire()
+assert(calls==beforeFast+3,"missing InputBegan must not leave toggle dead")
+now=now+0.18
+button.MouseButton1Click:Fire()
+assert(calls==beforeFast+4,"fallback-only press must remain clickable")
 assert(#eventErrors==0)
 
 -- Production columnFor must take the initial responsive result even if
