@@ -11,8 +11,8 @@ import re
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = "1.5.0"
-BRANCH = "v1.5.0-aim-click-input-hotfix-test"
+VERSION = "1.5.2"
+BRANCH = "v1.5.2-aim-pinned-switch-test"
 CHECK_COUNT = [0]
 
 
@@ -241,6 +241,9 @@ def main() -> int:
           'safeActivate(row, onRowActivated)' in hub and
           'AimFullRowHitSurface' in hub and
           'boosterPro.aimClickDebug = debug' in hub and
+          'AimPinnedControlDock' in hub and
+          'AimPinnedSwitch' in hub and
+          'pinnedAimClickDebug' in hub and
           'if pressNumber > 0 and consumedPress ~= pressNumber then' in hub and
           'connect(control.InputBegan, function(input)' in hub and
           'now - lastActivatedAt < 0.14 then' in hub and
