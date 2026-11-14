@@ -1,11 +1,11 @@
--- 124 Visuals v1.4.3 | FPS Booster Deep Stability and Terrain Rollback
+-- 124 Visuals v1.4.4 | UI Input, Weather, Aura and Lifecycle Repair
 -- Первый плейс: 18537079992. Запуск поддерживает все игровые PlaceId.
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.4.3",
+    Version = "1.4.4",
     OriginalPlaceId = 18537079992,
     EspRefreshSeconds = 0.35, -- Быстрый поиск персонажей, без обновления UI каждый кадр.
     EspEventMinSeconds = 0.18, -- Коалесцированные события не запускают 16 полных сканов/сек.
@@ -657,6 +657,7 @@ local aimBound = false
 local aimBindingName = "Army124CommunityAim_" .. tostring(LocalPlayer.UserId)
 local statusMessage = nil
 local refreshToggles = {}
+local refreshChoices = {}
 local measuredFps = 60
 local perfCounters = {espCount = 0, shapeCount = 0, aimScanMs = 0}
 perfCounters.guard = {level = 0, low = 0, critical = 0, good = 0, changed = 0}
@@ -3622,34 +3623,44 @@ local playerFX = (function()
                 controller.auraEmitter = newOwned("ParticleEmitter", {
                     Name = "Army124PlayerAura",
                     Texture = "rbxasset://textures/particles/sparkles_main.dds",
-                    Rate = 10 + strength * 5,
-                    Lifetime = NumberRange.new(0.75, 1.25),
-                    Speed = NumberRange.new(0.45, 1.8),
-                    SpreadAngle = Vector2.new(175, 175),
+                    -- The old 0.14-0.27 stud particles were nearly invisible
+                    -- around a full R15 body. Keep the effect bounded but vivid.
+                    Rate = 24 + strength * 10,
+                    Lifetime = NumberRange.new(0.95, 1.7),
+                    Speed = NumberRange.new(0.65, 2.1),
+                    SpreadAngle = Vector2.new(180, 180),
                     Size = NumberSequence.new({
-                        NumberSequenceKeypoint.new(0, 0.14),
-                        NumberSequenceKeypoint.new(0.5, 0.27),
-                        NumberSequenceKeypoint.new(1, 0),
+                        NumberSequenceKeypoint.new(0, 0.26),
+                        NumberSequenceKeypoint.new(0.42, 0.50),
+                        NumberSequenceKeypoint.new(1, 0.04),
                     }),
                     Transparency = NumberSequence.new({
-                        NumberSequenceKeypoint.new(0, 0.26),
-                        NumberSequenceKeypoint.new(0.7, 0.48),
+                        NumberSequenceKeypoint.new(0, 0.12),
+                        NumberSequenceKeypoint.new(0.55, 0.31),
                         NumberSequenceKeypoint.new(1, 1),
                     }),
-                    LightEmission = 0.75,
+                    LightEmission = 0.90,
                     LightInfluence = 0,
                     LockedToPart = false,
                     Enabled = true,
                 }, controller.auraAttachment)
             end
             controller.auraEmitter.Color = ColorSequence.new(color)
-            controller.auraEmitter.Rate = 10 + strength * 5
+            controller.auraEmitter.Rate = 24 + strength * 10
+            local size = 0.32 + strength * 0.09
+            controller.auraEmitter.Size = NumberSequence.new({
+                NumberSequenceKeypoint.new(0, size * 0.5),
+                NumberSequenceKeypoint.new(0.42, size),
+                NumberSequenceKeypoint.new(1, 0.04),
+            })
         else
             safeDestroy(controller.auraEmitter)
             safeDestroy(controller.auraAttachment)
             controller.auraEmitter, controller.auraAttachment = nil, nil
         end
-        if state.playerGlowEnabled then
+        -- A visible contour belongs to Aura too: players should not need to
+        -- enable the independent Glow switch to actually see an aura.
+        if state.playerGlowEnabled or state.playerAuraEnabled then
             if not controller.glowHighlight or controller.glowHighlight.Parent ~= character then
                 safeDestroy(controller.glowHighlight)
                 controller.glowHighlight = newOwned("Highlight", {
@@ -3664,6 +3675,15 @@ local playerFX = (function()
             controller.glowHighlight.Adornee = character
             controller.glowHighlight.FillColor = color
             controller.glowHighlight.OutlineColor = color
+            controller.glowHighlight.FillTransparency =
+                state.playerGlowEnabled and 0.70 or 0.88
+            controller.glowHighlight.OutlineTransparency =
+                state.playerGlowEnabled and 0.10 or 0.38
+        else
+            safeDestroy(controller.glowHighlight)
+            controller.glowHighlight = nil
+        end
+        if state.playerGlowEnabled then
             if not controller.glowLight or controller.glowLight.Parent ~= root then
                 safeDestroy(controller.glowLight)
                 controller.glowLight = newOwned("PointLight", {
@@ -3674,12 +3694,11 @@ local playerFX = (function()
                 }, root)
             end
             controller.glowLight.Color = color
-            controller.glowLight.Brightness = 0.4 + strength * 0.35
-            controller.glowLight.Range = 8 + strength * 1.5
+            controller.glowLight.Brightness = 0.6 + strength * 0.48
+            controller.glowLight.Range = 10 + strength * 1.8
         else
-            safeDestroy(controller.glowHighlight)
             safeDestroy(controller.glowLight)
-            controller.glowHighlight, controller.glowLight = nil, nil
+            controller.glowLight = nil
         end
     end
     -- Save only Fog properties that this module changes. Dynamic game
@@ -4647,6 +4666,7 @@ local function applySettings(incoming, autoLoad)
     end
     for _, update in pairs(refreshToggles) do pcall(update) end
     for _, update in pairs(refreshSliders) do pcall(update) end
+    for _, update in pairs(refreshChoices) do pcall(update) end
     pcall(repaintAimMode)
     pcall(repaintAimKeybind)
     pcall(repaintColors)
@@ -4997,11 +5017,8 @@ local currentPage = "ESP"
 local scrollFrames = {navSlots}
 local touchGestures = setmetatable({}, {__mode = "k"})
 local suppressTapUntil = 0
-connect(navSlots:GetPropertyChangedSignal("CanvasPosition"), function()
-    if UserInputService.TouchEnabled then
-        suppressTapUntil = os.clock() + 0.24
-    end
-end)
+-- CanvasPosition may continue changing during inertial scrolling. Do not
+-- globally block the NEXT intentional tap just because a scroller moved.
 -- Do not treat a scroller from a *hidden ancestor page* as touch-active.
 -- The previous check looked only at the direct parent and could suppress
 -- clicks on unrelated pages after switching to compact/portrait layout.
@@ -5040,17 +5057,15 @@ connect(UserInputService.InputChanged, function(input)
     local dy = input.Position.Y - touch.start.Y
     if math.abs(dy) >= 11 and math.abs(dy) >= math.abs(dx) * 1.12 then
         touch.dragged = true
-        suppressTapUntil = os.clock() + 0.22
     elseif math.abs(dx) >= 12 then
         touch.dragged = true
     end
 end)
 connect(UserInputService.InputEnded, function(input)
     local touch = touchGestures[input]
-    if touch and touch.dragged then
-        suppressTapUntil = math.max(suppressTapUntil, os.clock() + 0.22)
-    end
-    touchGestures[input] = nil -- Release finished touch identity immediately.
+    -- Activated can arrive after InputEnded. Retain movement information on
+    -- the weak-key input until the associated click has been classified.
+    if touch then touch.endedAt = os.clock() end
 end)
 local function allowTap(input)
     if not alive then return false end
@@ -5060,15 +5075,29 @@ local function allowTap(input)
     if input and input.UserInputType == Enum.UserInputType.Touch then
         local info = touchGestures[input]
         if info and info.dragged then return false end
+        -- A genuine tap is never rejected because another scroller is moving.
+        return true
     end
-    return os.clock() >= suppressTapUntil
+    return true
 end
 local function safeActivate(control, callback)
-    return connect(control.Activated, function(input, ...)
+    local lastActivatedAt = -1e8
+    local function fire(input, ...)
         if not alive or not allowTap(input) then return end
+        local now = os.clock()
+        -- Roblox may send both Activated and MouseButton1Click for one mouse
+        -- click; a shared latch prevents double toggles on slow clients.
+        if now - lastActivatedAt < 0.38 then return end
+        lastActivatedAt = now
         local ok, err = pcall(callback, input, ...)
         if not ok then tell("Ошибка UI: " .. tostring(err)) end
-    end)
+    end
+    local primary = connect(control.Activated, fire)
+    if control:IsA("TextButton") or control:IsA("ImageButton") then
+        -- Fallback for clients that send only MouseButton1Click.
+        connect(control.MouseButton1Click, function() fire(nil) end)
+    end
+    return primary
 end
 -- Dashboard доступен через статус; 4 основные вкладки сохраняют раздельные функции.
 local navigation = {
@@ -5095,11 +5124,8 @@ local function makeColumn(parent, name)
     scroll.ScrollingEnabled = true
     scroll.ElasticBehavior = Enum.ElasticBehavior.WhenScrollable
     table.insert(scrollFrames, scroll)
-    connect(scroll:GetPropertyChangedSignal("CanvasPosition"), function()
-        if UserInputService.TouchEnabled then
-            suppressTapUntil = os.clock() + 0.24
-        end
-    end)
+    -- Scroll motion is handled by touchGestures; it must not suppress all
+    -- subsequent clicks while Roblox is applying inertial scroll.
     mk("UIListLayout", {
         SortOrder = Enum.SortOrder.LayoutOrder,
         Padding = UDim.new(0, 8),
@@ -5430,6 +5456,9 @@ local sectionSides = {
 local function columnFor(page)
     local info = pageColumns[page]
     if not info then return page end
+    -- Controls are built AFTER the initial responsive pass. Respect its
+    -- hidden-right-column result even before the next viewport change.
+    if info.singleColumn then return info.left end
     return wideLayout and info[info.side] or info.left
 end
 local function registerWidget(page, widget)
@@ -5530,6 +5559,7 @@ local function applyResponsiveLayout()
                 info.right.Size = UDim2.new(0.5, -5, 1, 0)
                 info.right.Visible = true
             end
+            info.singleColumn = singleColumn
             for _, item in ipairs(info.widgets) do
                 local desired = singleColumn and info.left or info[item.side]
                 if item.object.Parent ~= desired then item.object.Parent = desired end
@@ -6000,16 +6030,8 @@ local function addToggle(page, title, description, key, onChanged)
         rowBorder.Transparency = enabled and 0.29 or 0.63
     end
     refreshToggles[key] = update
-    local lastMouseActivation = -1e8
     local function onRowActivated()
         if not alive then return end
-        -- На некоторых клиентах MouseButton1Click и Activated приходят вместе.
-        -- Запасной обработчик AIM не должен переключать его дважды.
-        if key == "aimbot" then
-            local now = os.clock()
-            if now - lastMouseActivation < 0.12 then return end
-            lastMouseActivation = now
-        end
         local previous = state[key]
         state[key] = not previous
         if onChanged then
@@ -6026,12 +6048,9 @@ local function addToggle(page, title, description, key, onChanged)
         update(true)
         requestSave()
     end
+    row.Active = true
+    -- One centralized input path for AIM and every other switch.
     safeActivate(row, onRowActivated)
-    if key == "aimbot" then
-        row.Active = true
-        -- Запасной путь для клиентов, не отправляющих Activated на обычный клик.
-        connect(row.MouseButton1Click, onRowActivated)
-    end
     update()
     return row
 end
@@ -6356,6 +6375,7 @@ local function addChoice(page, label, choices, key, callback)
             requestSave()
         end)
     end
+    refreshChoices[key] = repaint
     repaint()
     return repaint
 end
@@ -7207,14 +7227,38 @@ addToggle(pages.PLAYER, "Свечение тела", "Контур + мягки�
     "playerGlowEnabled", function() playerFX.syncAvatar() end)
 
 addSection(pages.PLAYER, "LOCAL WEATHER", "Клиентская погода · туман, дождь, ночной фильтр")
-addToggle(pages.PLAYER, "Изменить погоду", "Локальный Fog и цветокоррекция, без изменения сервера",
-    "playerWeatherEnabled", function() playerFX.syncWeather() end)
+addToggle(pages.PLAYER, "Изменить погоду", "Включить погоду. CLEAR при первом запуске станет FOG",
+    "playerWeatherEnabled", function(enabled)
+        local previousMode = state.playerWeatherMode
+        if enabled and previousMode == "CLEAR" then
+            state.playerWeatherMode = "FOG"
+        end
+        local ok, err = pcall(playerFX.syncWeather)
+        if not ok then
+            state.playerWeatherMode = previousMode
+            error(err)
+        end
+        if refreshChoices.playerWeatherMode then refreshChoices.playerWeatherMode() end
+        tell(enabled and ("Погода: " .. state.playerWeatherMode) or "Погода: CLEAR / OFF")
+    end)
 addChoice(pages.PLAYER, "Пресет погоды", {
     {value = "CLEAR", label = "CLEAR"},
     {value = "FOG", label = "FOG"},
     {value = "RAIN", label = "RAIN"},
     {value = "NIGHT", label = "NIGHT"},
-}, "playerWeatherMode", function() playerFX.syncWeather() end)
+}, "playerWeatherMode", function(mode)
+    -- A mode choice is a real action, not a hidden preference behind another
+    -- OFF toggle. Choosing CLEAR restores the game's weather immediately.
+    local previousEnabled = state.playerWeatherEnabled
+    state.playerWeatherEnabled = mode ~= "CLEAR"
+    local ok, err = pcall(playerFX.syncWeather)
+    if not ok then
+        state.playerWeatherEnabled = previousEnabled
+        error(err)
+    end
+    if refreshToggles.playerWeatherEnabled then refreshToggles.playerWeatherEnabled() end
+    tell(mode == "CLEAR" and "Погода: исходная / OFF" or ("Погода: " .. mode))
+end)
 
 addSection(pages.PLAYER, "ENVIRONMENT COLOR", "Тон окружения, не меняет детали карты")
 addToggle(pages.PLAYER, "Цвет окружения", "Собственный ColorCorrectionEffect без репликации",
