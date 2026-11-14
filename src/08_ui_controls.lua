@@ -639,6 +639,27 @@ addToggle(pages.ESP, "Локальный прицел", "Небольшой ма
         end
     end)
 
+addSection(pages.AIM, "TARGETING", "Точка наведения и управление")
+addToggle(pages.AIM, "Aimbot", "Кнопка и горячая клавиша включают наведение одинаково", "aimbot", function(enabled)
+    -- Раньше меню включало модуль без aimHeldKey: без ПКМ наведения не было.
+    setAimEnabled(enabled, enabled)
+    if enabled then
+        local held = aimPro.equippedTool()
+        local message = "AIM: ON (активирован кнопкой)"
+        if not held then
+            if not aimPro.equipped then
+                message = message .. " | Возьми Tool в руки"
+            elseif state.aimOnlyRegisteredWeapons then
+                message = message .. " | Запомни оружие либо отключи фильтр оружия"
+            else
+                message = message .. " | Подожди загрузки Tool/персонажа"
+            end
+        end
+        tell(message)
+    else
+        tell("AIM: OFF")
+    end
+end)
 -- Critical AIM fallback: an independent, permanently visible button outside
 -- ScrollingFrame. The old row remains for backwards-compatible comparison.
 -- This is deliberately NOT a second handler on the same TextButton.
@@ -777,27 +798,6 @@ do
     end)
 end
 
-addSection(pages.AIM, "TARGETING", "Точка наведения и управление")
-addToggle(pages.AIM, "Aimbot", "Кнопка и горячая клавиша включают наведение одинаково", "aimbot", function(enabled)
-    -- Раньше меню включало модуль без aimHeldKey: без ПКМ наведения не было.
-    setAimEnabled(enabled, enabled)
-    if enabled then
-        local held = aimPro.equippedTool()
-        local message = "AIM: ON (активирован кнопкой)"
-        if not held then
-            if not aimPro.equipped then
-                message = message .. " | Возьми Tool в руки"
-            elseif state.aimOnlyRegisteredWeapons then
-                message = message .. " | Запомни оружие либо отключи фильтр оружия"
-            else
-                message = message .. " | Подожди загрузки Tool/персонажа"
-            end
-        end
-        tell(message)
-    else
-        tell("AIM: OFF")
-    end
-end)
 addAimModeSelector(pages.AIM)
 -- Без знаний об оружии игры не гадаем по названиям. Игрок может один раз
 -- зарегистрировать экипированное огнестрельное Tool; только оно пройдёт фильтр.
