@@ -234,6 +234,24 @@ def main() -> int:
           "local preferredWidth = wide and 930" in hub, failures)
     check("Compact layout switches to one column before truncation",
           "width - contentX - contentRight < 720" in hub, failures)
+    check("New controls immediately use the visible column",
+          "if info.singleColumn then return info.left end" in hub and
+          "info.singleColumn = singleColumn" in hub, failures)
+    check("AIM and all toggles use a deduplicated input handler",
+          'safeActivate(row, onRowActivated)' in hub and
+          'if now - lastActivatedAt < 0.38 then return end' in hub and
+          "connect(row.MouseButton1Click, onRowActivated)" not in hub, failures)
+    check("Touch scrolling does not globally swallow the next tap",
+          "if info and info.dragged then return false end" in hub and
+          "return os.clock() >= suppressTapUntil" not in hub, failures)
+    check("Weather modes activate immediately, CLEAR disables",
+          'state.playerWeatherMode = "FOG"' in hub and
+          'state.playerWeatherEnabled = mode ~= "CLEAR"' in hub and
+          'refreshChoices[key] = repaint' in hub, failures)
+    check("Aura includes a bounded visible contour and particle upgrade",
+          'Rate = 24 + strength * 10' in hub and
+          'if state.playerGlowEnabled or state.playerAuraEnabled then' in hub,
+          failures)
     check("Five visible navigation tabs, including Player",
           'buttons == 5' in hub and 'key = "PLAYER", label = "Player"' in hub,
           failures)
