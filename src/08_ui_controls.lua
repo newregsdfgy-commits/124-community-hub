@@ -767,6 +767,15 @@ addButton(pages.AIM, "Управление", "ПКМ: удерживать | к�
         .. " | Tool: " .. (tool and tool.Name or "НЕТ")
         .. " | Режим оружия: " .. (eligible and "OK" or "НЕТ / запомни Tool")
         .. " | Scan: " .. tostring(perfCounters.aimScanMs) .. " мс")
+    local clicks = boosterPro.aimClickDebug
+    if clicks then
+        tell("AIM button | Нажатий: " .. tostring(clicks.presses)
+            .. " | Activated: " .. tostring(clicks.activated)
+            .. " | InputEnd: " .. tostring(clicks.recovered)
+            .. " | Перекрытий: " .. tostring(clicks.blocked)
+            .. " | Источник: " .. tostring(clicks.lastSource)
+            .. " | Ошибка: " .. tostring(clicks.lastError))
+    end
 end)
 
 -- Один контроллер для Speed / Noclip / Fly: никаких вечных циклов.
