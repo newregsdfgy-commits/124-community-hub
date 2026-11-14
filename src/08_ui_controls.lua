@@ -320,8 +320,7 @@ local function addAimModeSelector(page)
         safeActivate(button, function()
             if not alive then return end
             state.aimMode = mode.value
-            aimTarget = nil
-            aimNextScan = 0
+            aimPro.reset()
             repaint()
             requestSave()
         end)
@@ -575,20 +574,21 @@ addButton(pages.AIM, "Очистить список оружия",
     end)
 repaintAimKeybind = addAimKeybind(pages.AIM)
 addToggle(pages.AIM, "Проверка команды", "Игнорировать союзников", "teamCheck", function()
-    aimTarget = nil
-    aimNextScan = 0
+    aimPro.reset()
 end)
 addToggle(pages.AIM, "Visible Check", "ON: только видимые | OFF: через стены", "visibleCheck", function()
-    aimTarget = nil
-    aimNextScan = 0
+    aimPro.reset()
 end)
 addToggle(pages.AIM, "Target Lock", "Удерживать выбранную цель", "targetLock", function()
-    aimTarget = nil; aimNextScan = 0
+    aimPro.reset()
 end)
 addSection(pages.AIM, "ADVANCED", "Точность и упреждение")
-addToggle(pages.AIM, "Prediction", "Упреждение движения персонажа", "prediction")
+addToggle(pages.AIM, "Prediction", "Упреждение движения персонажа", "prediction", function()
+    aimPro.reset()
+end)
 addSlider(pages.AIM, "Упреждение", "Прогноз 0–0.25 секунды", "predictionSeconds", 0, 0.25, 0.01,
-    function(v) return string.format("%.2f s", v) end)
+    function(v) return string.format("%.2f s", v) end,
+    function() aimPro.reset() end)
 addSlider(pages.AIM, "Скорость по горизонтали", "Множитель плавности X", "aimSmoothX", 1, 10, 1,
     function(v) return tostring(v) .. " / 10" end)
 addSlider(pages.AIM, "Скорость по вертикали", "Множитель плавности Y", "aimSmoothY", 1, 10, 1,
@@ -598,7 +598,7 @@ addToggle(pages.AIM, "Показывать FOV", "Круг на экране п�
 addSlider(pages.AIM, "Радиус FOV", "40–400 пикселей, размер зоны захвата", "aimFovPixels",
     CONFIG.AimFovMinPixels, CONFIG.AimFovMaxPixels, 5,
     function(value) return tostring(value) .. " px" end,
-    function() aimTarget = nil; aimNextScan = 0; refreshFovRing() end)
+    function() aimPro.reset(); refreshFovRing() end)
 addSlider(pages.AIM, "Толщина FOV", "Тонкая или выраженная окружность", "fovThickness",
     1, 4, 1, function(value) return tostring(value) .. " px" end,
     refreshFovRing)
@@ -622,7 +622,7 @@ addSection(pages.AIM, "CONTROL", "Дистанция и плавность")
 addSlider(pages.AIM, "Дистанция AIM", "5–180 метров, граница захвата", "aimRangeMeters",
     CONFIG.AimRangeMinMeters, CONFIG.AimRangeMaxMeters, 5,
     function(value) return tostring(value) .. " м" end,
-    function() aimTarget = nil; aimNextScan = 0 end)
+    function() aimPro.reset() end)
 addSlider(pages.AIM, "Скорость AIM", "0 = быстро, но без резких рывков · 10 = плавно", "aimSmoothness",
     0, 10, 1,
     function(value) return value == 0 and "MAX" or "Smooth " .. tostring(value) end)
@@ -738,11 +738,12 @@ end
 
 function movement.retryPending()
     -- Only invoke while Noclip is OFF: its active snapshots must stay intact.
-    if not movement.retrySpeeds() then return false end
+    local speedOK = movement.retrySpeeds()
     if not state.noclip then
-        return movement.restoreCollision() and not movement.pending()
+        local collisionOK = movement.restoreCollision()
+        return speedOK and collisionOK and not movement.pending()
     end
-    return true
+    return speedOK
 end
 
 function movement.recordPart(obj)
