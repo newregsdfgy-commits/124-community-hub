@@ -71,18 +71,20 @@ test("AIM mouse click and hotkey continue to share a single state setter",()=>{
     assert.match(ui,/setAimEnabled\(enabled, enabled\)/);
     assert.match(gui,/if refreshToggles\.aimbot then refreshToggles\.aimbot\(\) end/);
 });
-test("aura has both larger actual particles and a contour without Glow",()=>{
-    assert.match(player,/Rate = 24 \+ strength \* 10/);
-    assert.match(player,/controller\.auraEmitter\.Rate = 24 \+ strength \* 10/);
-    assert.match(player,/local size = 0\.32 \+ strength \* 0\.09/);
+test("three independent aura layers and an occluded Highlight",()=>{
+    assert.match(player,/Rate = 18 \+ strength \* 8/);
+    assert.match(player,/Rate = 8 \+ strength \* 4/);
+    assert.match(player,/Rate = 6 \+ strength \* 2/);
+    assert.match(player,/Name = "Army124PlayerAuraMist"/);
+    assert.match(player,/Name = "Army124PlayerAuraSparks"/);
     assert.match(player,/if state\.playerGlowEnabled or state\.playerAuraEnabled then/);
-    assert.match(player,/state\.playerGlowEnabled and 0\.70 or 0\.88/);
-    assert.match(player,/state\.playerGlowEnabled and 0\.10 or 0\.38/);
+    assert.match(player,/DepthMode = Enum\.HighlightDepthMode\.Occluded/);
 });
-test("glow light remains independent and bounded",()=>{
+test("Glow light is independent, bounded and pulsing",()=>{
     assert.match(player,/if state\.playerGlowEnabled then\s+if not controller\.glowLight/);
-    assert.match(player,/Brightness = 0\.6 \+ strength \* 0\.48/);
-    assert.match(player,/Range = 10 \+ strength \* 1\.8/);
+    assert.match(player,/Range = 11 \+ strength \* 1\.8/);
+    assert.match(player,/local base = 0\.85 \+ strength \* 0\.55/);
+    assert.match(player,/controller\.auraAnimationConnection = RunService\.Heartbeat:Connect/);
 });
 test("weather remains local, reversible and compatible with Booster Atmosphere handoff",()=>{
     for (const marker of [
