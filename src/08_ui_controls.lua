@@ -623,9 +623,14 @@ addSlider(pages.AIM, "Дистанция AIM", "5–180 метров, грани
     CONFIG.AimRangeMinMeters, CONFIG.AimRangeMaxMeters, 5,
     function(value) return tostring(value) .. " м" end,
     function() aimTarget = nil; aimNextScan = 0 end)
-addSlider(pages.AIM, "Скорость AIM", "0 = максимум · 10 = плавно", "aimSmoothness",
+addSlider(pages.AIM, "Скорость AIM", "0 = быстро, но без резких рывков · 10 = плавно", "aimSmoothness",
     0, 10, 1,
     function(value) return value == 0 and "MAX" or "Smooth " .. tostring(value) end)
+addSlider(pages.AIM, "Стабильность цели", "1 = быстрый захват · 5 = меньше переключений",
+    "aimStability", 1, 5, 1, function(v) return tostring(v) .. " / 5" end,
+    function() aimPro.reset() end)
+addSlider(pages.AIM, "Мёртвая зона", "0–12 px: убрать дрожание в центре",
+    "aimDeadzonePixels", 0, 12, 1, function(v) return tostring(v) .. " px" end)
 addButton(pages.AIM, "Управление", "ПКМ: удерживать | клавиша: ON/OFF | телефон: AIM | нужен Tool", function()
     local tool = aimPro.equipped
     local eligible = aimPro.equippedTool() ~= nil
