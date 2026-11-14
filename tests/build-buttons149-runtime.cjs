@@ -10,7 +10,7 @@ function extract(text,start,end){
 }
 const safe=extract(gui,"local function allowTap(input)","-- Dashboard доступен");
 const toggle=extract(ui,"local function addToggle(page, title, description, key, onChanged)","local function addButton(page, text, description, handler)");
-const aim=extract(ui,'addToggle(pages.AIM, "Aimbot"',"\naddAimModeSelector(pages.AIM)");
+const aim=extract(ui,'addToggle(pages.AIM, "Aimbot"',"\n-- Critical AIM fallback:");
 const weather=extract(ui,'addToggle(pages.PLAYER, "Изменить погоду"',"\naddChoice(pages.PLAYER, \"Пресет погоды\"");
 const aimEnable=extract(gui,"local repaintAimTouch = function() end","-- v1.1.0 MEMORY:");
 const pre=String.raw`
