@@ -22,8 +22,6 @@ local state = {
     aimSmoothness = 3, -- 0 = мгновенно, 1 = быстро, 10 = максимально плавно.
     aimSmoothX = 5,
     aimSmoothY = 5,
-    aimStability = 3, -- 1..5: время подтверждения смены цели и FOV grace.
-    aimDeadzonePixels = 2, -- 0..12: без микродвижения возле центра.
     prediction = false,
     predictionSeconds = 0.08,
     targetLock = true,
@@ -341,9 +339,6 @@ local aimPro = {
     equipped = nil,
     nextLos = 0,
     blockedSince = 0,
-    lostSince = 0, switchCandidate = nil, switchSince = 0,
-    leadPart = nil, leadPoint = nil,
-    lastCamera = nil, lastLocalCharacter = nil,
     rayParams = RaycastParams.new(),
     rayIgnore = {},
     candidates = {},
@@ -357,11 +352,6 @@ function aimPro.reset()
     aimNextScan = 0
     aimPro.nextLos = 0
     aimPro.blockedSince = 0
-    aimPro.lostSince = 0
-    aimPro.switchCandidate = nil
-    aimPro.switchSince = 0
-    aimPro.leadPart = nil
-    aimPro.leadPoint = nil
 end
 function aimPro.equippedTool()
     local tool = aimPro.equipped

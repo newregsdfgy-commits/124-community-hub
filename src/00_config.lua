@@ -1,11 +1,11 @@
--- 124 Visuals v1.4.8 | UI Input, Weather, Aura and Lifecycle Repair
+-- 124 Visuals v1.4.9 | UI Input, Weather, Aura and Lifecycle Repair
 -- Первый плейс: 18537079992. Запуск поддерживает все игровые PlaceId.
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.4.8",
+    Version = "1.4.9",
     OriginalPlaceId = 18537079992,
     EspRefreshSeconds = 0.35, -- Быстрый поиск персонажей, без обновления UI каждый кадр.
     EspEventMinSeconds = 0.18, -- Коалесцированные события не запускают 16 полных сканов/сек.
@@ -51,10 +51,7 @@ local CONFIG = {
     AimLockTolerance = 1.18, -- При сопровождении допускаем небольшой выход из первоначального FOV.
     AimVisibleRaycastChecks = 6, -- Пропускаем прозрачные служебные детали.
     AimLosCandidatesPerScan = 8, -- Ограничиваем число LOS-проверок при плотных серверах.
-    AimOcclusionGraceSeconds = 0.16, -- Короткий LOS miss не переключает цель.
-    AimLockLostGraceSeconds = 0.20, -- Удержание идентичности при FOV/streaming miss, но без наведения.
-    AimSwitchConfirmSeconds = 0.16, -- Подтверждение другой цели прежде чем менять lock.
-    AimPredictionResponseHz = 18, -- Сглаживание шумного velocity lead, не частота кадров.
+    AimOcclusionGraceSeconds = 0.12, -- Один короткий сбой LOS не переключает цель.
     AimPredictionMaxStuds = 10, -- Исключаем рывки от аномальной скорости сборки.
     AimMaxTurnDegreesPerSecond = 360, -- Предел поворота в режиме Smooth.
     AimRangeMaxMeters = 180,
