@@ -139,14 +139,15 @@ local function hideTerrainGrass()
     if not read or type(original) ~= "boolean" then return false end
     if original == false then return true end -- Already optimized by the game.
     local wrote = pcall(setter, terrain, "Decoration", false)
-    if not wrote then return false end
-    -- Keep original even when the readback fails: a setter may have mutated
-    -- the property and rollback must still know what to attempt.
-    savedTerrainDecoration = {
-        terrain = terrain, original = original, getter = getter, setter = setter,
-    }
     local checked, applied = pcall(getter, terrain, "Decoration")
-    return checked and applied == false
+    -- A setter can modify Terrain and then throw. Retain the original even
+    -- after that exception, or when readback temporarily fails.
+    if (checked and applied == false) or not checked then
+        savedTerrainDecoration = {
+            terrain = terrain, original = original, getter = getter, setter = setter,
+        }
+    end
+    return wrote and checked and applied == false
 end
 
 local function restoreTerrainGrass()

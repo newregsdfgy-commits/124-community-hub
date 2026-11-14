@@ -1100,12 +1100,28 @@ local function allowTap(input)
 end
 local function safeActivate(control, callback)
     local lastActivatedAt = -1e8
+    local pressNumber, consumedPress = 0, -1
+    -- Distinct physical presses must work immediately, even within 380 ms.
+    -- Activated and the legacy MouseButton1Click fallback share one press ID.
+    connect(control.InputBegan, function(input)
+        if input and (input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch) then
+            pressNumber = pressNumber + 1
+        end
+    end)
     local function fire(input, ...)
         if not alive or not allowTap(input) then return end
         local now = os.clock()
-        -- Roblox may send both Activated and MouseButton1Click for one mouse
-        -- click; a shared latch prevents double toggles on slow clients.
-        if now - lastActivatedAt < 0.38 then return end
+        local pointer = input == nil
+            or input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch
+        if pointer and pressNumber > 0 then
+            if consumedPress == pressNumber then return end
+            consumedPress = pressNumber
+        elseif now - lastActivatedAt < (pointer and 0.38 or 0.18) then
+            -- Legacy clients without InputBegan still need a timed fallback.
+            return
+        end
         lastActivatedAt = now
         local ok, err = pcall(callback, input, ...)
         if not ok then tell("Ошибка UI: " .. tostring(err)) end

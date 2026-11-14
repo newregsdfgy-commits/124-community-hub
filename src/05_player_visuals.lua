@@ -229,8 +229,21 @@ local playerFX = (function()
         elseif slot.last ~= nil and old ~= slot.last then
             slot.original = old
         end
-        Lighting[key] = value
-        if Lighting[key] ~= value then error("Player FX fog write failed: " .. key) end
+        -- A denied setter may mutate before throwing, or clamp the target.
+        -- Record the actual value before reporting failure so OFF can undo it.
+        local writeOK, writeError = pcall(function() Lighting[key] = value end)
+        local readOK, applied = pcall(function() return Lighting[key] end)
+        if readOK and applied ~= old then
+            slot.last = applied
+        elseif not readOK then
+            slot.last = value -- Unverified write: retain a recovery candidate.
+        end
+        if not writeOK then
+            error("Player FX fog write failed: " .. key .. ": " .. tostring(writeError))
+        end
+        if not readOK or applied ~= value then
+            error("Player FX fog write failed: " .. key)
+        end
         slot.last = value
     end
     local function restoreFog()
@@ -290,13 +303,24 @@ local playerFX = (function()
         elseif slot.last ~= nil and current ~= slot.last then
             slot.original = current
         end
-        target[key] = value
-        if target[key] ~= value then
+        -- Claim the exact Atmosphere before attempting a possibly partial
+        -- write; Booster must not overwrite an un-restored Player snapshot.
+        controller.atmosphereObject = target
+        boosterPro.playerFxOwned[target] = true
+        local writeOK, writeError = pcall(function() target[key] = value end)
+        local readOK, applied = pcall(function() return target[key] end)
+        if readOK and applied ~= current then
+            slot.last = applied
+        elseif not readOK then
+            slot.last = value
+        end
+        if not writeOK then
+            error("Player FX atmosphere write failed: " .. key .. ": " .. tostring(writeError))
+        end
+        if not readOK or applied ~= value then
             error("Player FX atmosphere write failed: " .. key)
         end
         slot.last = value
-        controller.atmosphereObject = target
-        boosterPro.playerFxOwned[target] = true
     end
     function controller.restoreWeather()
         -- Always attempt both: a failure restoring Fog must not skip Atmosphere.
