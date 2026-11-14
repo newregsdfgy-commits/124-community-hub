@@ -1,11 +1,11 @@
--- 124 Visuals v1.4.5 | UI Input, Weather, Aura and Lifecycle Repair
+-- 124 Visuals v1.4.6 | UI Input, Weather, Aura and Lifecycle Repair
 -- Первый плейс: 18537079992. Запуск поддерживает все игровые PlaceId.
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.4.5",
+    Version = "1.4.6",
     OriginalPlaceId = 18537079992,
     EspRefreshSeconds = 0.35, -- Быстрый поиск персонажей, без обновления UI каждый кадр.
     EspEventMinSeconds = 0.18, -- Коалесцированные события не запускают 16 полных сканов/сек.
@@ -602,6 +602,8 @@ local state = {
     playerGlowEnabled = false,
     playerAuraColor = "PURPLE",
     playerGlowPower = 3,
+    playerAuraQuality = "AUTO", -- AUTO / ECO / ULTRA, adapt to actual local FPS.
+    playerGlowPulse = true, -- Animation is inactive until Aura or Glow is enabled.
     playerWeatherEnabled = false,
     playerWeatherMode = "CLEAR",
     playerEnvironmentEnabled = false,
@@ -3488,8 +3490,11 @@ end)()
 local playerFX = (function()
     local controller = {
         character = nil, childConnection = nil, childRemovedConnection = nil,
-        auraAttachment = nil, auraEmitter = nil,
+        auraAttachment = nil, auraUpperAttachment = nil,
+        auraEmitter = nil, auraMist = nil, auraSparks = nil,
         glowHighlight = nil, glowLight = nil,
+        auraAnimationConnection = nil, auraAnimationElapsed = 0,
+        auraEco = false, lastQuality = "OFF", auraStrength = nil,
         weatherTone = nil, environmentTone = nil,
         rainGui = nil, rainLines = {}, rainConnection = nil,
         fog = {}, atmosphere = {}, atmosphereObject = nil,
@@ -3558,13 +3563,103 @@ local playerFX = (function()
         end
         return object
     end
+    -- The original single emitter formed a bright spot at the waist rather
+    -- than enveloping the avatar. Keep a bounded three-layer halo instead.
+    local function auraUsesEcoBudget()
+        if state.playerAuraQuality == "ECO" then return true end
+        if state.playerAuraQuality == "ULTRA" then return false end
+        -- AUTO: two FPS thresholds avoid visible quality flicker.
+        local fps = tonumber(measuredFps) or 60
+        if controller.auraEco then
+            if fps >= 52 then controller.auraEco = false end
+        elseif fps > 0 and fps < 38 then
+            controller.auraEco = true
+        end
+        return controller.auraEco
+    end
+    local function updateAuraBudget(strength)
+        if not state.playerAuraEnabled then
+            controller.lastQuality = "OFF"
+            return
+        end
+        local eco = auraUsesEcoBudget()
+        local multiplier = eco and 0.42 or 1
+        controller.lastQuality = eco and "ECO" or "ULTRA"
+        local rates = {
+            {controller.auraEmitter, 18 + strength * 8},
+            {controller.auraMist, 8 + strength * 4},
+            {controller.auraSparks, 6 + strength * 2},
+        }
+        for _, entry in ipairs(rates) do
+            if entry[1] and entry[1].Parent then
+                local desired = math.floor(entry[2] * multiplier + 0.5)
+                if entry[1].Rate ~= desired then entry[1].Rate = desired end
+            end
+        end
+    end
+    local function applyAuraPulse()
+        local pulse = state.playerGlowPulse
+            and (0.5 + 0.5 * math.sin(os.clock() * 2.35)) or 0.5
+        if controller.glowHighlight and controller.glowHighlight.Parent then
+            local glow = state.playerGlowEnabled
+            local fill = glow and 0.65 or 0.83
+            local outline = glow and 0.04 or 0.25
+            controller.glowHighlight.FillTransparency =
+                math.clamp(fill + (0.5 - pulse) * 0.10, 0, 1)
+            controller.glowHighlight.OutlineTransparency =
+                math.clamp(outline + (0.5 - pulse) * 0.10, 0, 1)
+        end
+        if controller.glowLight and controller.glowLight.Parent then
+            local strength = math.clamp(tonumber(state.playerGlowPower) or 3, 1, 5)
+            local base = 0.85 + strength * 0.55
+            controller.glowLight.Brightness = base * (0.94 + pulse * 0.15)
+        end
+    end
+    local function stopAuraAnimation()
+        if controller.auraAnimationConnection then
+            pcall(function() controller.auraAnimationConnection:Disconnect() end)
+            controller.auraAnimationConnection = nil
+        end
+        controller.auraAnimationElapsed = 0
+    end
+    local function startAuraAnimation()
+        if controller.auraAnimationConnection then return end
+        -- No permanent frame loop. At most ~7 changes/sec, and only when
+        -- Aura or Glow is enabled. Quality budget is re-evaluated here.
+        local animationConnection
+        animationConnection = RunService.Heartbeat:Connect(function(dt)
+            if controller.auraAnimationConnection ~= animationConnection then return end
+            if not active()
+                or not (state.playerAuraEnabled or state.playerGlowEnabled)
+                or controller.character ~= LocalPlayer.Character then
+                stopAuraAnimation()
+                return
+            end
+            controller.auraAnimationElapsed =
+                controller.auraAnimationElapsed + math.min(math.max(tonumber(dt) or 0, 0), 0.25)
+            if controller.auraAnimationElapsed < 0.14 then return end
+            controller.auraAnimationElapsed = 0
+            if state.playerAuraEnabled then
+                updateAuraBudget(math.clamp(tonumber(state.playerGlowPower) or 3, 1, 5))
+            end
+            applyAuraPulse()
+        end)
+        controller.auraAnimationConnection = animationConnection
+    end
     local function removeAvatar()
+        stopAuraAnimation()
+        safeDestroy(controller.auraMist)
+        safeDestroy(controller.auraSparks)
         safeDestroy(controller.auraEmitter)
         safeDestroy(controller.auraAttachment)
+        safeDestroy(controller.auraUpperAttachment)
         safeDestroy(controller.glowHighlight)
         safeDestroy(controller.glowLight)
-        controller.auraEmitter, controller.auraAttachment = nil, nil
+        controller.auraEmitter, controller.auraMist, controller.auraSparks = nil, nil, nil
+        controller.auraAttachment, controller.auraUpperAttachment = nil, nil
         controller.glowHighlight, controller.glowLight = nil, nil
+        controller.auraStrength = nil
+        controller.lastQuality = "OFF"
     end
     local function bindCharacter(character)
         if controller.childConnection then
@@ -3610,57 +3705,152 @@ local playerFX = (function()
         local color = avatarColors[state.playerAuraColor] or avatarColors.PURPLE
         local strength = math.clamp(tonumber(state.playerGlowPower) or 3, 1, 5)
         if state.playerAuraEnabled then
-            if not controller.auraAttachment or controller.auraAttachment.Parent ~= root then
+            if not controller.auraAttachment or controller.auraAttachment.Parent ~= root
+                or not controller.auraUpperAttachment or controller.auraUpperAttachment.Parent ~= root then
+                safeDestroy(controller.auraMist)
+                safeDestroy(controller.auraSparks)
                 safeDestroy(controller.auraEmitter)
                 safeDestroy(controller.auraAttachment)
+                safeDestroy(controller.auraUpperAttachment)
                 controller.auraAttachment = newOwned("Attachment", {
                     Name = "Army124PlayerAuraAttachment",
-                    Position = Vector3.new(0, -0.5, 0),
+                    Position = Vector3.new(0, -0.35, 0),
                 }, root)
-                controller.auraEmitter = nil
+                controller.auraUpperAttachment = newOwned("Attachment", {
+                    Name = "Army124PlayerAuraUpper",
+                    Position = Vector3.new(0, 1.25, 0),
+                }, root)
+                controller.auraEmitter, controller.auraMist, controller.auraSparks = nil, nil, nil
+                controller.auraStrength = nil
             end
+            -- Layer 1: saturated light particles disperse around the torso.
             if not controller.auraEmitter or controller.auraEmitter.Parent ~= controller.auraAttachment then
                 safeDestroy(controller.auraEmitter)
+                controller.auraStrength = nil
                 controller.auraEmitter = newOwned("ParticleEmitter", {
                     Name = "Army124PlayerAura",
                     Texture = "rbxasset://textures/particles/sparkles_main.dds",
-                    -- The old 0.14-0.27 stud particles were nearly invisible
-                    -- around a full R15 body. Keep the effect bounded but vivid.
-                    Rate = 24 + strength * 10,
-                    Lifetime = NumberRange.new(0.95, 1.7),
-                    Speed = NumberRange.new(0.65, 2.1),
-                    SpreadAngle = Vector2.new(180, 180),
+                    Rate = 18 + strength * 8,
+                    Lifetime = NumberRange.new(0.9, 1.4),
+                    Speed = NumberRange.new(0.55, 1.7),
+                    SpreadAngle = Vector2.new(360, 360),
+                    Rotation = NumberRange.new(0, 360),
+                    RotSpeed = NumberRange.new(-35, 35),
+                    Acceleration = Vector3.new(0, 0.8, 0),
+                    Drag = 0.45,
+                    VelocityInheritance = 0.06,
                     Size = NumberSequence.new({
-                        NumberSequenceKeypoint.new(0, 0.26),
-                        NumberSequenceKeypoint.new(0.42, 0.50),
-                        NumberSequenceKeypoint.new(1, 0.04),
+                        NumberSequenceKeypoint.new(0, 0.15),
+                        NumberSequenceKeypoint.new(0.40, 0.58),
+                        NumberSequenceKeypoint.new(1, 0.03),
                     }),
                     Transparency = NumberSequence.new({
-                        NumberSequenceKeypoint.new(0, 0.12),
-                        NumberSequenceKeypoint.new(0.55, 0.31),
+                        NumberSequenceKeypoint.new(0, 0.28),
+                        NumberSequenceKeypoint.new(0.40, 0.10),
                         NumberSequenceKeypoint.new(1, 1),
                     }),
-                    LightEmission = 0.90,
-                    LightInfluence = 0,
-                    LockedToPart = false,
-                    Enabled = true,
+                    LightEmission = 0.98, LightInfluence = 0,
+                    LockedToPart = false, Enabled = true,
                 }, controller.auraAttachment)
             end
+            -- Layer 2: translucent haze for volume instead of opaque blobs.
+            if not controller.auraMist or controller.auraMist.Parent ~= controller.auraAttachment then
+                safeDestroy(controller.auraMist)
+                controller.auraStrength = nil
+                controller.auraMist = newOwned("ParticleEmitter", {
+                    Name = "Army124PlayerAuraMist",
+                    Texture = "rbxasset://textures/particles/smoke_main.dds",
+                    Rate = 8 + strength * 4,
+                    Lifetime = NumberRange.new(1.25, 1.85),
+                    Speed = NumberRange.new(0.22, 0.85),
+                    SpreadAngle = Vector2.new(360, 360),
+                    Rotation = NumberRange.new(0, 360),
+                    RotSpeed = NumberRange.new(-18, 18),
+                    Acceleration = Vector3.new(0, 0.48, 0),
+                    Drag = 0.7,
+                    VelocityInheritance = 0.12,
+                    Size = NumberSequence.new({
+                        NumberSequenceKeypoint.new(0, 0.48),
+                        NumberSequenceKeypoint.new(0.55, 1.35),
+                        NumberSequenceKeypoint.new(1, 0.35),
+                    }),
+                    Transparency = NumberSequence.new({
+                        NumberSequenceKeypoint.new(0, 0.91),
+                        NumberSequenceKeypoint.new(0.45, 0.79),
+                        NumberSequenceKeypoint.new(1, 1),
+                    }),
+                    LightEmission = 0.78, LightInfluence = 0,
+                    LockedToPart = false, Enabled = true,
+                }, controller.auraAttachment)
+            end
+            -- Layer 3: small pale highlights spread above the shoulders.
+            if not controller.auraSparks or controller.auraSparks.Parent ~= controller.auraUpperAttachment then
+                safeDestroy(controller.auraSparks)
+                controller.auraStrength = nil
+                controller.auraSparks = newOwned("ParticleEmitter", {
+                    Name = "Army124PlayerAuraSparks",
+                    Texture = "rbxasset://textures/particles/sparkles_main.dds",
+                    Rate = 6 + strength * 2,
+                    Lifetime = NumberRange.new(0.55, 1.0),
+                    Speed = NumberRange.new(0.5, 1.4),
+                    SpreadAngle = Vector2.new(360, 360),
+                    Rotation = NumberRange.new(0, 360),
+                    RotSpeed = NumberRange.new(-55, 55),
+                    Acceleration = Vector3.new(0, 0.95, 0),
+                    Drag = 0.3,
+                    VelocityInheritance = 0.08,
+                    Size = NumberSequence.new({
+                        NumberSequenceKeypoint.new(0, 0.09),
+                        NumberSequenceKeypoint.new(0.45, 0.24),
+                        NumberSequenceKeypoint.new(1, 0.01),
+                    }),
+                    Transparency = NumberSequence.new({
+                        NumberSequenceKeypoint.new(0, 0.36),
+                        NumberSequenceKeypoint.new(0.42, 0.06),
+                        NumberSequenceKeypoint.new(1, 1),
+                    }),
+                    LightEmission = 1, LightInfluence = 0,
+                    LockedToPart = false, Enabled = true,
+                }, controller.auraUpperAttachment)
+            end
             controller.auraEmitter.Color = ColorSequence.new(color)
-            controller.auraEmitter.Rate = 24 + strength * 10
-            local size = 0.32 + strength * 0.09
-            controller.auraEmitter.Size = NumberSequence.new({
-                NumberSequenceKeypoint.new(0, size * 0.5),
-                NumberSequenceKeypoint.new(0.42, size),
-                NumberSequenceKeypoint.new(1, 0.04),
-            })
+            controller.auraMist.Color = ColorSequence.new(color:Lerp(white, 0.26))
+            controller.auraSparks.Color = ColorSequence.new(color:Lerp(white, 0.63))
+            -- Rebuild static sequences ONLY when the user changes intensity.
+            if controller.auraStrength ~= strength then
+                local coreSize = 0.35 + strength * 0.08
+                local hazeSize = 1.05 + strength * 0.11
+                local sparkSize = 0.13 + strength * 0.038
+                controller.auraEmitter.Size = NumberSequence.new({
+                    NumberSequenceKeypoint.new(0, coreSize * 0.32),
+                    NumberSequenceKeypoint.new(0.40, coreSize),
+                    NumberSequenceKeypoint.new(1, 0.025),
+                })
+                controller.auraMist.Size = NumberSequence.new({
+                    NumberSequenceKeypoint.new(0, hazeSize * 0.35),
+                    NumberSequenceKeypoint.new(0.5, hazeSize),
+                    NumberSequenceKeypoint.new(1, 0.18),
+                })
+                controller.auraSparks.Size = NumberSequence.new({
+                    NumberSequenceKeypoint.new(0, sparkSize * 0.4),
+                    NumberSequenceKeypoint.new(0.48, sparkSize),
+                    NumberSequenceKeypoint.new(1, 0.01),
+                })
+                controller.auraStrength = strength
+            end
+            updateAuraBudget(strength)
         else
+            safeDestroy(controller.auraMist)
+            safeDestroy(controller.auraSparks)
             safeDestroy(controller.auraEmitter)
             safeDestroy(controller.auraAttachment)
-            controller.auraEmitter, controller.auraAttachment = nil, nil
+            safeDestroy(controller.auraUpperAttachment)
+            controller.auraEmitter, controller.auraMist, controller.auraSparks = nil, nil, nil
+            controller.auraAttachment, controller.auraUpperAttachment = nil, nil
+            controller.auraStrength = nil
+            controller.lastQuality = "OFF"
         end
-        -- A visible contour belongs to Aura too: players should not need to
-        -- enable the independent Glow switch to actually see an aura.
+        -- Glow and Aura share ONE local silhouette Highlight; no x-ray.
         if state.playerGlowEnabled or state.playerAuraEnabled then
             if not controller.glowHighlight or controller.glowHighlight.Parent ~= character then
                 safeDestroy(controller.glowHighlight)
@@ -3668,18 +3858,14 @@ local playerFX = (function()
                     Name = "Army124PlayerGlow",
                     Adornee = character,
                     DepthMode = Enum.HighlightDepthMode.Occluded,
-                    FillTransparency = 0.86,
-                    OutlineTransparency = 0.24,
+                    FillTransparency = 0.80,
+                    OutlineTransparency = 0.22,
                     Enabled = true,
                 }, character)
             end
             controller.glowHighlight.Adornee = character
             controller.glowHighlight.FillColor = color
-            controller.glowHighlight.OutlineColor = color
-            controller.glowHighlight.FillTransparency =
-                state.playerGlowEnabled and 0.70 or 0.88
-            controller.glowHighlight.OutlineTransparency =
-                state.playerGlowEnabled and 0.10 or 0.38
+            controller.glowHighlight.OutlineColor = color:Lerp(white, 0.35)
         else
             safeDestroy(controller.glowHighlight)
             controller.glowHighlight = nil
@@ -3689,17 +3875,21 @@ local playerFX = (function()
                 safeDestroy(controller.glowLight)
                 controller.glowLight = newOwned("PointLight", {
                     Name = "Army124PlayerLight",
-                    Shadows = false,
-                    Range = 12,
+                    Shadows = false, Range = 12,
                     Enabled = true,
                 }, root)
             end
             controller.glowLight.Color = color
-            controller.glowLight.Brightness = 0.6 + strength * 0.48
-            controller.glowLight.Range = 10 + strength * 1.8
+            controller.glowLight.Range = 11 + strength * 1.8
         else
             safeDestroy(controller.glowLight)
             controller.glowLight = nil
+        end
+        if state.playerAuraEnabled or state.playerGlowEnabled then
+            applyAuraPulse()
+            startAuraAnimation()
+        else
+            stopAuraAnimation()
         end
     end
     -- Save only Fog properties that this module changes. Dynamic game
@@ -3969,9 +4159,11 @@ local playerFX = (function()
         return controller.restoreWeather()
     end
     function controller.diagnostics()
-        return string.format("Aura=%s Glow=%s | Weather=%s/%s | Tint=%s/%s"
+        return string.format("Aura=%s Glow=%s | Quality=%s/%s Pulse=%s | Weather=%s/%s | Tint=%s/%s"
             .. " | Rain=%s | PendingWeather=%s | Root=%s | Error=%s",
             tostring(state.playerAuraEnabled), tostring(state.playerGlowEnabled),
+            tostring(state.playerAuraQuality), tostring(controller.lastQuality),
+            tostring(state.playerGlowPulse),
             tostring(state.playerWeatherEnabled), tostring(state.playerWeatherMode),
             tostring(state.playerEnvironmentEnabled), tostring(state.playerEnvironmentColor),
             tostring(controller.rainGui ~= nil),
@@ -4420,6 +4612,7 @@ local storedKeys = {
     "speedEnabled", "speedValue", "noclip", "fly", "flySpeed",
     "musicId", "musicVolume", "musicLoop",
     "playerAuraEnabled", "playerGlowEnabled", "playerAuraColor", "playerGlowPower",
+    "playerAuraQuality", "playerGlowPulse",
     "playerWeatherEnabled", "playerWeatherMode",
     "playerEnvironmentEnabled", "playerEnvironmentColor", "playerEnvironmentStrength",
 }
@@ -4441,6 +4634,7 @@ local textRules = {
     performanceMode = {AUTO = true, ECO = true, QUALITY = true},
     boosterMode = {BALANCED = true, WHITE = true, ULTRA = true},
     playerAuraColor = {PURPLE = true, CYAN = true, GOLD = true, GREEN = true},
+    playerAuraQuality = {AUTO = true, ECO = true, ULTRA = true},
     playerWeatherMode = {CLEAR = true, FOG = true, RAIN = true, NIGHT = true},
     playerEnvironmentColor = {VIOLET = true, CYAN = true, WARM = true, GREEN = true},
 }
@@ -7253,7 +7447,7 @@ end
 addSection(pages.PLAYER, "PLAYER AURA", "Мягкие частицы вокруг собственного персонажа")
 addToggle(pages.PLAYER, "Аура тела", "Локальное сияние без изменения персонажа на сервере",
     "playerAuraEnabled", function() playerFX.syncAvatar() end)
-addSlider(pages.PLAYER, "Интенсивность ауры", "Частицы и яркость свечения · 1–5",
+addSlider(pages.PLAYER, "Интенсивность ауры", "Объём, искры и свет · 1–5",
     "playerGlowPower", 1, 5, 1, function(v) return tostring(v) .. " / 5" end,
     function() playerFX.syncAvatar() end)
 addChoice(pages.PLAYER, "Цвет ауры и свечения", {
@@ -7262,10 +7456,17 @@ addChoice(pages.PLAYER, "Цвет ауры и свечения", {
     {value = "GOLD", label = "GOLD"},
     {value = "GREEN", label = "GREEN"},
 }, "playerAuraColor", function() playerFX.syncAvatar() end)
+addChoice(pages.PLAYER, "Качество эффектов", {
+    {value = "AUTO", label = "AUTO"},
+    {value = "ECO", label = "ECO"},
+    {value = "ULTRA", label = "ULTRA"},
+}, "playerAuraQuality", function() playerFX.syncAvatar() end)
 
 addSection(pages.PLAYER, "PLAYER GLOW", "Контур и PointLight только у своего тела")
 addToggle(pages.PLAYER, "Свечение тела", "Контур + мягкий локальный свет, без замены материалов",
     "playerGlowEnabled", function() playerFX.syncAvatar() end)
+addToggle(pages.PLAYER, "Пульсация сияния", "Плавное дыхание контура и света · без постоянного RenderStep",
+    "playerGlowPulse", function() playerFX.syncAvatar() end)
 
 addSection(pages.PLAYER, "LOCAL WEATHER", "Клиентская погода · туман, дождь, ночной фильтр")
 addToggle(pages.PLAYER, "Изменить погоду", "Включить погоду. CLEAR при первом запуске станет FOG",
@@ -7332,7 +7533,7 @@ addButton(pages.PLAYER, "Выключить эффекты Player",
     end)
 addButton(pages.PLAYER, "Диагностика Player FX",
     "Только локальные объекты, режим погоды и состояние отката", function()
-        tell("Player 1.0 | " .. playerFX.diagnostics())
+        tell("Player 2.0 | " .. playerFX.diagnostics())
     end)
 
 addSection(pages.MISC, "WEAPONS 2.0", "Локальная совместимость, диагностика и откат значений")
