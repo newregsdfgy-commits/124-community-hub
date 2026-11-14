@@ -935,10 +935,7 @@ local function canSee(camera, point, targetCharacter)
     local params = aimPro.rayParams
     for _ = 1, CONFIG.AimVisibleRaycastChecks do
         params.FilterDescendantsInstances = exclusions
-        -- A transient Raycast API failure is not proof of visibility.
-        -- Fail closed instead of breaking the render callback.
-        local ok, result = pcall(Workspace.Raycast, Workspace, origin, direction, params)
-        if not ok then return false end
+        local result = Workspace:Raycast(origin, direction, params)
         if not result then return true end
         if result.Instance:IsDescendantOf(targetCharacter) then return true end
         if result.Instance:IsA("BasePart") and result.Instance.Transparency >= 0.98 then
@@ -958,8 +955,6 @@ local function predictedPoint(part)
     if ok and typeof(velocity) == "Vector3" then
         local offset = velocity * state.predictionSeconds
         local distance = offset.Magnitude
-        -- Streaming/physics spikes must not poison CFrame math with NaN/Inf.
-        if distance ~= distance or distance == math.huge then return point end
         if distance > CONFIG.AimPredictionMaxStuds then
             offset = offset * (CONFIG.AimPredictionMaxStuds / distance)
         end
@@ -1001,56 +996,34 @@ local function findAimTarget(camera)
     end
     local me = LocalPlayer.Character
     local myRoot = me and me:FindFirstChild("HumanoidRootPart")
-    if not myRoot or not myRoot:IsA("BasePart") then return done(nil) end
+    if not myRoot then return done(nil) end
     local viewport = camera.ViewportSize
     local center = Vector2.new(viewport.X * 0.5, viewport.Y * 0.5)
     local fov = state.aimFovPixels
-    local now = os.clock()
-    local stability = math.clamp(tonumber(state.aimStability) or 3, 1, 5)
-    local graceScale = 0.65 + stability * 0.12
-    local previous = aimTarget
-    local previousValid = state.targetLock and previous
-        and previous.player and previous.player.Parent == Players
-        and previous.character and previous.player.Character == previous.character
-        and not sameTeam(previous.player)
-    if previousValid then
-        local humanoid = previous.character:FindFirstChildOfClass("Humanoid")
-        previousValid = humanoid ~= nil and humanoid.Health > 0
-    end
 
-    if previousValid then
-        local chosen = targetPart(previous.character)
-        local kept = chosen and examineTarget(camera, previous.player, chosen, myRoot,
-            center, fov * CONFIG.AimLockTolerance, false)
-        if kept then
-            aimPro.lostSince = 0
-            if not state.visibleCheck or canSee(camera, chosen.Position, kept.character) then
-                aimPro.blockedSince = 0
-                aimPro.switchCandidate, aimPro.switchSince = nil, 0
-                return done(kept)
-            end
-            -- Brief LOS failures hold identity but NEVER steer through walls.
-            if aimPro.blockedSince == 0 then aimPro.blockedSince = now end
-            if now - aimPro.blockedSince <
-                CONFIG.AimOcclusionGraceSeconds * graceScale then
-                kept.blocked = true
-                return done(kept)
-            end
-        else
-            -- FOV boundary / brief streaming gaps: do not lock a new player
-            -- instantly, and never steer using an unverified stale part.
-            if aimPro.lostSince == 0 then aimPro.lostSince = now end
-            if now - aimPro.lostSince < CONFIG.AimLockLostGraceSeconds * graceScale then
-                return done({
-                    player = previous.player, part = chosen or previous.part,
-                    character = previous.character, humanoid = previous.humanoid,
-                    blocked = true,
-                })
+    if state.targetLock and aimTarget and aimTarget.player.Parent == Players then
+        local chosen = targetPart(aimTarget.character)
+        if chosen then
+            local kept = examineTarget(camera, aimTarget.player, chosen, myRoot,
+                center, fov * CONFIG.AimLockTolerance, false)
+            if kept then
+                if not state.visibleCheck or canSee(camera, chosen.Position, kept.character) then
+                    aimPro.blockedSince = 0
+                    return done(kept)
+                end
+                -- Keep the same target briefly without moving the camera
+                -- through a wall. A single streaming/LOS miss won't retarget.
+                local now = os.clock()
+                if aimPro.blockedSince == 0 then aimPro.blockedSince = now end
+                if now - aimPro.blockedSince < CONFIG.AimOcclusionGraceSeconds then
+                    kept.blocked = true
+                    return done(kept)
+                end
             end
         end
     end
 
-    -- No Visible Check: scan for closest FOV candidate without sorting.
+    -- Без Visible Check не создаём сортированный список: ищем один минимум.
     local candidates = aimPro.candidates
     table.clear(candidates)
     local best = nil
@@ -1070,39 +1043,19 @@ local function findAimTarget(camera)
             end
         end
     end
-    if state.visibleCheck then
-        table.sort(candidates, function(a, b)
-            return a.pixelsSquared < b.pixelsSquared
-        end)
-        local tested = 0
-        for _, candidate in ipairs(candidates) do
-            if tested >= CONFIG.AimLosCandidatesPerScan then break end
-            tested = tested + 1
-            if canSee(camera, candidate.part.Position, candidate.character) then
-                best = candidate
-                break
-            end
-        end
-    end
-    if best and previousValid and best.player ~= previous.player then
-        -- A second target must remain best across consecutive scans.
-        -- While confirming it, park the old target without camera movement.
-        if aimPro.switchCandidate ~= best.player then
-            aimPro.switchCandidate = best.player
-            aimPro.switchSince = now
-        end
-        if now - aimPro.switchSince < CONFIG.AimSwitchConfirmSeconds * graceScale then
-            return done({
-                player = previous.player, part = previous.part,
-                character = previous.character, humanoid = previous.humanoid,
-                blocked = true,
-            })
+    if not state.visibleCheck then return done(best) end
+    table.sort(candidates, function(a, b) return a.pixelsSquared < b.pixelsSquared end)
+    local tested = 0
+    for _, candidate in ipairs(candidates) do
+        if tested >= CONFIG.AimLosCandidatesPerScan then break end
+        tested = tested + 1
+        if canSee(camera, candidate.part.Position, candidate.character) then
+            aimPro.blockedSince = 0
+            return done(candidate)
         end
     end
     aimPro.blockedSince = 0
-    aimPro.lostSince = 0
-    aimPro.switchCandidate, aimPro.switchSince = nil, 0
-    return done(best)
+    return done(nil)
 end
 
 -- Один и тот же безопасный источник статуса системного меню для AIM и горячих клавиш.
@@ -1113,10 +1066,10 @@ local function isRobloxMenuOpen()
 end
 
 local function aimFrame(dt)
-    -- No Tool or no explicit input: never change the camera.
+    -- Отсутствие Tool — абсолютный запрет движения камеры, даже при F6/ПКМ/touch.
     if not alive or not state.aimbot or not (aimHeldMouse or aimHeldTouch or aimHeldKey)
         or not aimPro.equippedTool() then
-        if aimTarget or aimPro.leadPart then aimPro.reset() end
+        aimTarget = nil
         return
     end
     if isRobloxMenuOpen() then
@@ -1125,12 +1078,7 @@ local function aimFrame(dt)
     end
     if UserInputService:GetFocusedTextBox() ~= nil then return end
     local camera = Workspace.CurrentCamera
-    local me = LocalPlayer.Character
-    if not camera or not me then aimPro.reset(); return end
-    if aimPro.lastCamera ~= camera or aimPro.lastLocalCharacter ~= me then
-        aimPro.reset()
-        aimPro.lastCamera, aimPro.lastLocalCharacter = camera, me
-    end
+    if not camera then aimTarget = nil; return end
     local now = os.clock()
     local tier = perfTier()
     local scanEvery = tier == "ECO" and 0.24
@@ -1145,104 +1093,72 @@ local function aimFrame(dt)
         aimTarget = findAimTarget(camera)
         if not aimTarget or (previous and previous.player ~= aimTarget.player) then
             aimPro.blockedSince = 0
-            aimPro.leadPart, aimPro.leadPoint = nil, nil
         end
         scannedThisFrame = true
         if aimTarget then
+            -- Новый поиск уже сделал LOS при включённом Visible Check.
             aimPro.nextLos = now + losInterval
         end
     end
     local current = aimTarget
+    -- Отсутствие цели НЕ обнуляет таймер поиска (было до 60 сканов/с).
     if not current then return end
-    -- Retained occluded/streaming target is never used for aim movement.
+    -- Occluded lock is retained for stability but NEVER drives the camera.
     if current.blocked then return end
     local part = current.part
     if not part or not part.Parent or not current.player
         or current.player.Character ~= current.character or sameTeam(current.player)
-        or not part:IsDescendantOf(current.character)
         or not current.humanoid or current.humanoid.Health <= 0 then
-        aimPro.reset()
-        aimNextScan = now + CONFIG.AimLostRescanSeconds
+        aimTarget = nil
+        aimNextScan = math.min(aimNextScan, now + CONFIG.AimLostRescanSeconds)
         return
     end
     local origin = camera.CFrame.Position
     local point = part.Position
-    local myRoot = me:FindFirstChild("HumanoidRootPart")
-    if not myRoot or not myRoot:IsA("BasePart")
-        or (point - origin).Magnitude <= 0.05
+    local myCharacter = LocalPlayer.Character
+    local myRoot = myCharacter and myCharacter:FindFirstChild("HumanoidRootPart")
+    if not myRoot or (point - origin).Magnitude <= 0.05
         or (point - myRoot.Position).Magnitude * CONFIG.StudMeters > state.aimRangeMeters then
-        aimPro.reset()
-        aimNextScan = now + CONFIG.AimLostRescanSeconds
+        aimTarget = nil
+        aimNextScan = math.min(aimNextScan, now + CONFIG.AimLostRescanSeconds)
         return
     end
+    -- Проверка видимости прицеливания остаётся активной, но Raycast реже.
     if state.visibleCheck and not scannedThisFrame and now >= aimPro.nextLos then
         if not canSee(camera, point, current.character) then
             if state.targetLock then
                 if aimPro.blockedSince == 0 then aimPro.blockedSince = now end
-                if now - aimPro.blockedSince < CONFIG.AimOcclusionGraceSeconds
-                    * (0.65 + math.clamp(tonumber(state.aimStability) or 3, 1, 5) * 0.12) then
+                if now - aimPro.blockedSince < CONFIG.AimOcclusionGraceSeconds then
                     current.blocked = true
                     aimNextScan = math.min(aimNextScan, now + CONFIG.AimLostRescanSeconds)
                     return
                 end
             end
-            aimPro.reset()
-            aimNextScan = now + CONFIG.AimLostRescanSeconds
+            aimPro.blockedSince = 0
+            aimTarget = nil
+            aimNextScan = math.min(aimNextScan, now + CONFIG.AimLostRescanSeconds)
             return
         end
         aimPro.blockedSince = 0
         aimPro.nextLos = now + losInterval
     end
-    local dtSafe = math.clamp(tonumber(dt) or 0, 0, 0.05)
-    if dtSafe == 0 then return end
-    local desired = predictedPoint(part)
-    -- Damp noisy AssemblyLinearVelocity updates, without rebuilding a target
-    -- cache on every scan: target tables change, BasePart identity does not.
-    if state.prediction then
-        if aimPro.leadPart == part and aimPro.leadPoint then
-            local factor = 1 - math.exp(-CONFIG.AimPredictionResponseHz * dtSafe)
-            desired = aimPro.leadPoint:Lerp(desired, factor)
-        end
-        aimPro.leadPart, aimPro.leadPoint = part, desired
+    local goal = CFrame.lookAt(origin, predictedPoint(part))
+    if state.aimSmoothness == 0 then
+        camera.CFrame = goal
     else
-        aimPro.leadPart, aimPro.leadPoint = nil, nil
+        -- Frame-rate independent smoothing with a bounded angular step.
+        -- Avoid a sudden jump on a late frame without altering Smooth=0.
+        local cx, cy, cz = camera.CFrame:ToOrientation()
+        local gx, gy = goal:ToOrientation()
+        local speed = CONFIG.AimSmoothnessBaseline / state.aimSmoothness
+        local dtSafe = math.clamp(dt, 0, 0.05)
+        local alphaX = math.clamp(1 - math.exp(-speed * state.aimSmoothX / 5 * dtSafe), 0, 1)
+        local alphaY = math.clamp(1 - math.exp(-speed * state.aimSmoothY / 5 * dtSafe), 0, 1)
+        local maxStep = math.rad(CONFIG.AimMaxTurnDegreesPerSecond) * dtSafe
+        local pitchStep = math.clamp(signedAngle(cx, gx) * alphaY, -maxStep, maxStep)
+        local yawStep = math.clamp(signedAngle(cy, gy) * alphaX, -maxStep, maxStep)
+        camera.CFrame = CFrame.new(origin) * CFrame.fromOrientation(
+            cx + pitchStep, cy + yawStep, cz)
     end
-    local toTarget = desired - origin
-    local distance = toTarget.Magnitude
-    if distance ~= distance or distance == math.huge or distance <= 0.05 then return end
-    local localLook = camera.CFrame:VectorToObjectSpace(toTarget.Unit)
-    -- No Euler ToOrientation() near +/-pi: rotate in camera-local space.
-    -- World-to-viewport already rejects behind-camera acquisition; refuse
-    -- one-frame behind-camera jumps before the next scanner pass.
-    if localLook.Z >= -0.001 then return end
-    local projected, onScreen = camera:WorldToViewportPoint(desired)
-    if onScreen then
-        local viewport = camera.ViewportSize
-        local deadzone = math.clamp(tonumber(state.aimDeadzonePixels) or 2, 0, 12)
-        if math.abs(projected.X - viewport.X * 0.5) <= deadzone
-            and math.abs(projected.Y - viewport.Y * 0.5) <= deadzone then
-            return
-        end
-    end
-    local horizontal = math.sqrt(localLook.X * localLook.X + localLook.Z * localLook.Z)
-    local yaw = -math.atan2(localLook.X, -localLook.Z)
-    local pitch = math.atan2(localLook.Y, horizontal)
-    -- Smooth=0 is now FAST BUT BOUNDED, not an instant camera teleport.
-    local smoothness = tonumber(state.aimSmoothness) or 3
-    local speed = smoothness == 0 and CONFIG.AimSmoothnessBaseline * 2
-        or CONFIG.AimSmoothnessBaseline / math.max(smoothness, 0.1)
-    local alphaX = math.clamp(1 - math.exp(-speed * state.aimSmoothX / 5 * dtSafe), 0, 1)
-    local alphaY = math.clamp(1 - math.exp(-speed * state.aimSmoothY / 5 * dtSafe), 0, 1)
-    local maxStep = math.rad(CONFIG.AimMaxTurnDegreesPerSecond) * dtSafe
-    local pitchStep = math.clamp(pitch * alphaY, -maxStep, maxStep)
-    local yawStep = math.clamp(yaw * alphaX, -maxStep, maxStep)
-    -- Combined two-axis motion must also respect the single angular budget.
-    local magnitude = math.sqrt(pitchStep * pitchStep + yawStep * yawStep)
-    if magnitude > maxStep then
-        local scale = maxStep / magnitude
-        pitchStep, yawStep = pitchStep * scale, yawStep * scale
-    end
-    if magnitude <= 1e-6 then return end
-    camera.CFrame = camera.CFrame * CFrame.Angles(pitchStep, yawStep, 0)
 end
 
