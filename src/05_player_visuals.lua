@@ -139,7 +139,9 @@ local playerFX = (function()
         if controller.auraAnimationConnection then return end
         -- No permanent frame loop. At most ~7 changes/sec, and only when
         -- Aura or Glow is enabled. Quality budget is re-evaluated here.
-        controller.auraAnimationConnection = RunService.Heartbeat:Connect(function(dt)
+        local animationConnection
+        animationConnection = RunService.Heartbeat:Connect(function(dt)
+            if controller.auraAnimationConnection ~= animationConnection then return end
             if not active()
                 or not (state.playerAuraEnabled or state.playerGlowEnabled)
                 or controller.character ~= LocalPlayer.Character then
@@ -155,6 +157,7 @@ local playerFX = (function()
             end
             applyAuraPulse()
         end)
+        controller.auraAnimationConnection = animationConnection
     end
     local function removeAvatar()
         stopAuraAnimation()
@@ -215,7 +218,8 @@ local playerFX = (function()
         local color = avatarColors[state.playerAuraColor] or avatarColors.PURPLE
         local strength = math.clamp(tonumber(state.playerGlowPower) or 3, 1, 5)
         if state.playerAuraEnabled then
-            if not controller.auraAttachment or controller.auraAttachment.Parent ~= root then
+            if not controller.auraAttachment or controller.auraAttachment.Parent ~= root
+                or not controller.auraUpperAttachment or controller.auraUpperAttachment.Parent ~= root then
                 safeDestroy(controller.auraMist)
                 safeDestroy(controller.auraSparks)
                 safeDestroy(controller.auraEmitter)
@@ -235,6 +239,7 @@ local playerFX = (function()
             -- Layer 1: saturated light particles disperse around the torso.
             if not controller.auraEmitter or controller.auraEmitter.Parent ~= controller.auraAttachment then
                 safeDestroy(controller.auraEmitter)
+                controller.auraStrength = nil
                 controller.auraEmitter = newOwned("ParticleEmitter", {
                     Name = "Army124PlayerAura",
                     Texture = "rbxasset://textures/particles/sparkles_main.dds",
@@ -264,6 +269,7 @@ local playerFX = (function()
             -- Layer 2: translucent haze for volume instead of opaque blobs.
             if not controller.auraMist or controller.auraMist.Parent ~= controller.auraAttachment then
                 safeDestroy(controller.auraMist)
+                controller.auraStrength = nil
                 controller.auraMist = newOwned("ParticleEmitter", {
                     Name = "Army124PlayerAuraMist",
                     Texture = "rbxasset://textures/particles/smoke_main.dds",
@@ -293,6 +299,7 @@ local playerFX = (function()
             -- Layer 3: small pale highlights spread above the shoulders.
             if not controller.auraSparks or controller.auraSparks.Parent ~= controller.auraUpperAttachment then
                 safeDestroy(controller.auraSparks)
+                controller.auraStrength = nil
                 controller.auraSparks = newOwned("ParticleEmitter", {
                     Name = "Army124PlayerAuraSparks",
                     Texture = "rbxasset://textures/particles/sparkles_main.dds",
