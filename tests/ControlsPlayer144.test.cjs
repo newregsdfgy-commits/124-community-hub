@@ -57,7 +57,7 @@ test("safeActivate handles Activated and click fallback once",()=>{
     assert.match(gui,/consumedPress ~= pressNumber then/);
     assert.match(gui,/now - lastActivatedAt < 0\.14 then/);
     assert.match(gui,/connect\(control\.InputBegan, function\(input\)/);
-    assert.match(gui,/pointer and 0\.38 or 0\.18/);
+    assert.match(gui,/now - lastActivatedAt < 0\.14 then/);
     assert.match(gui,/connect\(control\.Activated, fire\)/);
     assert.match(gui,/connect\(control\.MouseButton1Click, function\(\) fire\(nil\) end\)/);
 });

@@ -24,6 +24,6 @@ test("Terrain grass keeps recovery after setter throws following mutation",()=>{
 });
 test("Real separate presses avoid the legacy 380ms UI lockout",()=>{
  assert.match(gui,/pressNumber = pressNumber \+ 1/);
- assert.match(gui,/if consumedPress == pressNumber then return end/);
- assert.match(gui,/pointer and 0\.38 or 0\.18/);
+ assert.match(gui,/if pressNumber > 0 and consumedPress ~= pressNumber then/);
+ assert.match(gui,/now - lastActivatedAt < 0\.14 then/);
 });
