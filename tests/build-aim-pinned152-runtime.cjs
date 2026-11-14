@@ -42,7 +42,7 @@ local function mk(kind,props,parent)
         o.AbsolutePosition={X=102,Y=90}
         o.AbsoluteSize={X=280,Y=39}
     end
-    objects[props.Name]=o
+    if props.Name then objects[props.Name]=o end
     return o
 end
 local PlayerGui={overlay=false}
