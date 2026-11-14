@@ -684,6 +684,7 @@ local function applySettings(incoming, autoLoad)
     end
     for _, update in pairs(refreshToggles) do pcall(update) end
     for _, update in pairs(refreshSliders) do pcall(update) end
+    for _, update in pairs(refreshChoices) do pcall(update) end
     pcall(repaintAimMode)
     pcall(repaintAimKeybind)
     pcall(repaintColors)
@@ -1034,11 +1035,8 @@ local currentPage = "ESP"
 local scrollFrames = {navSlots}
 local touchGestures = setmetatable({}, {__mode = "k"})
 local suppressTapUntil = 0
-connect(navSlots:GetPropertyChangedSignal("CanvasPosition"), function()
-    if UserInputService.TouchEnabled then
-        suppressTapUntil = os.clock() + 0.24
-    end
-end)
+-- CanvasPosition may continue changing during inertial scrolling. Do not
+-- globally block the NEXT intentional tap just because a scroller moved.
 -- Do not treat a scroller from a *hidden ancestor page* as touch-active.
 -- The previous check looked only at the direct parent and could suppress
 -- clicks on unrelated pages after switching to compact/portrait layout.
@@ -1077,17 +1075,15 @@ connect(UserInputService.InputChanged, function(input)
     local dy = input.Position.Y - touch.start.Y
     if math.abs(dy) >= 11 and math.abs(dy) >= math.abs(dx) * 1.12 then
         touch.dragged = true
-        suppressTapUntil = os.clock() + 0.22
     elseif math.abs(dx) >= 12 then
         touch.dragged = true
     end
 end)
 connect(UserInputService.InputEnded, function(input)
     local touch = touchGestures[input]
-    if touch and touch.dragged then
-        suppressTapUntil = math.max(suppressTapUntil, os.clock() + 0.22)
-    end
-    touchGestures[input] = nil -- Release finished touch identity immediately.
+    -- Activated can arrive after InputEnded. Retain movement information on
+    -- the weak-key input until the associated click has been classified.
+    if touch then touch.endedAt = os.clock() end
 end)
 local function allowTap(input)
     if not alive then return false end
@@ -1097,15 +1093,29 @@ local function allowTap(input)
     if input and input.UserInputType == Enum.UserInputType.Touch then
         local info = touchGestures[input]
         if info and info.dragged then return false end
+        -- A genuine tap is never rejected because another scroller is moving.
+        return true
     end
-    return os.clock() >= suppressTapUntil
+    return true
 end
 local function safeActivate(control, callback)
-    return connect(control.Activated, function(input, ...)
+    local lastActivatedAt = -1e8
+    local function fire(input, ...)
         if not alive or not allowTap(input) then return end
+        local now = os.clock()
+        -- Roblox may send both Activated and MouseButton1Click for one mouse
+        -- click; a shared latch prevents double toggles on slow clients.
+        if now - lastActivatedAt < 0.38 then return end
+        lastActivatedAt = now
         local ok, err = pcall(callback, input, ...)
         if not ok then tell("Ошибка UI: " .. tostring(err)) end
-    end)
+    end
+    local primary = connect(control.Activated, fire)
+    if control:IsA("TextButton") or control:IsA("ImageButton") then
+        -- Fallback for clients that send only MouseButton1Click.
+        connect(control.MouseButton1Click, function() fire(nil) end)
+    end
+    return primary
 end
 -- Dashboard доступен через статус; 4 основные вкладки сохраняют раздельные функции.
 local navigation = {
@@ -1132,11 +1142,8 @@ local function makeColumn(parent, name)
     scroll.ScrollingEnabled = true
     scroll.ElasticBehavior = Enum.ElasticBehavior.WhenScrollable
     table.insert(scrollFrames, scroll)
-    connect(scroll:GetPropertyChangedSignal("CanvasPosition"), function()
-        if UserInputService.TouchEnabled then
-            suppressTapUntil = os.clock() + 0.24
-        end
-    end)
+    -- Scroll motion is handled by touchGestures; it must not suppress all
+    -- subsequent clicks while Roblox is applying inertial scroll.
     mk("UIListLayout", {
         SortOrder = Enum.SortOrder.LayoutOrder,
         Padding = UDim.new(0, 8),
@@ -1467,6 +1474,9 @@ local sectionSides = {
 local function columnFor(page)
     local info = pageColumns[page]
     if not info then return page end
+    -- Controls are built AFTER the initial responsive pass. Respect its
+    -- hidden-right-column result even before the next viewport change.
+    if info.singleColumn then return info.left end
     return wideLayout and info[info.side] or info.left
 end
 local function registerWidget(page, widget)
@@ -1567,6 +1577,7 @@ local function applyResponsiveLayout()
                 info.right.Size = UDim2.new(0.5, -5, 1, 0)
                 info.right.Visible = true
             end
+            info.singleColumn = singleColumn
             for _, item in ipairs(info.widgets) do
                 local desired = singleColumn and info.left or info[item.side]
                 if item.object.Parent ~= desired then item.object.Parent = desired end
