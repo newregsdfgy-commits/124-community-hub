@@ -1,11 +1,11 @@
--- 124 Visuals v1.5.0 | AIM Click Hitbox & Input Recovery
+-- 124 Visuals v1.5.2 | AIM Pinned Input Recovery
 -- Первый плейс: 18537079992. Запуск поддерживает все игровые PlaceId.
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.5.0",
+    Version = "1.5.2",
     OriginalPlaceId = 18537079992,
     EspRefreshSeconds = 0.35, -- Быстрый поиск персонажей, без обновления UI каждый кадр.
     EspEventMinSeconds = 0.18, -- Коалесцированные события не запускают 16 полных сканов/сек.
@@ -5824,6 +5824,16 @@ local function applyResponsiveLayout()
                 info.right.Size = UDim2.new(0.5, -5, 1, 0)
                 info.right.Visible = true
             end
+            -- Reserve a fixed, non-scrollable AIM control strip above
+            -- both ScrollingFrames. Otherwise it would cover the old toggle.
+            if page == pages.AIM then
+                local reserved = 52
+                for _, scroll in ipairs({info.left, info.right}) do
+                    local pos, size = scroll.Position, scroll.Size
+                    scroll.Position = UDim2.new(pos.X.Scale, pos.X.Offset, 0, reserved)
+                    scroll.Size = UDim2.new(size.X.Scale, size.X.Offset, 1, -reserved)
+                end
+            end
             info.singleColumn = singleColumn
             for _, item in ipairs(info.widgets) do
                 local desired = singleColumn and info.left or info[item.side]
@@ -6850,6 +6860,144 @@ addToggle(pages.AIM, "Aimbot", "Кнопка и горячая клавиша в
         tell("AIM: OFF")
     end
 end)
+-- Critical AIM fallback: an independent, permanently visible button outside
+-- ScrollingFrame. The old row remains for backwards-compatible comparison.
+-- This is deliberately NOT a second handler on the same TextButton.
+do
+    local aimDock = mk("Frame", {
+        Name = "AimPinnedControlDock", BackgroundColor3 = P.panel,
+        BackgroundTransparency = 0.08, BorderSizePixel = 0,
+        Position = UDim2.fromOffset(0, 0), Size = UDim2.new(1, 0, 0, 50),
+        ZIndex = 30, Active = false,
+    }, pages.AIM)
+    round(aimDock, 7)
+    mk("UIStroke", {Color = P.border, Transparency = 0.45, Thickness = 1}, aimDock)
+    local directButton = mk("TextButton", {
+        Name = "AimPinnedSwitch", Position = UDim2.fromOffset(5, 5),
+        Size = UDim2.new(1, -10, 0, 39),
+        BackgroundColor3 = P.tile, BorderSizePixel = 0,
+        AutoButtonColor = true, Active = true, Selectable = true,
+        Text = "", TextColor3 = P.text, TextSize = 13,
+        Font = Enum.Font.GothamBold, ZIndex = 31,
+    }, aimDock)
+    round(directButton, 7)
+    local counter = {presses = 0, released = 0, activated = 0,
+        rejected = 0, source = "ready", error = ""}
+    boosterPro.pinnedAimClickDebug = counter
+    local function repaintPinned()
+        local enabled = state.aimbot == true
+        directButton.Text = enabled
+            and "AIM: ON  •  НАЖМИ ДЛЯ ВЫКЛЮЧЕНИЯ"
+            or "AIM: OFF  •  НАЖМИ ДЛЯ ВКЛЮЧЕНИЯ"
+        directButton.BackgroundColor3 = enabled and Color3.fromRGB(92, 51, 146)
+            or Color3.fromRGB(48, 38, 69)
+    end
+    local previousAimUpdate = refreshToggles.aimbot
+    refreshToggles.aimbot = function(...)
+        if previousAimUpdate then previousAimUpdate(...) end
+        repaintPinned()
+    end
+    repaintPinned()
+
+    local serial, consumed = 0, -1
+    local latestInput, pressedInput, pressedPosition = nil, nil, nil
+    local pressAt, firedAt = -1e8, -1e8
+    local function inDock(position)
+        if not position or not alive or not gui.Enabled or not panel.Visible
+            or not pages.AIM.Visible or not directButton.Visible
+            or not directButton.Parent then return false end
+        local at, sz = directButton.AbsolutePosition, directButton.AbsoluteSize
+        return sz.X >= 30 and sz.Y >= 25
+            and position.X >= at.X and position.X <= at.X + sz.X
+            and position.Y >= at.Y and position.Y <= at.Y + sz.Y
+    end
+    local function hasInputPriority(position)
+        local ok, hit = pcall(PlayerGui.GetGuiObjectsAtPosition,
+            PlayerGui, position.X, position.Y)
+        if not ok or type(hit) ~= "table" or #hit == 0 then
+            return true
+        end
+        local first = hit[1]
+        if first == directButton or first == aimDock then return true end
+        local owns = false
+        if first then
+            local success, value = pcall(function()
+                return first:IsDescendantOf(aimDock)
+            end)
+            owns = success and value == true
+        end
+        if not owns then
+            counter.rejected = counter.rejected + 1
+            counter.error = "Кнопку перекрывает " .. tostring(first and first.Name or "?")
+        end
+        return owns
+    end
+    local function switch(source, token)
+        if not alive or not gui.Enabled or not panel.Visible
+            or not pages.AIM.Visible or not directButton.Parent then return end
+        local now = os.clock()
+        if token ~= nil and token == consumed then return end
+        if token == nil and now - firedAt < 0.16 then return end
+        if token ~= nil then consumed = token end
+        firedAt = now
+        counter.presses = counter.presses + 1
+        counter.source = source
+        local desired = not state.aimbot
+        local ok, err = pcall(setAimEnabled, desired, desired)
+        if not ok then
+            counter.error = tostring(err)
+            tell("Ошибка AIM переключателя: " .. counter.error)
+        else
+            counter.error = ""
+            repaintPinned()
+            tell("AIM: " .. (state.aimbot and "ON" or "OFF")
+                .. " | отдельная кнопка | " .. source)
+        end
+    end
+    local function tokenFor(input)
+        if input and input == latestInput then return serial end
+        if not input and serial > 0 and os.clock() - pressAt < 0.16 then
+            return serial
+        end
+        return nil
+    end
+    connect(directButton.Activated, function(input)
+        if not allowTap(input) then return end
+        counter.activated = counter.activated + 1
+        switch("Activated", tokenFor(input))
+    end)
+    connect(directButton.MouseButton1Click, function()
+        switch("MouseButton1Click", tokenFor(nil))
+    end)
+    -- Native events are preferred. Fallback supports the case where the
+    -- Roblox GUI never raises Activated for the visibly pressed TextButton.
+    connect(UserInputService.InputBegan, function(input)
+        local kind = input.UserInputType
+        if kind ~= Enum.UserInputType.MouseButton1
+            and kind ~= Enum.UserInputType.Touch then return end
+        if not inDock(input.Position) or not hasInputPriority(input.Position) then return end
+        serial = serial + 1
+        latestInput, pressedInput, pressedPosition = input, input, input.Position
+        pressAt = os.clock()
+    end)
+    connect(UserInputService.InputEnded, function(input)
+        if not pressedInput then return end
+        local kind = pressedInput.UserInputType
+        if input ~= pressedInput and not (kind == Enum.UserInputType.MouseButton1
+            and input.UserInputType == Enum.UserInputType.MouseButton1) then return end
+        local before = pressedPosition
+        pressedInput, pressedPosition = nil, nil
+        if not inDock(input.Position) or not hasInputPriority(input.Position) then return end
+        if before then
+            local dx = input.Position.X - before.X
+            local dy = input.Position.Y - before.Y
+            if dx * dx + dy * dy > 144 then return end
+        end
+        counter.released = counter.released + 1
+        switch("InputEnded", serial)
+    end)
+end
+
 addAimModeSelector(pages.AIM)
 -- Без знаний об оружии игры не гадаем по названиям. Игрок может один раз
 -- зарегистрировать экипированное огнестрельное Tool; только оно пройдёт фильтр.
@@ -6972,6 +7120,15 @@ addButton(pages.AIM, "Управление", "ПКМ: удерживать | к�
             .. " | Перекрытий: " .. tostring(clicks.blocked)
             .. " | Источник: " .. tostring(clicks.lastSource)
             .. " | Ошибка: " .. tostring(clicks.lastError))
+    end
+    local pinned = boosterPro.pinnedAimClickDebug
+    if pinned then
+        tell("AIM PINNED | Нажатий: " .. tostring(pinned.presses)
+            .. " | GUI: " .. tostring(pinned.activated)
+            .. " | Release: " .. tostring(pinned.released)
+            .. " | Blocked: " .. tostring(pinned.rejected)
+            .. " | Source: " .. tostring(pinned.source)
+            .. " | Error: " .. tostring(pinned.error))
     end
 end)
 
