@@ -81,13 +81,15 @@ end
 local originalFogColor = Lighting.FogColor
 local PlayerGui = {}
 local Workspace = {CurrentCamera = {ViewportSize = Vector2.new(900, 500)}}
-local RunService = {RenderStepped = signal()}
+local RunService = {RenderStepped = signal(), Heartbeat = signal()}
+local measuredFps = 60
 local CONFIG = {BootToken = {}}
 local env = {ARMY124_BOOT_TOKEN = CONFIG.BootToken}
 local alive = true
 local state = {
     playerAuraEnabled = false, playerGlowEnabled = false,
     playerAuraColor = "PURPLE", playerGlowPower = 3,
+    playerAuraQuality = "AUTO", playerGlowPulse = true,
     playerWeatherEnabled = false, playerWeatherMode = "CLEAR",
     playerEnvironmentEnabled = false, playerEnvironmentColor = "VIOLET",
     playerEnvironmentStrength = 40,
@@ -125,7 +127,12 @@ state.playerAuraEnabled = true
 state.playerGlowEnabled = true
 playerFX.syncAvatar()
 assert(playerFX.auraAttachment.Parent == rootOne)
-assert(playerFX.auraEmitter.Rate == 54)
+assert(playerFX.auraEmitter.Rate == 42)
+assert(playerFX.auraMist.Rate == 20)
+assert(playerFX.auraSparks.Rate == 12)
+assert(playerFX.auraUpperAttachment.Parent == rootOne)
+assert(playerFX.lastQuality == "ULTRA")
+assert(playerFX.auraAnimationConnection ~= nil)
 assert(playerFX.glowLight.Parent == rootOne)
 assert(playerFX.glowHighlight.Adornee == charOne)
 assert(playerFX.glowHighlight.Parent == charOne, "Highlight must not be in PlayerGui")
@@ -133,11 +140,13 @@ assert(playerFX.glowHighlight.Parent == charOne, "Highlight must not be in Playe
 state.playerGlowEnabled = false
 playerFX.syncAvatar()
 assert(playerFX.glowLight == nil and playerFX.glowHighlight.Parent == charOne)
-assert(playerFX.glowHighlight.FillTransparency == 0.88)
+assert(playerFX.glowHighlight.FillTransparency >= 0.78
+    and playerFX.glowHighlight.FillTransparency <= 0.88)
 state.playerGlowEnabled = true
 playerFX.syncAvatar()
 assert(playerFX.glowLight.Parent == rootOne)
-assert(playerFX.glowHighlight.FillTransparency == 0.70)
+assert(playerFX.glowHighlight.FillTransparency >= 0.60
+    and playerFX.glowHighlight.FillTransparency <= 0.70)
 assert(boosterPro.playerFxOwned[playerFX.glowHighlight] == true)
 local oldAura = playerFX.auraAttachment
 local oldGlow = playerFX.glowHighlight
@@ -145,7 +154,37 @@ local oldGlow = playerFX.glowHighlight
 state.playerGlowPower = 5
 state.playerAuraColor = "CYAN"
 playerFX.syncAvatar()
-assert(playerFX.auraEmitter.Rate == 74)
+assert(playerFX.auraEmitter.Rate == 58)
+assert(playerFX.auraMist.Rate == 28)
+assert(playerFX.auraSparks.Rate == 16)
+measuredFps = 30
+RunService.Heartbeat:Fire(0.20)
+assert(playerFX.lastQuality == "ECO")
+assert(playerFX.auraEmitter.Rate == 24)
+assert(playerFX.auraMist.Rate == 12)
+assert(playerFX.auraSparks.Rate == 7)
+measuredFps = 60
+RunService.Heartbeat:Fire(0.20)
+assert(playerFX.lastQuality == "ULTRA")
+assert(playerFX.auraEmitter.Rate == 58)
+state.playerAuraQuality = "ECO"
+playerFX.syncAvatar()
+assert(playerFX.auraEmitter.Rate == 24)
+state.playerAuraQuality = "ULTRA"
+playerFX.syncAvatar()
+assert(playerFX.auraEmitter.Rate == 58)
+state.playerAuraQuality = "AUTO"
+state.playerGlowPulse = false
+playerFX.syncAvatar()
+local stableLight = playerFX.glowLight.Brightness
+RunService.Heartbeat:Fire(0.20)
+assert(playerFX.glowLight.Brightness == stableLight)
+state.playerGlowPulse = true
+playerFX.syncAvatar()
+local oldMist = playerFX.auraMist
+local oldSparks = playerFX.auraSparks
+playerFX.syncAvatar()
+assert(playerFX.auraMist == oldMist and playerFX.auraSparks == oldSparks)
 assert(playerFX.glowLight.Brightness > 1)
 
 -- New character should own new particles and old ones must be destroyed.
@@ -279,6 +318,8 @@ assert(not playerFX.pending())
 local weatherCount = #instances
 assert(playerFX.shutdown())
 assert(playerFX.auraAttachment == nil and playerFX.glowHighlight == nil)
+assert(playerFX.auraMist == nil and playerFX.auraSparks == nil)
+assert(playerFX.auraAnimationConnection == nil)
 assert(playerFX.environmentTone == nil)
 assert(playerFX.childConnection == nil and playerFX.childRemovedConnection == nil)
 assert(not playerFX.pending())
