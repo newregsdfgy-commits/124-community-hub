@@ -191,7 +191,7 @@ for _,msg in ipairs(messages)do
 end
 assert(hadError)
 assert(requestCount>=10)
-print("PASS: v1.5.0 production Aimbot hitbox, global input release, rapid dedup, mouse, touch, modal blocker, hidden page and Weather")
+print("PASS: v1.5.2 production Aimbot hitbox, global input release, rapid dedup, mouse, touch, modal blocker, hidden page and Weather")
 `;
 fs.writeFileSync("/tmp/Army124-AimClick150.luau",pre+"\n"+safe+"\n"+aimEnable+"\n"+toggle+"\n"+aim+"\n"+weather+"\n"+checks,"utf8");
-console.log("Generated v1.5.0 production AIM hitbox and Weather Luau runtime");
+console.log("Generated v1.5.2 production AIM hitbox and Weather Luau runtime");
