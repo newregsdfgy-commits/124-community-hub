@@ -21,6 +21,8 @@ test("AIM release fallback handles missing GUI button events and deduplicates by
  assert.match(ui,/local serial, consumedSerial = 0, -1/);
  assert.match(ui,/if token ~= nil and consumedSerial == token then return end/);
  assert.match(ui,/if token == nil and now - lastFired < 0\.14 then return end/);
+ assert.match(ui,/if serial > 0 and input ~= nil and input == latestInput then/);
+ assert.match(ui,/os\.clock\(\) - lastStarted < 0\.14 then/);
  assert.match(ui,/debug\.recovered = debug\.recovered \+ 1/);
  assert.match(ui,/dx \* dx \+ dy \* dy > 144/);
 });

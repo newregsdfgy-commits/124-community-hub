@@ -155,11 +155,19 @@ assert(state.aimbot and debug.presses==5)
 now+=0.20
 aimRow.Activated:Fire({UserInputType=Enum.UserInputType.Keyboard})
 assert(not state.aimbot and debug.presses==6)
+-- Legacy-only clicks with no fresh global InputBegan must not inherit the
+-- previously consumed press serial for another half second.
+now+=0.20
+surface.MouseButton1Click:Fire()
+assert(state.aimbot and debug.presses==7)
+now+=0.20
+surface.MouseButton1Click:Fire()
+assert(not state.aimbot and debug.presses==8)
 -- No delayed input may act on a hidden page.
 now+=0.20
 pages.AIM.Visible=false
 surface.Activated:Fire(pointer(Enum.UserInputType.MouseButton1))
-assert(not state.aimbot and debug.presses==6)
+assert(not state.aimbot and debug.presses==8)
 -- Generic Weather toggle still uses shared safeActivate, not AIM routing.
 now+=0.20
 local mouse=pointer(Enum.UserInputType.MouseButton1)
@@ -182,7 +190,7 @@ for _,msg in ipairs(messages)do
     if string.find(msg,"Ошибка",1,true) then hadError=true end
 end
 assert(hadError)
-assert(requestCount>=8)
+assert(requestCount>=10)
 print("PASS: v1.5.0 production Aimbot hitbox, global input release, rapid dedup, mouse, touch, modal blocker, hidden page and Weather")
 `;
 fs.writeFileSync("/tmp/Army124-AimClick150.luau",pre+"\n"+safe+"\n"+aimEnable+"\n"+toggle+"\n"+aim+"\n"+weather+"\n"+checks,"utf8");
