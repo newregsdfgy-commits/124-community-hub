@@ -1,3 +1,18 @@
+# RV_STATE — v1.4.4 Player/Weather/AIM/Menu Stability (2026-11-14)
+
+- Test branch `v1.4.4-controls-player-ui-fix-test` from v1.4.3; `main` unchanged.
+- Fixed late UI controls stranded in hidden right column after initial responsive pass: `columnFor` now obeys cached `info.singleColumn`.
+- Removed global scroll-inertia tap suppression; maintain touch gesture drag identity through `Activated`.
+- Unified `safeActivate` path for GUI TextButtons with `MouseButton1Click` fallback and shared duplicate latch; removed separate Aimbot row handler.
+- Player weather master ON from CLEAR now starts FOG; preset FOG/RAIN/NIGHT enables weather and CLEAR restores. Choices repaint on automated profile state changes.
+- Aura particle size/visibility and rate boosted; shared Highlight available with Aura alone while PointLight remains Glow-only.
+- Luau source rebuilt from 12 ordered fragments to identical `Hub.lua` and `Visuals.lua`.
+- **GitHub Actions #43588549310 SUCCESS**: 80/80 integrity checks, 106/106 Node regression tests, Luau compiler passed Hub/Visuals/Start, executed actual UI click, touch, weather callback, Player/Booster/ESP/Key and viewport harnesses.
+- Detailed report: `AUDIT_CONTROLS_v1.4.4.md`.
+- Real Roblox/Android visual and interaction testing remains pending; no measured FPS gain is claimed.
+
+---
+
 # RV_STATE — v1.4.3 FPS Booster Deep Stability (2026-11-14)
 
 - Working/test branch `v1.4.3-booster-stability-test`, base `v1.4.2-ui-layout-repair-test`; `main` unchanged.
