@@ -125,10 +125,19 @@ state.playerAuraEnabled = true
 state.playerGlowEnabled = true
 playerFX.syncAvatar()
 assert(playerFX.auraAttachment.Parent == rootOne)
-assert(playerFX.auraEmitter.Rate == 25)
+assert(playerFX.auraEmitter.Rate == 54)
 assert(playerFX.glowLight.Parent == rootOne)
 assert(playerFX.glowHighlight.Adornee == charOne)
 assert(playerFX.glowHighlight.Parent == charOne, "Highlight must not be in PlayerGui")
+-- Aura alone must have an outline even with Glow light OFF.
+state.playerGlowEnabled = false
+playerFX.syncAvatar()
+assert(playerFX.glowLight == nil and playerFX.glowHighlight.Parent == charOne)
+assert(playerFX.glowHighlight.FillTransparency == 0.88)
+state.playerGlowEnabled = true
+playerFX.syncAvatar()
+assert(playerFX.glowLight.Parent == rootOne)
+assert(playerFX.glowHighlight.FillTransparency == 0.70)
 assert(boosterPro.playerFxOwned[playerFX.glowHighlight] == true)
 local oldAura = playerFX.auraAttachment
 local oldGlow = playerFX.glowHighlight
@@ -136,7 +145,7 @@ local oldGlow = playerFX.glowHighlight
 state.playerGlowPower = 5
 state.playerAuraColor = "CYAN"
 playerFX.syncAvatar()
-assert(playerFX.auraEmitter.Rate == 35)
+assert(playerFX.auraEmitter.Rate == 74)
 assert(playerFX.glowLight.Brightness > 1)
 
 -- New character should own new particles and old ones must be destroyed.
