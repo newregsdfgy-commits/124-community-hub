@@ -911,8 +911,7 @@ connect(aimTouchButton.Activated, function()
     else
         aimHeldTouch = true
     end
-    aimTarget = nil
-    aimNextScan = 0
+    aimPro.reset()
     repaintAimTouch()
 end)
 repaintAimTouch()
@@ -1413,7 +1412,8 @@ cleanup = function(safeStop)
     if savedLighting or savedTerrainDecoration or savedTerrainColors
         or next(savedGraphics) ~= nil or next(memoryFX.camera.saved) ~= nil
         or next(memoryFX.spin.pending) ~= nil or recoil.spread.pending()
-        or playerFX.pending() then
+        or playerFX.pending()
+        or (boosterPro.movement and boosterPro.movement.pending()) then
         local previousRecovery = env.ARMY124_RECOVERY
         local pendingRecovery
         pendingRecovery = function()
@@ -1430,14 +1430,20 @@ cleanup = function(safeStop)
             local cameraOK = pcall(memoryFX.camera.reset)
             local spinOK = pcall(memoryFX.spin.restorePending)
             local spreadOK, spreadRestored = pcall(recoil.restoreSpread)
+            local movementOK, movementRestored = true, true
+            if boosterPro.movement then
+                movementOK, movementRestored = pcall(boosterPro.movement.retryPending)
+            end
             local done = lightingOK and weatherOK and weatherRestored == true
                 and grassOK and colorsOK and graphicsOK
                 and cameraOK and spinOK and spreadOK and spreadRestored == true
+                and movementOK and movementRestored == true
                 and not (savedLighting or savedTerrainDecoration or savedTerrainColors)
                 and next(savedGraphics) == nil
                 and next(memoryFX.camera.saved) == nil
                 and next(memoryFX.spin.pending) == nil
                 and not recoil.spread.pending() and not playerFX.pending()
+                and (not boosterPro.movement or not boosterPro.movement.pending())
             if done and oldDone and env.ARMY124_RECOVERY == pendingRecovery then
                 env.ARMY124_RECOVERY = nil
             end

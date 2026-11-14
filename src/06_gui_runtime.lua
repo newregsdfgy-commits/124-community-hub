@@ -52,7 +52,12 @@ local function abortPartialHub()
         pcall(applyLighting)
         local weatherOk, weatherRestored = pcall(playerFX.restoreWeather)
         local uiOk, uiRestored = pcall(emergencyUIRollback)
-        return graphicsOk and graphicsRestored == true
+        local movementOK = true
+        if boosterPro.movement then
+            local ok, done = pcall(boosterPro.movement.retryPending)
+            movementOK = ok and done == true and not boosterPro.movement.pending()
+        end
+        return movementOK and graphicsOk and graphicsRestored == true
             and weatherOk and weatherRestored == true and not playerFX.pending()
             and savedLighting == nil and savedTerrainDecoration == nil
             and savedTerrainColors == nil
@@ -197,8 +202,7 @@ local function setAimEnabled(enabled, activateKeyAim)
         -- Быстрый режим: горячая клавиша сразу начинает наведение без ПКМ.
         aimHeldKey = true
     end
-    aimTarget = nil
-    aimNextScan = 0
+    aimPro.reset()
     if refreshToggles.aimbot then refreshToggles.aimbot() end
     refreshFovRing()
     repaintAimTouch()
@@ -678,8 +682,7 @@ local function applySettings(incoming, autoLoad)
     if boosterPro.setLocalCrosshair then
         boosterPro.setLocalCrosshair(state.crosshairLocal == true)
     end
-    aimTarget = nil
-    aimNextScan = 0
+    aimPro.reset()
     end)
     if not ok then
         warn("[124 Community Visuals] Ошибка применения профиля: " .. tostring(err))

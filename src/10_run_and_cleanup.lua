@@ -198,6 +198,12 @@ task.spawn(function()
         if not state.noSpread and recoil.spread.pending() then
             pcall(recoil.restoreSpread)
         end
+        -- Reuse the existing HUD worker to retry Movement recovery,
+        -- never a new render or physics loop.
+        if boosterPro.movement and not state.speedEnabled and not state.noclip
+            and boosterPro.movement.pending() then
+            pcall(boosterPro.movement.retryPending)
+        end
         -- Отложенный откат после временного отказа записи API: до полной успешности
         -- не забываем исходные свойства. Не восстанавливаем Terrain при WHITE/ULTRA.
         if not state.fullbright and not state.booster
