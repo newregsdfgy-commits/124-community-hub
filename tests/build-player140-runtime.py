@@ -148,6 +148,7 @@ assert(playerFX.glowLight.Parent == rootOne)
 assert(playerFX.glowHighlight.FillTransparency >= 0.60
     and playerFX.glowHighlight.FillTransparency <= 0.70)
 assert(boosterPro.playerFxOwned[playerFX.glowHighlight] == true)
+local oldPulseCallback = playerFX.auraAnimationConnection.callback
 local oldAura = playerFX.auraAttachment
 local oldGlow = playerFX.glowHighlight
 
@@ -195,6 +196,9 @@ charTwo.children = {HumanoidRootPart = rootTwo}
 LocalPlayer.Character = charTwo
 LocalPlayer.CharacterAdded:Fire(charTwo)
 assert(oldAura.destroyed and oldGlow.destroyed)
+local newPulseConnection = playerFX.auraAnimationConnection
+oldPulseCallback(0.20)
+assert(playerFX.auraAnimationConnection == newPulseConnection and newPulseConnection.active)
 assert(playerFX.auraAttachment.Parent == rootTwo)
 assert(playerFX.glowHighlight.Adornee == charTwo)
 assert(playerFX.glowHighlight.Parent == charTwo)

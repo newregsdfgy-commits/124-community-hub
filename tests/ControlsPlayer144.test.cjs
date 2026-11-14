@@ -13,9 +13,9 @@ const hub=read("Hub.lua");
 const visuals=read("Visuals.lua");
 const launcher=read("Start.lua");
 
-test("v1.4.5 launcher and 12-source bundle match",()=>{
-    assert.match(hub,/Version = "1\.4\.5"/);
-    assert.match(launcher,/v1\.4\.5-deep-stability-audit-test\/Visuals\.lua/);
+test("v1.4.6 launcher and 12-source bundle match",()=>{
+    assert.match(hub,/Version = "1\.4\.6"/);
+    assert.match(launcher,/v1\.4\.6-ultra-aura-glow-test\/Visuals\.lua/);
     assert.equal(hub,visuals);
     const files=["00_config.lua","01_access_gate.lua","02_state_and_services.lua",
        "03_esp_tracker.lua","04_lighting_and_booster.lua","05_weapons_and_recoil.lua",
@@ -84,7 +84,7 @@ test("Glow light is independent, bounded and pulsing",()=>{
     assert.match(player,/if state\.playerGlowEnabled then\s+if not controller\.glowLight/);
     assert.match(player,/Range = 11 \+ strength \* 1\.8/);
     assert.match(player,/local base = 0\.85 \+ strength \* 0\.55/);
-    assert.match(player,/controller\.auraAnimationConnection = RunService\.Heartbeat:Connect/);
+    assert.match(player,/animationConnection = RunService\.Heartbeat:Connect/);
 });
 test("weather remains local, reversible and compatible with Booster Atmosphere handoff",()=>{
     for (const marker of [
