@@ -221,8 +221,15 @@ local function addToggle(page, title, description, key, onChanged)
             activate("input-ended", serial)
         end)
         local function eventToken(input)
-            if serial > 0 and os.clock() - lastStarted < 0.50
-                and (input == nil or input == latestInput) then
+            -- An actual InputObject remains bound to its physical press
+            -- (including long touch holds). MouseButton1Click has no input
+            -- identity: only pair it with a recent InputBegan, otherwise a
+            -- *new* legacy-only click must not inherit an old consumed token.
+            if serial > 0 and input ~= nil and input == latestInput then
+                return serial
+            end
+            if serial > 0 and input == nil
+                and os.clock() - lastStarted < 0.14 then
                 return serial
             end
             return nil
