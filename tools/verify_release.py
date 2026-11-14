@@ -11,8 +11,8 @@ import re
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = "1.4.5"
-BRANCH = "v1.4.5-deep-stability-audit-test"
+VERSION = "1.4.6"
+BRANCH = "v1.4.6-ultra-aura-glow-test"
 CHECK_COUNT = [0]
 
 
@@ -251,7 +251,9 @@ def main() -> int:
           'state.playerWeatherEnabled = mode ~= "CLEAR"' in hub and
           'refreshChoices[key] = repaint' in hub, failures)
     check("Aura includes a bounded visible contour and particle upgrade",
-          'Rate = 24 + strength * 10' in hub and
+          'Rate = 18 + strength * 8' in hub and
+          'Name = "Army124PlayerAuraMist"' in hub and
+          'Name = "Army124PlayerAuraSparks"' in hub and
           'if state.playerGlowEnabled or state.playerAuraEnabled then' in hub,
           failures)
     check("Five visible navigation tabs, including Player",

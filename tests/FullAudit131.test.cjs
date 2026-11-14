@@ -13,9 +13,9 @@ const config = read("src/00_config.lua");
 const hub = read("Hub.lua"), visuals = read("Visuals.lua"), start = read("Start.lua");
 
 test("compiled release matches version and 12 modules", () => {
-  assert.match(config, /Version = "1\.4\.5"/);
-  assert.match(start, /v1\.4\.5-deep-stability-audit-test\/Visuals\.lua/);
-  assert.match(start, /Version = "1\.4\.5"/);
+  assert.match(config, /Version = "1\.4\.6"/);
+  assert.match(start, /v1\.4\.6-ultra-aura-glow-test\/Visuals\.lua/);
+  assert.match(start, /Version = "1\.4\.6"/);
   assert.equal(hub, visuals);
   const names = ["00_config", "01_access_gate", "02_state_and_services",
     "03_esp_tracker", "04_lighting_and_booster", "05_weapons_and_recoil", "05_player_visuals",
