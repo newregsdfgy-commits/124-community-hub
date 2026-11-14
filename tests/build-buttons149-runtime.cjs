@@ -39,6 +39,7 @@ local function connect(event,fn)return event:Connect(fn)end
 local messages={}
 local function tell(msg) messages[#messages+1]=tostring(msg) end
 local Color3={fromRGB=function(r,g,b) return {r=r,g=g,b=b} end}
+local Vector2={new=function(x,y)return {X=x,Y=y}end}
 local ColorSequence={new=function(...)return {...}end}
 local UDim2={
     new=function(...)return {...}end,
