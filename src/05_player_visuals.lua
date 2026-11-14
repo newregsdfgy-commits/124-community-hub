@@ -693,13 +693,14 @@ local playerFX = (function()
     end
     function controller.diagnostics()
         return string.format("Aura=%s Glow=%s | Quality=%s/%s Pulse=%s | Weather=%s/%s | Tint=%s/%s"
-            .. " | Rain=%s | PendingWeather=%s | Root=%s | Error=%s",
+            .. " | Rain=%s | Fallback=%s | PendingWeather=%s | Root=%s | Error=%s",
             tostring(state.playerAuraEnabled), tostring(state.playerGlowEnabled),
             tostring(state.playerAuraQuality), tostring(controller.lastQuality),
             tostring(state.playerGlowPulse),
             tostring(state.playerWeatherEnabled), tostring(state.playerWeatherMode),
             tostring(state.playerEnvironmentEnabled), tostring(state.playerEnvironmentColor),
             tostring(controller.rainGui ~= nil),
+            tostring(controller.weatherFallback),
             tostring(controller.pending()),
             tostring(controller.character ~= nil
                 and controller.character:FindFirstChild("HumanoidRootPart") ~= nil),

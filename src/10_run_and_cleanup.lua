@@ -198,6 +198,11 @@ task.spawn(function()
         if not state.noSpread and recoil.spread.pending() then
             pcall(recoil.restoreSpread)
         end
+        -- A denied Fog/Atmosphere restore must be retried after Weather OFF.
+        -- Keep this in the existing HUD maintenance worker, no new loop.
+        if not state.playerWeatherEnabled and playerFX.pending() then
+            pcall(playerFX.restoreWeather)
+        end
         -- Reuse the existing HUD worker to retry Movement recovery,
         -- never a new render or physics loop.
         if boosterPro.movement and not state.speedEnabled and not state.noclip

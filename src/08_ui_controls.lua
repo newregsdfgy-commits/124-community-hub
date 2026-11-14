@@ -518,7 +518,22 @@ addSection(pages.AIM, "TARGETING", "Точка наведения и управ�
 addToggle(pages.AIM, "Aimbot", "Кнопка и горячая клавиша включают наведение одинаково", "aimbot", function(enabled)
     -- Раньше меню включало модуль без aimHeldKey: без ПКМ наведения не было.
     setAimEnabled(enabled, enabled)
-    tell(enabled and "AIM: ON (активирован кнопкой)" or "AIM: OFF")
+    if enabled then
+        local held = aimPro.equippedTool()
+        local message = "AIM: ON (активирован кнопкой)"
+        if not held then
+            if not aimPro.equipped then
+                message = message .. " | Возьми Tool в руки"
+            elseif state.aimOnlyRegisteredWeapons then
+                message = message .. " | Запомни оружие либо отключи фильтр оружия"
+            else
+                message = message .. " | Подожди загрузки Tool/персонажа"
+            end
+        end
+        tell(message)
+    else
+        tell("AIM: OFF")
+    end
 end)
 addAimModeSelector(pages.AIM)
 -- Без знаний об оружии игры не гадаем по названиям. Игрок может один раз
@@ -1410,7 +1425,9 @@ addToggle(pages.PLAYER, "Изменить погоду", "Включить по�
             error(err)
         end
         if refreshChoices.playerWeatherMode then refreshChoices.playerWeatherMode() end
-        tell(enabled and ("Погода: " .. state.playerWeatherMode) or "Погода: CLEAR / OFF")
+        tell(enabled and ("Погода: " .. state.playerWeatherMode
+            .. (playerFX.weatherFallback and " (локальный фильтр: Atmosphere недоступна)" or ""))
+            or "Погода: CLEAR / OFF")
     end)
 addChoice(pages.PLAYER, "Пресет погоды", {
     {value = "CLEAR", label = "CLEAR"},
@@ -1428,7 +1445,9 @@ addChoice(pages.PLAYER, "Пресет погоды", {
         error(err)
     end
     if refreshToggles.playerWeatherEnabled then refreshToggles.playerWeatherEnabled() end
-    tell(mode == "CLEAR" and "Погода: исходная / OFF" or ("Погода: " .. mode))
+    tell(mode == "CLEAR" and "Погода: исходная / OFF"
+        or ("Погода: " .. mode
+            .. (playerFX.weatherFallback and " (локальный фильтр)" or "")))
 end)
 
 addSection(pages.PLAYER, "ENVIRONMENT COLOR", "Тон окружения, не меняет детали карты")
