@@ -239,9 +239,9 @@ def main() -> int:
           "info.singleColumn = singleColumn" in hub, failures)
     check("AIM and all toggles use a deduplicated input handler",
           'safeActivate(row, onRowActivated)' in hub and
-          'if consumedPress == pressNumber then return end' in hub and
+          'if pressNumber > 0 and consumedPress ~= pressNumber then' in hub and
           'connect(control.InputBegan, function(input)' in hub and
-          'pointer and 0.38 or 0.18' in hub and
+          'now - lastActivatedAt < 0.14 then' in hub and
           "connect(row.MouseButton1Click, onRowActivated)" not in hub, failures)
     check("Touch scrolling does not globally swallow the next tap",
           "if info and info.dragged then return false end" in hub and
