@@ -9,9 +9,9 @@ const state=read("src/02_state_and_services.lua");
 const ui=read("src/08_ui_controls.lua");
 const gui=read("src/06_gui_runtime.lua");
 const config=read("src/00_config.lua");
-test("v1.4.7 source and pinned launcher are consistent",()=>{
- assert.match(read("Start.lua"),/v1\.4\.7-aim-stability-deep-audit-test\/Visuals\.lua/);
- assert.match(read("Hub.lua"),/Version = "1\.4\.7"/);
+test("v1.4.8 source and pinned launcher are consistent",()=>{
+ assert.match(read("Start.lua"),/v1\.4\.8-full-stability-audit-test\/Visuals\.lua/);
+ assert.match(read("Hub.lua"),/Version = "1\.4\.8"/);
  assert.equal(read("Hub.lua"),read("Visuals.lua"));
 });
 test("sticky FOV loss and occlusion retain identity without aiming through walls",()=>{
