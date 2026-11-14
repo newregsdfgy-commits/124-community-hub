@@ -13,9 +13,9 @@ const hub=read("Hub.lua");
 const visuals=read("Visuals.lua");
 const launcher=read("Start.lua");
 
-test("v1.4.4 launcher and 12-source bundle match",()=>{
-    assert.match(hub,/Version = "1\.4\.4"/);
-    assert.match(launcher,/v1\.4\.4-controls-player-ui-fix-test\/Visuals\.lua/);
+test("v1.4.5 launcher and 12-source bundle match",()=>{
+    assert.match(hub,/Version = "1\.4\.5"/);
+    assert.match(launcher,/v1\.4\.5-deep-stability-audit-test\/Visuals\.lua/);
     assert.equal(hub,visuals);
     const files=["00_config.lua","01_access_gate.lua","02_state_and_services.lua",
        "03_esp_tracker.lua","04_lighting_and_booster.lua","05_weapons_and_recoil.lua",
@@ -54,7 +54,9 @@ test("all switches use one central activation handler",()=>{
 });
 test("safeActivate handles Activated and click fallback once",()=>{
     assert.match(gui,/local lastActivatedAt = -1e8/);
-    assert.match(gui,/if now - lastActivatedAt < 0\.38 then return end/);
+    assert.match(gui,/if consumedPress == pressNumber then return end/);
+    assert.match(gui,/connect\(control\.InputBegan, function\(input\)/);
+    assert.match(gui,/pointer and 0\.38 or 0\.18/);
     assert.match(gui,/connect\(control\.Activated, fire\)/);
     assert.match(gui,/connect\(control\.MouseButton1Click, function\(\) fire\(nil\) end\)/);
 });

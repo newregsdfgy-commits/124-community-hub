@@ -14,8 +14,8 @@ const release=read("Hub.lua");
 const launcher=read("Start.lua");
 
 test("version and bundle remain aligned",()=>{
-    assert.match(release,/Version = "1\.4\.4"/);
-    assert.match(launcher,/v1\.4\.4-controls-player-ui-fix-test\/Visuals\.lua/);
+    assert.match(release,/Version = "1\.4\.5"/);
+    assert.match(launcher,/v1\.4\.5-deep-stability-audit-test\/Visuals\.lua/);
     assert.equal(release,read("Visuals.lua"));
 });
 test("Booster monitors actual writes instead of assuming success",()=>{

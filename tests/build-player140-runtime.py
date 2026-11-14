@@ -284,6 +284,51 @@ assert(playerFX.childConnection == nil and playerFX.childRemovedConnection == ni
 assert(not playerFX.pending())
 assert(playerFX.shutdown())
 assert(#instances == weatherCount)
+-- A Roblox setter can change Fog and then throw: OFF must still restore it.
+local fogData={FogEnd=910,FogStart=0,FogColor=originalFogColor}
+local fogFail=true
+Lighting=setmetatable({ChildAdded=signal(),ChildRemoved=signal(),
+    FindFirstChildOfClass=function() return nil end}, {
+    __index=function(_,key) return fogData[key] end,
+    __newindex=function(_,key,value)
+        fogData[key]=value
+        if key=="FogEnd" and fogFail then
+            fogFail=false
+            error("FogEnd write failed after mutation")
+        end
+    end,
+})
+state.playerWeatherEnabled=true
+state.playerWeatherMode="FOG"
+assert(not pcall(playerFX.syncWeather),"injected Fog setter failure expected")
+assert(Lighting.FogEnd==150 and playerFX.pending(),"partial Fog write must be tracked")
+state.playerWeatherEnabled=false
+assert(pcall(playerFX.syncWeather),"Fog restore must not throw")
+assert(Lighting.FogEnd==910 and not playerFX.pending(),"Fog baseline was lost")
+-- The same failure mode for Atmosphere must preserve ownership for Booster.
+local atmoData={Density=0.12,Haze=0.4,Color=color(0.8,0.7,0.6),Decay=color(0.2,0.3,0.4)}
+local atmoFail=true
+local atmo=setmetatable({Parent=Lighting,ClassName="Atmosphere"}, {
+    __index=function(_,key) return atmoData[key] end,
+    __newindex=function(_,key,value)
+        atmoData[key]=value
+        if key=="Density" and atmoFail then
+            atmoFail=false
+            error("Density write failed after mutation")
+        end
+    end,
+})
+function Lighting:FindFirstChildOfClass(kind)
+    if kind=="Atmosphere" then return atmo end
+end
+state.playerWeatherEnabled=true
+assert(not pcall(playerFX.syncWeather),"injected Atmosphere setter failure expected")
+assert(atmo.Density==0.56 and boosterPro.playerFxOwned[atmo]==true)
+state.playerWeatherEnabled=false
+assert(pcall(playerFX.syncWeather),"Atmosphere restore must not throw")
+assert(atmo.Density==0.12 and not playerFX.pending())
+assert(boosterPro.playerFxOwned[atmo]==nil)
+assert(playerFX.shutdown())
 print("PASS: Player FX real Luau callbacks — avatar, respawn, rain, tint, fog external baseline, shutdown")
 '''
 output = Path(tempfile.gettempdir()) / "Army124-Player140.luau"

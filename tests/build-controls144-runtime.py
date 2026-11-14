@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Execute actual v1.4.4 GUI input and weather callbacks in Luau.
+"""Execute actual v1.4.5 GUI input and weather callbacks in Luau.
 
 Deterministic fakes for Roblox signal and state are used; UI rendering must
 still be manually verified in a Roblox client.
@@ -52,7 +52,7 @@ local function tell(s) eventErrors[#eventErrors+1]=s end
 '''
 after_core=r'''
 local function newButton()
-    local x={Activated=signal(), MouseButton1Click=signal()}
+    local x={Activated=signal(), MouseButton1Click=signal(), InputBegan=signal()}
     function x:IsA(cls) return cls=="TextButton" end
     return x
 end
@@ -75,6 +75,17 @@ local tapped={UserInputType=Enum.UserInputType.Touch}
 touchGestures[tapped]={dragged=false,endedAt=now}
 button.Activated:Fire(tapped)
 assert(calls==3,"real touch tap must work despite previous scrolling")
+-- Two real, distinct presses within the old 380ms lockout must both work.
+local beforeFast=calls
+button.InputBegan:Fire(mouse)
+button.Activated:Fire(mouse)
+button.MouseButton1Click:Fire()
+assert(calls==beforeFast+1,"new physical click should work")
+now=now+0.04
+button.InputBegan:Fire(mouse)
+button.Activated:Fire(mouse)
+button.MouseButton1Click:Fire()
+assert(calls==beforeFast+2,"fast second physical click should work without a duplicate")
 assert(#eventErrors==0)
 
 -- Production columnFor must take the initial responsive result even if
