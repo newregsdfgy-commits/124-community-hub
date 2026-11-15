@@ -917,7 +917,7 @@ mk("TextLabel", {
 mk("TextLabel", {
     Name = "BrandCaption", BackgroundTransparency = 1,
     Position = UDim2.fromOffset(67, 38), Size = UDim2.fromOffset(151, 16),
-    Text = "PURPLE NEON 2.0  •  v" .. CONFIG.Version,
+    Text = "CONTROL CENTER  •  v" .. CONFIG.Version,
     TextColor3 = P.muted, Font = Enum.Font.Code,
     TextSize = 9, TextXAlignment = Enum.TextXAlignment.Left,
     TextTruncate = Enum.TextTruncate.AtEnd,

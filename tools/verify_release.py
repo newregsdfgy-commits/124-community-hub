@@ -224,8 +224,8 @@ def main() -> int:
               "local function aimFrame(dt)",
               "local function refreshESP()",
               "local function applyResponsiveLayout()")), failures)
-    check("Purple Neon UI 2.0 label",
-          "PURPLE NEON 2.0" in hub, failures)
+    check("Control Center v1.5.3 header label",
+          "CONTROL CENTER  •  v" in hub, failures)
     check("Premium UI 3.0 stable visual primitives",
           all(token in hub for token in (
               'Name = "NavigationOverline"',
