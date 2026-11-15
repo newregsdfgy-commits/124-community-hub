@@ -598,7 +598,7 @@ local function addChoice(page, label, choices, key, callback)
     return repaint
 end
 
-addSection(pages.ESP, "VISUALS", "Tactical HUD: угловые рамки, бейджи HP и дистанции")
+addSection(pages.ESP, "VISUALS", "Compact HUD: ближние метки, дальние только контуры")
 
 addToggle(pages.ESP, "ESP подсветка", "Подсветка в выбранном радиусе до 1000 м", "esp", function()
     syncEspVisuals()
@@ -639,7 +639,7 @@ addButton(pages.ESP, "Диагностика ESP",
             .. " | Возраст скана " .. string.format("%.2f", math.max(0,
                 os.clock() - info.lastScanAt)) .. " сек")
     end)
-addSlider(pages.ESP, "Толщина линий", "Угловые рамки (1–2 px), Tracer — 2 px", "espLineThickness", 1, 2, 1,
+addSlider(pages.ESP, "Толщина линий", "Короткие углы (1–2 px), Tracer — 1 px", "espLineThickness", 1, 2, 1,
     function(v) return tostring(v) .. " px" end)
 repaintColors = addChoice(pages.ESP, "Цвет ESP", {
     {value="TEAM", label="TEAM"}, {value="GOLD", label="GOLD"},

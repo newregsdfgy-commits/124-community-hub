@@ -10,10 +10,10 @@ const ui=read("src/08_ui_controls.lua");
 const hub=read("Hub.lua");
 const visuals=read("Visuals.lua");
 const launcher=read("Start.lua");
-test("v1.5.6 entrypoints, launcher and visual-only migration",()=>{
+test("v1.5.7 entrypoints, launcher and visual-only migration",()=>{
   assert.equal(hub,visuals);
-  assert.ok(hub.includes('Version = "1.5.6"'));
-  assert.ok(launcher.includes("v1.5.6-modern-esp-visual-redesign-test/Visuals.lua"));
+  assert.ok(hub.includes('Version = "1.5.7"'));
+  assert.ok(launcher.includes("v1.5.7-compact-esp-ui-test/Visuals.lua"));
   assert.match(tracker,/local function createRender\(player, character, head\)/);
   assert.match(tracker,/local function updatePlayer\(player, myRoot\)/);
   assert.match(overlays,/syncEspVisuals = function\(\)/);
@@ -23,12 +23,12 @@ test("new Tactical ESP chips preserve all independent label controls",()=>{
       "HpTrack","HpFill","TeamAccent"]) assert.ok(tracker.includes(value),value);
   for(const field of ["item.nameChip","item.healthChip","item.distanceChip",
      "item.healthFill","item.identityBorder","item.identityRail"]) assert.ok(tracker.includes(field),field);
-  assert.match(tracker,/setIfDifferent\(item\.nameChip, "Visible", state\.names\)/);
-  assert.match(tracker,/setIfDifferent\(item\.healthChip, "Visible", state\.health\)/);
-  assert.match(tracker,/setIfDifferent\(item\.distanceChip, "Visible", state\.distance\)/);
+  assert.match(tracker,/setIfDifferent\(item\.nameChip, "Visible", showName\)/);
+  assert.match(tracker,/setIfDifferent\(item\.healthChip, "Visible", showHealth\)/);
+  assert.match(tracker,/setIfDifferent\(item\.distanceChip, "Visible", showDistance\)/);
   assert.match(tracker,/math\.clamp\(hum\.Health \/ maxHp, 0, 1\)/);
   assert.match(tracker,/UDim2\.new\(hpFraction, 0, 1, 0\)/);
-  assert.match(tracker,/state\.names and \(hasMeta and CONFIG\.EspLabelHeight or 25\) or 21/);
+  assert.match(tracker,/showName and \(hasMeta and CONFIG\.EspLabelHeight or 16\) or 11/);
   assert.match(tracker,/setIfDifferent\(item\.billboard, "Adornee", head\)/);
   assert.match(tracker,/setIfDifferent\(item\.highlight, "OutlineColor", color\)/);
 });
@@ -55,8 +55,8 @@ test("original ESP switches, team colors, range, tracer and cleanup remain",()=>
   assert.match(tracker,/local function bindLocalEspCharacter\(character\)/);
 });
 test("new surfaces remain low-cost and no new per-player frame connections",()=>{
-  assert.match(cfg,/EspFillTransparency = 0\.94/);
-  assert.match(cfg,/EspLabelWidth = 176/);
+  assert.match(cfg,/EspFillTransparency = 0\.97/);
+  assert.match(cfg,/EspLabelWidth = 116/);
   assert.doesNotMatch(tracker,/RenderStepped:Connect|Heartbeat:Connect|task\.spawn/);
   assert.doesNotMatch(overlays,/RenderStepped:Connect|Heartbeat:Connect|task\.spawn/);
   assert.match(overlays,/while #lines < count and shapeNewLinesLeft > 0 do/);

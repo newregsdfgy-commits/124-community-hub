@@ -1,3 +1,14 @@
+# RV_STATE — 124 Visuals v1.5.7 Compact ESP (2026-11-15)
+
+- Base v1.5.6 `b752f64fff2aa74334eeb9625d791bf7baca8fc7`; patch branch `v1.5.7-compact-esp-ui-test`.
+- Screenshot-driven ESP size reduction: 176x49 -> 116x29 px; HP/distance chips 21 -> 11 px.
+- Tiered labels at 90/155 m; far ESP tracked and outlined without HUD chips; independent toggles retained.
+- Lighter highlight, thin tracer, shorter corners, no additional per-frame workers.
+- Tests: `EspCompact157.test.cjs`, `build-esp157-runtime.cjs`, previous v1.5.6 and system suites.
+- CI pending; no real Roblox/Android or measured FPS validation. See `AUDIT_ESP_v1.5.7.md`.
+
+---
+
 # RV_STATE — 124 Visuals v1.5.6 Modern ESP (2026-11-15)
 
 - Branch `v1.5.6-modern-esp-visual-redesign-test`; base v1.5.5 @ `0edb58df06767dc8c88b490d9fa759e421a27d9c`.

@@ -55,7 +55,7 @@ local function refreshTracers()
             if not data.tracer or not data.tracer.Parent then
                 data.tracer = mk("Frame", {
                     Name = "Army124TopTracer", AnchorPoint = Vector2.new(0.5, 0.5),
-                    BackgroundColor3 = CONFIG.Neutral, BackgroundTransparency = 0.60,
+                    BackgroundColor3 = CONFIG.Neutral, BackgroundTransparency = 0.74,
                     BorderSizePixel = 0, ZIndex = 1,
                 }, tracerGui)
             end
@@ -64,7 +64,7 @@ local function refreshTracers()
             local length = vector.Magnitude
             setIfDifferent(data.tracer, "Visible", length > 2)
             if length > 2 then
-                setIfDifferent(data.tracer, "Size", UDim2.fromOffset(length, 2))
+                setIfDifferent(data.tracer, "Size", UDim2.fromOffset(length, 1))
                 setIfDifferent(data.tracer, "Position",
                     UDim2.fromOffset((goal2d.X + source.X) / 2, (goal2d.Y + source.Y) / 2))
                 setIfDifferent(data.tracer, "Rotation", math.deg(math.atan2(vector.Y, vector.X)))
@@ -82,7 +82,7 @@ local shapeNewContainersLeft = 0
 local shapeNewLinesLeft = 0
 local function shapeLine(parent)
     return mk("Frame", {BackgroundColor3 = CONFIG.Accent,
-        BackgroundTransparency = 0.15, BorderSizePixel = 0,
+        BackgroundTransparency = 0.30, BorderSizePixel = 0,
         AnchorPoint = Vector2.new(0.5, 0.5), Visible = false,
         Size = UDim2.fromOffset(1, 1)}, parent)
 end
@@ -137,8 +137,8 @@ local function drawCornerBox(item, top, bottom, thickness, color)
     end
     local half = math.clamp(height * 0.23, 4, 160)
     local left, right = top.X - half, top.X + half
-    local cornerX = math.max(2, math.min(18, half * 0.72))
-    local cornerY = math.max(3, math.min(20, height * 0.21))
+    local cornerX = math.max(2, math.min(10, half * 0.48))
+    local cornerY = math.max(2, math.min(10, height * 0.12))
     -- Upper corners.
     setLine(item.box[1], Vector2.new(left, topY),
         Vector2.new(left + cornerX, topY), thickness, color)

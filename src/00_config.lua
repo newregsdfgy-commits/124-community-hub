@@ -1,11 +1,11 @@
--- 124 Visuals v1.5.6 | Modern Tactical ESP Visual Redesign
+-- 124 Visuals v1.5.7 | Compact Tactical ESP
 -- Первый плейс: 18537079992. Запуск поддерживает все игровые PlaceId.
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.5.6",
+    Version = "1.5.7",
     OriginalPlaceId = 18537079992,
     EspRefreshSeconds = 0.35, -- Быстрый поиск персонажей, без обновления UI каждый кадр.
     EspEventMinSeconds = 0.18, -- Коалесцированные события не запускают 16 полных сканов/сек.
@@ -34,17 +34,19 @@ local CONFIG = {
         and "124_community_settings_v09.json"
         or ("124_visuals_settings_" .. tostring(game.PlaceId) .. ".json"),
     MenuKey = Enum.KeyCode.RightShift,
-    EspFillTransparency = 0.94, -- Тонкая контурная подсветка, меньше цветной заливки.
-    EspOutlineTransparency = 0.24, -- Чёткий силуэт вместо сплошной яркой заливки.
-    EspNameSizeNear = 13,
-    EspNameSizeMid = 12,
-    EspNameSizeFar = 11, -- Отдалённые имена остаются читаемыми.
-    EspMetaSizeNear = 10, -- HP и дистанция, независимые TextLabel.
+    EspFillTransparency = 0.97, -- Практически прозрачная заливка, чтобы не мешать обзору.
+    EspOutlineTransparency = 0.36, -- Тонкий, менее навязчивый контур.
+    EspNameSizeNear = 11,
+    EspNameSizeMid = 10,
+    EspNameSizeFar = 10, -- Минимальный читаемый размер.
+    EspMetaSizeNear = 9, -- Компактные независимые HP и дистанция.
     EspMetaSizeFar = 9,
     EspMidDistanceMeters = 80,
     EspFarDistanceMeters = 150,
-    EspLabelWidth = 176,
-    EspLabelHeight = 49,
+    EspLabelWidth = 116, -- Минус 34% ширины относительно v1.5.6.
+    EspLabelHeight = 29, -- Минус 41% высоты относительно v1.5.6.
+    EspCompactDetailsMaxMeters = 90, -- HP и дистанция только для ближних целей.
+    EspCompactNameMaxMeters = 155, -- Дальше только контур / угловая рамка.
     AimFovDefaultPixels = 175,
     AimFovMinPixels = 40,
     AimFovMaxPixels = 400,

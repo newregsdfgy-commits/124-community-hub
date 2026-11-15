@@ -8,9 +8,9 @@ const player=read("src/05_player_visuals.lua");
 const terrain=read("src/04_lighting_and_booster.lua");
 const gui=read("src/06_gui_runtime.lua");
 const launcher=read("Start.lua");
-test("v1.5.6 launcher stays isolated from main",()=>{
- assert.match(read("src/00_config.lua"),/Version = "1\.5\.6"/);
- assert.ok(launcher.includes("v1.5.6-modern-esp-visual-redesign-test/Visuals.lua"));
+test("v1.5.7 launcher stays isolated from main",()=>{
+ assert.match(read("src/00_config.lua"),/Version = "1\.5\.7"/);
+ assert.ok(launcher.includes("v1.5.7-compact-esp-ui-test/Visuals.lua"));
 });
 test("Fog and Atmosphere keep snapshots after partial writes",()=>{
  assert.match(player,/local writeOK, writeError = pcall\(function\(\) Lighting\[key\] = value end\)/);

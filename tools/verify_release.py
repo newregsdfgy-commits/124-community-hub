@@ -11,8 +11,8 @@ import re
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = "1.5.6"
-BRANCH = "v1.5.6-modern-esp-visual-redesign-test"
+VERSION = "1.5.7"
+BRANCH = "v1.5.7-compact-esp-ui-test"
 CHECK_COUNT = [0]
 
 
@@ -146,6 +146,17 @@ def main() -> int:
     launcher = (ROOT / "Start.lua").read_text(encoding="utf-8")
 
     check("Hub.lua and Visuals.lua are byte-identical", hub == visuals, failures)
+    check("Compact ESP constants and behavior preserved",
+          'EspLabelWidth = 116' in hub and 'EspLabelHeight = 29' in hub
+          and 'EspCompactDetailsMaxMeters = 90' in hub
+          and 'EspCompactNameMaxMeters = 155' in hub
+          and 'local function compactEspFlags(' in hub
+          and 'item.lastCompactVisibility ~= visibilityMask' in hub, failures)
+    check("ESP label and optional badges use compact visibility",
+          'setIfDifferent(item.nameChip, "Visible", showName)' in hub
+          and 'setIfDifferent(item.healthChip, "Visible", showHealth)' in hub
+          and 'setIfDifferent(item.distanceChip, "Visible", showDistance)' in hub
+          and 'setIfDifferent(item.billboard, "Enabled", visibilityMask ~= 0)' in hub, failures)
     check("New ESP badge UI and corner-box geometry",
           "Army124ESPIdentity" in hub and "Army124ESPHealthBadge" in hub
           and "Army124ESPDistanceBadge" in hub
@@ -245,7 +256,7 @@ def main() -> int:
               "local function aimFrame(dt)",
               "local function refreshESP()",
               "local function applyResponsiveLayout()")), failures)
-    check("Control Center v1.5.6 header label",
+    check("Control Center v1.5.7 header label",
           "CONTROL CENTER  •  v" in hub, failures)
     check("Premium UI 3.0 stable visual primitives",
           all(token in hub for token in (
