@@ -262,26 +262,30 @@ applyResponsiveLayout()
 local status = mk("TextLabel", {
     Name = "Footer", Position = UDim2.new(0, wideLayout and 207 or 101, 1, -29),
     Size = UDim2.new(1, wideLayout and -220 or -110, 0, 22),
-    BackgroundTransparency = 0, BackgroundColor3 = P.background,
+    BackgroundTransparency = 0.10, BackgroundColor3 = Color3.fromRGB(29, 27, 44),
     BorderSizePixel = 0, ZIndex = 4,
-    Text = "124 VISUALS · READY",
-    TextSize = 9, Font = Enum.Font.Code,
+    Text = "●  124 VISUALS  /  READY",
+    TextSize = 10, Font = Enum.Font.Code,
     TextColor3 = P.dim,
     TextXAlignment = Enum.TextXAlignment.Left,
     TextTruncate = Enum.TextTruncate.AtEnd,
 }, panel)
+round(status, 6)
+mk("UIPadding", {PaddingLeft = UDim.new(0, 10),
+    PaddingRight = UDim.new(0, 7)}, status)
+mk("UIStroke", {Color = P.border, Transparency = 0.76, Thickness = 1}, status)
 statusMessage = status
 boosterPro.uiFooter = status
 
 local mini = mk("TextButton", {
     Name = "OpenHub", Position = UDim2.new(0, 12, 0.39, 0),
-    Size = UDim2.fromOffset(67, 35),
+    Size = UDim2.fromOffset(72, 38),
     BackgroundColor3 = P.background,
     TextColor3 = P.accent,
     Text = "124  V", TextSize = 12,
     Font = Enum.Font.Code, Visible = false,
 }, gui)
-round(mini, 4)
+round(mini, 10)
 outline(mini, P.border)
 boosterPro.floatingButton = mini
 -- v1.1.3: предупреждение о рискованных функциях после сворачивания.
