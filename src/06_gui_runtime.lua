@@ -1664,6 +1664,8 @@ local function applyResponsiveLayout()
         brandTitle.Position = UDim2.fromOffset(66, 14)
         brandTitle.Size = UDim2.fromOffset(wide and 150 or math.max(60, math.min(155, width - 190)), 23)
         brandTitle.TextSize = width < 340 and 12 or 16
+        -- On extremely narrow viewports the 42px Roblox window controls win.
+        brandTitle.Visible = width >= 280
     end
     if brandCaption then
         brandCaption.Position = UDim2.fromOffset(67, 38)
