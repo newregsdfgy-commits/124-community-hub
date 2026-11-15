@@ -3,7 +3,7 @@
 - Branch: `v1.5.4-deep-audit-visibility-stability-test` from v1.5.3 at `1ac82f682367ae39bfb0f6f88d5609d96b42347f`; main and v1.5.3 preserved.
 - One source behavior fix: generic `safeActivate` rejects late events on hidden controls/pages or disabled GUI using the existing ancestor visibility helper. AIM targeting and pinned AIM behavior untouched.
 - Source-fragment builder updated to v1.5.4; identical Hub/Visuals bundles and pinned launcher prepared.
-- Current CI tests plus newly added hidden-control Luau fault injection to be checked on GitHub Actions. Historical v1.1.41 screenshot UI test suite is not applicable to the current UI.
+- **Verified GitHub Actions SUCCESS**: release #43712640897; full v1.5.4 regression #43712640815 (141/141 Node tests, official Luau compilation of 3 entrypoints and 11 executable source callback harnesses). Historical v1.1.41 screenshot UI test suite is not applicable to the current UI.
 - No Roblox live test, Android screen test, weapon runtime or FPS measurement. Review `AUDIT_DEEP_v1.5.4.md`.
 
 ---

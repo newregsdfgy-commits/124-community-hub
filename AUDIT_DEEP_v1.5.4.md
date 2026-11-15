@@ -19,7 +19,10 @@ Date: 2026-11-15
 - New static regression `tests/VisibilityGuard154.test.cjs`.
 - Bump release version/launcher/checker and create v1.5.4 workflow with current UI, Player, ESP, Booster, Key, AIM and Luau compile/runtime smoke checks.
 - No changes to aim mechanics, weapons, ESP or other gameplay features.
-- Run status: pending GitHub Actions on the new branch. Real Roblox, mobile rendering, weapons and FPS are NOT tested by these checks.
+- **Observed CI success:** release integrity run [43712640897](https://github.com/newregsdfgy-commits/124-community-hub/actions/runs/43712640897) and extended Luau/UI input regression run [43712640815](https://github.com/newregsdfgy-commits/124-community-hub/actions/runs/43712640815), both SUCCESS on source/test commit `cc978aaad03e733e65808edeadb3e54db975053c`.
+- Extended CI verified 141/141 Node tests, real Luau parsing and bytecode compilation of Hub/Visuals/Start, 11 executable source-callback harnesses (input visibility, AIM, Weather, Player FX, ESP, Key, Booster and layout).
+- Initial extended CI was red on 10 inherited v1.5.3 version/branch assertions; these expectations were corrected before the successful rerun.
+- Real Roblox desktop/Android rendering, weapon behavior, touch-device experience and measured FPS are **not** verified by CI.
 
 ## Live QA still required
 Desktop and Android: open/close during input, rapid page changes, delayed taps, AIM pinned and legacy switch, rain/clear transition, Booster on/off restoration, scroll and touch, respawn, clean unload and relaunch. Observe Roblox Output and client FPS, not inferred improvements.
