@@ -103,7 +103,7 @@ test("existing weapons and ESP/UI modules stay in place", () => {
     assert.ok(hub.includes(token), token);
 });
 test("release and current branch are correct", () => {
-  assert.match(hub, /Version = "1\.5\.3"/);
-  assert.match(loader, /v1\.5\.3-premium-interface-redesign-test\/Visuals\.lua/);
-  assert.match(loader, /Version = "1\.5\.3"/);
+  assert.match(hub, /Version = "1\.5\.4"/);
+  assert.match(loader, /v1\.5\.4-deep-audit-visibility-stability-test\/Visuals\.lua/);
+  assert.match(loader, /Version = "1\.5\.4"/);
 });

@@ -30,7 +30,7 @@ test("new settings are saved, validated and editable",()=>{
  assert.match(ui,/"playerGlowPulse", function\(\) playerFX\.syncAvatar\(\) end/);
 });
 test("v1.5.4 launcher and source bundles are consistent",()=>{
- assert.match(read("Start.lua"),/v1\.5\.4-premium-interface-redesign-test\/Visuals\.lua/);
+ assert.match(read("Start.lua"),/v1\.5\.4-deep-audit-visibility-stability-test\/Visuals\.lua/);
  assert.equal(read("Hub.lua"),read("Visuals.lua"));
  assert.match(read("Hub.lua"),/Version = "1\.5\.4"/);
 });
