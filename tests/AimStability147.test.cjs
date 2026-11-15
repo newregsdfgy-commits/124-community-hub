@@ -8,7 +8,7 @@ const config=read("src/00_config.lua");
 const state=read("src/02_state_and_services.lua");
 const ui=read("src/08_ui_controls.lua");
 const gui=read("src/06_gui_runtime.lua");
-test("v1.5.2 restored the exact v1.4.6 AIM source, not a partial hybrid",()=>{
+test("v1.5.3 restored the exact v1.4.6 AIM source, not a partial hybrid",()=>{
  const checksum=crypto.createHash("sha1")
    .update("blob "+Buffer.byteLength(aim)+"\\0".replace("\\0","\0"))
    .update(aim).digest("hex");
