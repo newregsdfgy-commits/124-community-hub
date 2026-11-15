@@ -148,7 +148,7 @@ gui.Enabled=true
 now+=0.20
 btn.Activated:Fire(pointer(Enum.UserInputType.Keyboard))
 assert(not state.aimbot and stats.presses==8)
-print("PASS: v1.5.2 independent pinned AIM toggle actual production Luau: native, fallback, drag, overlay, rapid clicks, state repaint")
+print("PASS: v1.5.3 independent pinned AIM toggle actual production Luau: native, fallback, drag, overlay, rapid clicks, state repaint")
 `;
 fs.writeFileSync("/tmp/Army124-PinnedAim152.luau",pre+"\n"+pinned+"\n"+checks,"utf8");
-console.log("Generated executable production v1.5.2 pinned AIM switch test");
+console.log("Generated executable production v1.5.3 pinned AIM switch test");
