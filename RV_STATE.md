@@ -5,7 +5,7 @@
 - Tiered labels at 90/155 m; far ESP tracked and outlined without HUD chips; independent toggles retained.
 - Lighter highlight, thin tracer, shorter corners, no additional per-frame workers.
 - Tests: `EspCompact157.test.cjs`, `build-esp157-runtime.cjs`, previous v1.5.6 and system suites.
-- CI pending; no real Roblox/Android or measured FPS validation. See `AUDIT_ESP_v1.5.7.md`.
+- **Verified CI success**: release run #43719232823, full Luau/Node run #43719232660 (156/156 Node tests; 0 failures; all executable source suites passed). No live Roblox/Android or measured FPS validation. See `AUDIT_ESP_v1.5.7.md`.
 
 ---
 

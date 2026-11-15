@@ -50,7 +50,14 @@ Music, Weather/Player, Booster and Key System. No added RenderStepped loop.
   compact-distance selector in official Luau with 0, 61, 90, 91, 120,
   155, 156, 294 and 1000m input and multiple toggle states.
 - Existing v1.5.6 corner geometry runtime and cross-feature regressions
-  retained. CI status must be confirmed after the first GitHub Actions run.
+  retained. **Verified GitHub Actions success** on code commit `745c30132709980e796e08113512e73dfc679e24`:
+  - Release integrity: [run #43719232823](https://github.com/newregsdfgy-commits/124-community-hub/actions/runs/43719232823).
+  - Complete CI: [run #43719232660](https://github.com/newregsdfgy-commits/124-community-hub/actions/runs/43719232660).
+  - 156/156 Node tests, 0 failures. Official Luau parser and binary
+    compilation succeeded for Hub.lua, Visuals.lua and Start.lua.
+  - Production Luau compact ESP 0/61/90/91/155/156/294/1000m visibility
+    fault injection and retained v1.5.6 corner-box runtime passed.
+  - Full live Roblox UI, Android layout and measured FPS remain untested.
 
 ## Known limitations
 
