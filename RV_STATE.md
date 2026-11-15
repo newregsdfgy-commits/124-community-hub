@@ -5,7 +5,7 @@
 - Music: recreate a Sound removed/reparented by game before same-ID replay.
 - Full 12-module build, pinned launcher and official Luau regression workflow.
 - New tests: `OwnershipRecovery155.test.cjs`, `build-ownership155-runtime.cjs`.
-- CI pending; real Roblox and Android QA unperformed.
+- Verified CI success: release #43716341918; extended regression #43716341929, 145/145 Node tests, Luau compilation of Hub/Visuals/Start and executable Camera/Music plus preserved callback harnesses. Real Roblox and Android QA unperformed.
 - See `AUDIT_DEEP_v1.5.5.md`.
 
 ---

@@ -59,5 +59,8 @@ considering a merge to main.
 
 ## CI status
 
-Pending GitHub Actions on the new branch. Do not treat CI as passed until
-an actual successful run is observed.
+**Verified CI SUCCESS** on source commit `5ed732196f982edcd23ef25e23715e13a6c7351f`:
+- Release integrity: https://github.com/newregsdfgy-commits/124-community-hub/actions/runs/43716341918
+- Extended regression: https://github.com/newregsdfgy-commits/124-community-hub/actions/runs/43716341929
+- 145/145 Node tests, 0 failures; official Luau parser/bytecode compiler passed Hub, Visuals and Start; production Camera and Music fault-injection harnesses passed alongside preserved input/Weather/Player/ESP/Key/Booster/Movement runtime suites.
+- **Not** a real-client or Android live test. No measured FPS or audio permission claims.
