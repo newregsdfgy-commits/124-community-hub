@@ -100,7 +100,7 @@ test("weather remains local, reversible and compatible with Booster Atmosphere h
 });
 test("ESP and Weapons 2.0, Key, Booster, menu remain bundled",()=>{
     for(const marker of ["local function refreshESP()","local recoil = (function()",
-        "function boosterPro.restoreGraphicsSliced(", "PURPLE NEON 2.0",
+        "function boosterPro.restoreGraphicsSliced(", "CONTROL CENTER  •  v",
         "function controller.restoreSpread()", "local function aimFrame(dt)",
         "local function windowMetrics(view)"])assert.ok(hub.includes(marker),marker);
 });
