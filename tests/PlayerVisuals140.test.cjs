@@ -98,7 +98,7 @@ test("Player reset and diagnostic controls exist", () => {
 });
 test("existing weapons and ESP/UI modules stay in place", () => {
   for (const token of ["local recoil = (function()", "function controller.restoreSpread()",
-    "local function refreshESP()", "PURPLE NEON 2.0", "cleanup = function(safeStop)",
+    "local function refreshESP()", "CONTROL CENTER  •  v", "cleanup = function(safeStop)",
     "addSection(pages.MISC, \"WEAPONS 2.0\""])
     assert.ok(hub.includes(token), token);
 });

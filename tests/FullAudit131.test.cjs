@@ -95,7 +95,7 @@ test("AIM, Weapons, booster, profile and GUI systems retained", () => {
     "local function aimFrame(dt)", "local recoil = (function()",
     "function controller.restoreSpread()", "controller.diagnostics = function()",
     "function boosterPro.restoreGraphicsSliced(",
-    "local function refreshESP()", "PURPLE NEON 2.0",
+    "local function refreshESP()", "CONTROL CENTER  •  v",
     "local function applyResponsiveLayout()", "cleanup = function(safeStop)",
     "env.ARMY124_CLEANUP = cleanup"
   ]) assert.ok(hub.includes(token), token);

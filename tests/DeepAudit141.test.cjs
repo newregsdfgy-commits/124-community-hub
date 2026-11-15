@@ -103,6 +103,6 @@ test("No server writes or local game movement changes added by Player FX", () =>
 test("Previous ESP, Weapons, FPS Booster and Purple Neon UI remain present", () => {
     for(const token of ["local function refreshESP()","local recoil = (function()",
        "function controller.restoreSpread()","local function aimFrame(dt)",
-       "function boosterPro.restoreGraphicsSliced(", "PURPLE NEON 2.0",
+       "function boosterPro.restoreGraphicsSliced(", "CONTROL CENTER  •  v",
        "cleanup = function(safeStop)"]) assert.ok(hub.includes(token),token);
 });

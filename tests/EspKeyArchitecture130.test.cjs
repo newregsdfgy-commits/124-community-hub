@@ -125,7 +125,7 @@ test("ESP overlay updates after camera and recoil in render priorities", () => {
 });
 test("latest Weapons 2.0 and Purple Neon UI are preserved", () => {
     for (const term of ["controller.diagnostics = function()", "function controller.restoreSpread()",
-        "local function recoilFrame(dt)", "PURPLE NEON 2.0",
+        "local function recoilFrame(dt)", "CONTROL CENTER  •  v",
         "function boosterPro.restoreGraphicsSliced(", "local function aimFrame(dt)"]) {
         assert.ok(hub.includes(term), term);
     }

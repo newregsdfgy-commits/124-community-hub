@@ -16,7 +16,7 @@ test("mirrors, launch version, previous functions retained", () => {
     assert.match(hub, /Version = "1\.5\.3"/);
     assert.match(launcher, /v1\.5\.3-premium-interface-redesign-test\/Visuals\.lua/);
     for (const expected of ["local function aimFrame(dt)", "local function refreshESP()",
-        "function boosterPro.restoreGraphicsSliced(", "PURPLE NEON 2.0",
+        "function boosterPro.restoreGraphicsSliced(", "CONTROL CENTER  •  v",
         "local function shutdownRecoilControl()", "local function recoilFrame(dt)",
         "local ACCESS_KEY = \"124HUB\""]) {
         assert.ok(hub.includes(expected), expected);
