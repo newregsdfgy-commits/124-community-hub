@@ -1,4 +1,4 @@
-name: v1.5.6 premium interface layout, AIM and input regression
+name: v1.5.6 ESP Tactical HUD, UI and lifecycle regression
 on:
   push:
     branches:
@@ -10,7 +10,7 @@ on:
       - 'Start.lua'
       - 'tools/**'
       - 'tests/**'
-      - '.github/workflows/v155-deep-audit-ci.yml'
+      - '.github/workflows/v156-modern-esp-ci.yml'
   workflow_dispatch:
 permissions:
   contents: read
@@ -25,7 +25,7 @@ jobs:
           set -euo pipefail
           python3 tools/build_visuals.py --check
           python3 tools/verify_release.py
-          node --test tests/EspKeyArchitecture130.test.cjs tests/Weapons2Compatibility.test.cjs tests/FullAudit131.test.cjs tests/PlayerVisuals140.test.cjs tests/DeepAudit141.test.cjs tests/UI142Layout.test.cjs tests/BoosterDeep143.test.cjs tests/ControlsPlayer144.test.cjs tests/DeepStability145.test.cjs tests/UltraAura146.test.cjs tests/AimStability147.test.cjs tests/FullStability148.test.cjs tests/LegacyAimButtons149.test.cjs tests/AimClick150.test.cjs tests/AimPinned152.test.cjs tests/PremiumUI153.test.cjs tests/VisibilityGuard154.test.cjs tests/OwnershipRecovery155.test.cjs
+          node --test tests/EspKeyArchitecture130.test.cjs tests/Weapons2Compatibility.test.cjs tests/FullAudit131.test.cjs tests/PlayerVisuals140.test.cjs tests/DeepAudit141.test.cjs tests/UI142Layout.test.cjs tests/BoosterDeep143.test.cjs tests/ControlsPlayer144.test.cjs tests/DeepStability145.test.cjs tests/UltraAura146.test.cjs tests/AimStability147.test.cjs tests/FullStability148.test.cjs tests/LegacyAimButtons149.test.cjs tests/AimClick150.test.cjs tests/AimPinned152.test.cjs tests/PremiumUI153.test.cjs tests/VisibilityGuard154.test.cjs tests/OwnershipRecovery155.test.cjs tests/EspModern156.test.cjs
       - name: Checkout official Luau compiler
         uses: actions/checkout@v4
         with:
@@ -52,6 +52,7 @@ jobs:
         run: |
           set -euo pipefail
           node tests/build-ownership155-runtime.cjs
+          node tests/build-esp156-runtime.cjs
           node tests/build-legacy-aim149-runtime.cjs
           node tests/build-aim-click150-runtime.cjs
           node tests/build-aim-pinned152-runtime.cjs
@@ -64,6 +65,7 @@ jobs:
           python3 tests/build-booster141-runtime.py
           python3 tests/build-131-runtime-audit.py
           ./luau-build/luau /tmp/Army124-Ownership155.luau
+          ./luau-build/luau /tmp/Army124-EspCorners156.luau
           ./luau-build/luau /tmp/Army124-LegacyAim149.luau
           ./luau-build/luau /tmp/Army124-AimClick150.luau
           ./luau-build/luau /tmp/Army124-PinnedAim152.luau
