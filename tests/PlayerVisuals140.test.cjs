@@ -104,6 +104,6 @@ test("existing weapons and ESP/UI modules stay in place", () => {
 });
 test("release and current branch are correct", () => {
   assert.match(hub, /Version = "1\.5\.7"/);
-  assert.match(loader, /v1\.5\.7-modern-esp-visual-redesign-test\/Visuals\.lua/);
+  assert.match(loader, /v1\.5\.7-compact-esp-ui-test\/Visuals\.lua/);
   assert.match(loader, /Version = "1\.5\.7"/);
 });

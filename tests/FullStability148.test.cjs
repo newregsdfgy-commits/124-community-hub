@@ -7,7 +7,7 @@ const ui=read("src/08_ui_controls.lua"),runtime=read("src/06_gui_runtime.lua");
 const cleanup=read("src/09_misc_and_diagnostics.lua"),worker=read("src/10_run_and_cleanup.lua");
 const aim=read("src/02_state_and_services.lua");
 test("v1.5.7 launch and 12-module bundles remain in sync",()=>{
- assert.match(read("Start.lua"),/v1\.5\.7-modern-esp-visual-redesign-test\/Visuals\.lua/);
+ assert.match(read("Start.lua"),/v1\.5\.7-compact-esp-ui-test\/Visuals\.lua/);
  assert.match(read("Hub.lua"),/Version = "1\.5\.7"/);
  assert.equal(read("Hub.lua"),read("Visuals.lua"));
 });

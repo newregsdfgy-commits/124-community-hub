@@ -24,7 +24,7 @@ test("both launchable Luau sources are exact mirrors of all 12 modules", () => {
 });
 test("v1.4.1 launch and version locked to isolated stability branch", () => {
     assert.match(hub, /Version = "1\.5\.7"/);
-    assert.match(launcher, /v1\.5\.7-modern-esp-visual-redesign-test\/Visuals\.lua/);
+    assert.match(launcher, /v1\.5\.7-compact-esp-ui-test\/Visuals\.lua/);
     assert.match(launcher, /Version = "1\.5\.7"/);
 });
 test("Booster protects exact owner instances, never colliding object names", () => {

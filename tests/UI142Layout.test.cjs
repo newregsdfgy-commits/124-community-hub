@@ -12,7 +12,7 @@ const start=read("Start.lua");
 
 test("v1.4.2 branch and payload version align",()=>{
     assert.match(hub,/Version = "1\.5\.7"/);
-    assert.match(start,/v1\.5\.7-modern-esp-visual-redesign-test\/Visuals\.lua/);
+    assert.match(start,/v1\.5\.7-compact-esp-ui-test\/Visuals\.lua/);
     assert.match(start,/Version = "1\.5\.7"/);
 });
 test("12-module deterministic build remains byte-identical",()=>{
