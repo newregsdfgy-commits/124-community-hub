@@ -8,7 +8,7 @@
 - Settings persist in CUSTOM via validatedSettings numeric clamps.
 - New tests: `EspRanges159.test.cjs`,
   `build-esp159-runtime.cjs` plus source-extracted test template.
-- Full CI pending; real-client quality/FPS unverified.
+- **Verified CI SUCCESS:** release 43726646008 and full 43726646036 (166/166 Node, Luau compile and executable ESP range/profile/cap tests). Real-client visuals/FPS unverified.
 - Details: `AUDIT_ESP_RANGES_v1.5.9.md`.
 
 ---

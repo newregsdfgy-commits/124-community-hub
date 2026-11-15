@@ -48,7 +48,14 @@ elements when the player goes outside the selected overlay range.
   expressions; runs edge thresholds, independent sliders, malformed values,
   10/1000m clamps and overall radius cap.
 - v1.5.7 compact ESP and v1.5.8 performance/Movement suites retained.
-- GitHub Actions results to be recorded when complete.
+- **Verified CI success** on code commit `b99d9ec0bc141fdb9a35988fc0f8fb2adfa7444d`:
+  - Release integrity: [run 43726646008](https://github.com/newregsdfgy-commits/124-community-hub/actions/runs/43726646008), SUCCESS.
+  - Full v1.5.9 regression: [run 43726646036](https://github.com/newregsdfgy-commits/124-community-hub/actions/runs/43726646036), SUCCESS.
+  - 166/166 Node tests, zero failures. Luau parser + compiled bytecode passed Hub, Visuals and Start.
+  - Source-extracted Luau tests passed independent Nick/HP/Distance thresholds,
+    stored profile numeric validation including invalid input, and global
+    Box/Tracer caps; historical runtime harnesses also passed.
+  - Real Roblox/Android visual rendering and measured FPS not tested.
 
 ## Remaining live-client checks
 
