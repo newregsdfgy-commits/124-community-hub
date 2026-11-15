@@ -7,6 +7,9 @@ assert.ok(from>=0&&to>from,"actual compactEspFlags production helper not found")
 const helper=tracker.slice(from,to);
 const script=String.raw`
 local CONFIG={EspCompactDetailsMaxMeters=90,EspCompactNameMaxMeters=155}
+local state={espNameMaxMeters=CONFIG.EspCompactNameMaxMeters,
+    espHealthMaxMeters=CONFIG.EspCompactDetailsMaxMeters,
+    espDistanceMaxMeters=CONFIG.EspCompactDetailsMaxMeters}
 ${helper}
 local function check(meters,n,h,d,nWant,hWant,dWant)
     local nn,hh,dd=compactEspFlags(meters,n,h,d)

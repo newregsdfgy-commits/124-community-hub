@@ -649,6 +649,29 @@ addToggle(pages.ESP, "Имена", "DisplayName над персонажами", 
 addToggle(pages.ESP, "Здоровье", "HP над персонажами", "health")
 addToggle(pages.ESP, "Дистанция", "Расстояние в метрах (≈)", "distance")
 addToggle(pages.ESP, "Цвет команд", "Расцветка согласно TeamColor", "teamColors")
+
+-- Each slider controls one existing ESP visual. The master ESP range still
+-- caps visibility, so these sliders never expand global target discovery.
+addSection(pages.ESP, "ДАЛЬНОСТЬ ЭЛЕМЕНТОВ",
+    "Отдельно для имени, HP, расстояния, рамки и линий")
+addSlider(pages.ESP, "Дальность ника", "До какого расстояния показывать имя игрока",
+    "espNameMaxMeters", CONFIG.EspRangeMinMeters, CONFIG.EspRangeMaxMeters,
+    CONFIG.EspRangeStepMeters, function(v) return tostring(v) .. " м" end,
+    function() queueESPRefresh() end)
+addSlider(pages.ESP, "Дальность HP", "Полоска и число здоровья; независимо от имени",
+    "espHealthMaxMeters", CONFIG.EspRangeMinMeters, CONFIG.EspRangeMaxMeters,
+    CONFIG.EspRangeStepMeters, function(v) return tostring(v) .. " м" end,
+    function() queueESPRefresh() end)
+addSlider(pages.ESP, "Дальность расстояния", "До какого расстояния показывать метры",
+    "espDistanceMaxMeters", CONFIG.EspRangeMinMeters, CONFIG.EspRangeMaxMeters,
+    CONFIG.EspRangeStepMeters, function(v) return tostring(v) .. " м" end,
+    function() queueESPRefresh() end)
+addSlider(pages.ESP, "Дальность 2D Box", "Угловая рамка; общий радиус ESP остаётся пределом",
+    "espBoxMaxMeters", CONFIG.EspRangeMinMeters, CONFIG.EspRangeMaxMeters,
+    CONFIG.EspRangeStepMeters, function(v) return tostring(v) .. " м" end)
+addSlider(pages.ESP, "Дальность линий", "Трассеры от верхней части экрана к целям",
+    "espTracerMaxMeters", CONFIG.EspRangeMinMeters, CONFIG.EspRangeMaxMeters,
+    CONFIG.EspRangeStepMeters, function(v) return tostring(v) .. " м" end)
 -- Local crosshair was previously reachable only in the hidden 403VIP preview.
 -- Route it through the same native toggle UI without modifying ESP behavior.
 addToggle(pages.ESP, "Локальный прицел", "Небольшой маркер в центре экрана", "crosshairLocal",

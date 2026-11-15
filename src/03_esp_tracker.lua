@@ -98,11 +98,11 @@ end
 -- Compact Tactical ESP: сжатый HUD с автоматическим облегчением дальних меток.
 -- Все функции ESP сохраняются; отключается только лишний текст на дистанции.
 local function compactEspFlags(meters, namesEnabled, healthEnabled, distanceEnabled)
-    local detailRange = meters <= CONFIG.EspCompactDetailsMaxMeters
-    local nameRange = meters <= CONFIG.EspCompactNameMaxMeters
-    return namesEnabled and nameRange,
-        healthEnabled and detailRange,
-        distanceEnabled and detailRange
+    -- Distances are independent, saved to CUSTOM and still limited by master ESP.
+    -- Keep feature toggles as the single source of enabled/disabled state.
+    return namesEnabled and meters <= state.espNameMaxMeters,
+        healthEnabled and meters <= state.espHealthMaxMeters,
+        distanceEnabled and meters <= state.espDistanceMaxMeters
 end
 local function createRender(player, character, head)
     local hl = mk("Highlight", {

@@ -11,8 +11,8 @@ import re
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = "1.5.8"
-BRANCH = "v1.5.8-full-audit-stability-fix-test"
+VERSION = "1.5.9"
+BRANCH = "v1.5.9-esp-independent-range-controls-test"
 CHECK_COUNT = [0]
 
 
@@ -146,6 +146,15 @@ def main() -> int:
     launcher = (ROOT / "Start.lua").read_text(encoding="utf-8")
 
     check("Hub.lua and Visuals.lua are byte-identical", hub == visuals, failures)
+    check("ESP independent label/box/tracer distance settings saved and clamped",
+          all(f'"{key}"' in hub for key in
+              ("espNameMaxMeters", "espHealthMaxMeters", "espDistanceMaxMeters",
+               "espBoxMaxMeters", "espTracerMaxMeters"))
+          and 'meters <= state.espNameMaxMeters' in hub
+          and 'meters <= state.espHealthMaxMeters' in hub
+          and 'meters <= state.espDistanceMaxMeters' in hub
+          and 'math.min(state.espRangeMeters, state.espBoxMaxMeters)' in hub
+          and 'math.min(state.espRangeMeters, state.espTracerMaxMeters)' in hub, failures)
     check("Long-range ESP motion boost respects AUTO/ECO budget",
           'state.performanceMode == "QUALITY"' in hub
           and 'or state.espRangeMeters < CONFIG.EspLongRangeMeters' in hub
@@ -265,7 +274,7 @@ def main() -> int:
               "local function aimFrame(dt)",
               "local function refreshESP()",
               "local function applyResponsiveLayout()")), failures)
-    check("Control Center v1.5.8 header label",
+    check("Control Center v1.5.9 header label",
           "CONTROL CENTER  •  v" in hub, failures)
     check("Premium UI 3.0 stable visual primitives",
           all(token in hub for token in (

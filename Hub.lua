@@ -1,11 +1,11 @@
--- 124 Visuals v1.5.8 | Full Stability Audit & Movement/ESP Budget Fix
+-- 124 Visuals v1.5.9 | Independent ESP Visibility Ranges
 -- Первый плейс: 18537079992. Запуск поддерживает все игровые PlaceId.
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.5.8",
+    Version = "1.5.9",
     OriginalPlaceId = 18537079992,
     EspRefreshSeconds = 0.35, -- Быстрый поиск персонажей, без обновления UI каждый кадр.
     EspEventMinSeconds = 0.18, -- Коалесцированные события не запускают 16 полных сканов/сек.
@@ -551,6 +551,12 @@ local state = {
     espEnemyOnly = false,
     crosshairLocal = false, -- Сохраняемый локальный прицел.
     espRangeMeters = 200,
+    -- Each overlay has its own maximum visibility radius, capped by ESP master range.
+    espNameMaxMeters = CONFIG.EspCompactNameMaxMeters,
+    espHealthMaxMeters = CONFIG.EspCompactDetailsMaxMeters,
+    espDistanceMaxMeters = CONFIG.EspCompactDetailsMaxMeters,
+    espBoxMaxMeters = CONFIG.EspRangeMaxMeters,
+    espTracerMaxMeters = CONFIG.EspRangeMaxMeters,
     espMaxTargets = CONFIG.EspMaxPlayers, -- Настраиваемая вместимость ESP, отдельно от метров.
     espColorPreset = "TEAM", -- TEAM / GOLD / GREEN / WHITE
     espLineThickness = 1, -- Новая тонкая графика по умолчанию.
@@ -1125,11 +1131,11 @@ end
 -- Compact Tactical ESP: сжатый HUD с автоматическим облегчением дальних меток.
 -- Все функции ESP сохраняются; отключается только лишний текст на дистанции.
 local function compactEspFlags(meters, namesEnabled, healthEnabled, distanceEnabled)
-    local detailRange = meters <= CONFIG.EspCompactDetailsMaxMeters
-    local nameRange = meters <= CONFIG.EspCompactNameMaxMeters
-    return namesEnabled and nameRange,
-        healthEnabled and detailRange,
-        distanceEnabled and detailRange
+    -- Distances are independent, saved to CUSTOM and still limited by master ESP.
+    -- Keep feature toggles as the single source of enabled/disabled state.
+    return namesEnabled and meters <= state.espNameMaxMeters,
+        healthEnabled and meters <= state.espHealthMaxMeters,
+        distanceEnabled and meters <= state.espDistanceMaxMeters
 end
 local function createRender(player, character, head)
     local hl = mk("Highlight", {
@@ -4710,6 +4716,7 @@ local HttpService = game:GetService("HttpService")
 local storedKeys = {
     "esp", "tracers", "names", "health", "distance", "teamColors", "espBox",
     "espEnemyOnly", "crosshairLocal", "espRangeMeters", "espMaxTargets", "espColorPreset", "espLineThickness", "performanceMode",
+    "espNameMaxMeters", "espHealthMaxMeters", "espDistanceMaxMeters", "espBoxMaxMeters", "espTracerMaxMeters",
     "performanceGuard", "moduleCpuMonitor", "lazyLoading",
     "sessionDiagnostics",
     "aimbot", "aimRangeMeters", "aimSmoothness", "aimSmoothX", "aimSmoothY",
@@ -4727,6 +4734,11 @@ local storedKeys = {
 }
 local numericRules = {
     espRangeMeters = {CONFIG.EspRangeMinMeters, CONFIG.EspRangeMaxMeters}, espMaxTargets = {8, 96},
+    espNameMaxMeters = {CONFIG.EspRangeMinMeters, CONFIG.EspRangeMaxMeters},
+    espHealthMaxMeters = {CONFIG.EspRangeMinMeters, CONFIG.EspRangeMaxMeters},
+    espDistanceMaxMeters = {CONFIG.EspRangeMinMeters, CONFIG.EspRangeMaxMeters},
+    espBoxMaxMeters = {CONFIG.EspRangeMinMeters, CONFIG.EspRangeMaxMeters},
+    espTracerMaxMeters = {CONFIG.EspRangeMinMeters, CONFIG.EspRangeMaxMeters},
     espLineThickness = {1, 2},
     aimRangeMeters = {5, 180}, aimSmoothness = {0, 10},
     aimSmoothX = {1, 10}, aimSmoothY = {1, 10},
@@ -6128,7 +6140,7 @@ local function refreshTracers()
         end
         return
     end
-    local radiusStuds = state.espRangeMeters / CONFIG.StudMeters
+    local radiusStuds = math.min(state.espRangeMeters, state.espTracerMaxMeters) / CONFIG.StudMeters
     local radiusSquared = radiusStuds * radiusStuds
     for player, data in pairs(renderData) do
         local ch = data.character
@@ -6273,7 +6285,7 @@ local function refreshShapes()
         return
     end
     local activeCount, active = 0, perfCounters.espVisual.active
-    local radiusStuds = state.espRangeMeters / CONFIG.StudMeters
+    local radiusStuds = math.min(state.espRangeMeters, state.espBoxMaxMeters) / CONFIG.StudMeters
     local radiusSquared = radiusStuds * radiusStuds
     local tier = visualPerfTier()
     local budget = tier == "ECO" and CONFIG.EspShapeEcoLimit
@@ -6994,6 +7006,29 @@ addToggle(pages.ESP, "Имена", "DisplayName над персонажами", 
 addToggle(pages.ESP, "Здоровье", "HP над персонажами", "health")
 addToggle(pages.ESP, "Дистанция", "Расстояние в метрах (≈)", "distance")
 addToggle(pages.ESP, "Цвет команд", "Расцветка согласно TeamColor", "teamColors")
+
+-- Each slider controls one existing ESP visual. The master ESP range still
+-- caps visibility, so these sliders never expand global target discovery.
+addSection(pages.ESP, "ДАЛЬНОСТЬ ЭЛЕМЕНТОВ",
+    "Отдельно для имени, HP, расстояния, рамки и линий")
+addSlider(pages.ESP, "Дальность ника", "До какого расстояния показывать имя игрока",
+    "espNameMaxMeters", CONFIG.EspRangeMinMeters, CONFIG.EspRangeMaxMeters,
+    CONFIG.EspRangeStepMeters, function(v) return tostring(v) .. " м" end,
+    function() queueESPRefresh() end)
+addSlider(pages.ESP, "Дальность HP", "Полоска и число здоровья; независимо от имени",
+    "espHealthMaxMeters", CONFIG.EspRangeMinMeters, CONFIG.EspRangeMaxMeters,
+    CONFIG.EspRangeStepMeters, function(v) return tostring(v) .. " м" end,
+    function() queueESPRefresh() end)
+addSlider(pages.ESP, "Дальность расстояния", "До какого расстояния показывать метры",
+    "espDistanceMaxMeters", CONFIG.EspRangeMinMeters, CONFIG.EspRangeMaxMeters,
+    CONFIG.EspRangeStepMeters, function(v) return tostring(v) .. " м" end,
+    function() queueESPRefresh() end)
+addSlider(pages.ESP, "Дальность 2D Box", "Угловая рамка; общий радиус ESP остаётся пределом",
+    "espBoxMaxMeters", CONFIG.EspRangeMinMeters, CONFIG.EspRangeMaxMeters,
+    CONFIG.EspRangeStepMeters, function(v) return tostring(v) .. " м" end)
+addSlider(pages.ESP, "Дальность линий", "Трассеры от верхней части экрана к целям",
+    "espTracerMaxMeters", CONFIG.EspRangeMinMeters, CONFIG.EspRangeMaxMeters,
+    CONFIG.EspRangeStepMeters, function(v) return tostring(v) .. " м" end)
 -- Local crosshair was previously reachable only in the hidden 403VIP preview.
 -- Route it through the same native toggle UI without modifying ESP behavior.
 addToggle(pages.ESP, "Локальный прицел", "Небольшой маркер в центре экрана", "crosshairLocal",

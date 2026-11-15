@@ -6,9 +6,9 @@ const read=p=>fs.readFileSync(path.join(root,p),"utf8");
 const ui=read("src/08_ui_controls.lua"),runtime=read("src/06_gui_runtime.lua");
 const cleanup=read("src/09_misc_and_diagnostics.lua"),worker=read("src/10_run_and_cleanup.lua");
 const aim=read("src/02_state_and_services.lua");
-test("v1.5.8 launch and 12-module bundles remain in sync",()=>{
- assert.match(read("Start.lua"),/v1\.5\.8-full-audit-stability-fix-test\/Visuals\.lua/);
- assert.match(read("Hub.lua"),/Version = "1\.5\.8"/);
+test("v1.5.9 launch and 12-module bundles remain in sync",()=>{
+ assert.match(read("Start.lua"),/v1\.5\.9-full-audit-stability-fix-test\/Visuals\.lua/);
+ assert.match(read("Hub.lua"),/Version = "1\.5\.9"/);
  assert.equal(read("Hub.lua"),read("Visuals.lua"));
 });
 test("failed Speed, Noclip, Fly setters retain exact original snapshots",()=>{

@@ -429,6 +429,7 @@ local HttpService = game:GetService("HttpService")
 local storedKeys = {
     "esp", "tracers", "names", "health", "distance", "teamColors", "espBox",
     "espEnemyOnly", "crosshairLocal", "espRangeMeters", "espMaxTargets", "espColorPreset", "espLineThickness", "performanceMode",
+    "espNameMaxMeters", "espHealthMaxMeters", "espDistanceMaxMeters", "espBoxMaxMeters", "espTracerMaxMeters",
     "performanceGuard", "moduleCpuMonitor", "lazyLoading",
     "sessionDiagnostics",
     "aimbot", "aimRangeMeters", "aimSmoothness", "aimSmoothX", "aimSmoothY",
@@ -446,6 +447,11 @@ local storedKeys = {
 }
 local numericRules = {
     espRangeMeters = {CONFIG.EspRangeMinMeters, CONFIG.EspRangeMaxMeters}, espMaxTargets = {8, 96},
+    espNameMaxMeters = {CONFIG.EspRangeMinMeters, CONFIG.EspRangeMaxMeters},
+    espHealthMaxMeters = {CONFIG.EspRangeMinMeters, CONFIG.EspRangeMaxMeters},
+    espDistanceMaxMeters = {CONFIG.EspRangeMinMeters, CONFIG.EspRangeMaxMeters},
+    espBoxMaxMeters = {CONFIG.EspRangeMinMeters, CONFIG.EspRangeMaxMeters},
+    espTracerMaxMeters = {CONFIG.EspRangeMinMeters, CONFIG.EspRangeMaxMeters},
     espLineThickness = {1, 2},
     aimRangeMeters = {5, 180}, aimSmoothness = {0, 10},
     aimSmoothX = {1, 10}, aimSmoothY = {1, 10},

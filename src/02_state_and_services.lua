@@ -9,6 +9,12 @@ local state = {
     espEnemyOnly = false,
     crosshairLocal = false, -- Сохраняемый локальный прицел.
     espRangeMeters = 200,
+    -- Each overlay has its own maximum visibility radius, capped by ESP master range.
+    espNameMaxMeters = CONFIG.EspCompactNameMaxMeters,
+    espHealthMaxMeters = CONFIG.EspCompactDetailsMaxMeters,
+    espDistanceMaxMeters = CONFIG.EspCompactDetailsMaxMeters,
+    espBoxMaxMeters = CONFIG.EspRangeMaxMeters,
+    espTracerMaxMeters = CONFIG.EspRangeMaxMeters,
     espMaxTargets = CONFIG.EspMaxPlayers, -- Настраиваемая вместимость ESP, отдельно от метров.
     espColorPreset = "TEAM", -- TEAM / GOLD / GREEN / WHITE
     espLineThickness = 1, -- Новая тонкая графика по умолчанию.

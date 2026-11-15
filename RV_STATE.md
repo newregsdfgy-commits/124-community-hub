@@ -1,3 +1,18 @@
+# RV_STATE — v1.5.9 editable ESP ranges (2026-11-15)
+
+- Branch `v1.5.9-esp-independent-range-controls-test` from v1.5.8 `cf6722be1561db3790ba6462fb81626f1681d18e`.
+- Added five independent ESP distance sliders (Nick 155m, HP 90m,
+  Distance 90m, 2D Box 1000m, Tracers 1000m defaults), 10–1000m, step 5.
+- Global ESP search radius is the upper cap for every overlay; original
+  feature switches, 116×29 Compact HUD and other systems unchanged.
+- Settings persist in CUSTOM via validatedSettings numeric clamps.
+- New tests: `EspRanges159.test.cjs`,
+  `build-esp159-runtime.cjs` plus source-extracted test template.
+- Full CI pending; real-client quality/FPS unverified.
+- Details: `AUDIT_ESP_RANGES_v1.5.9.md`.
+
+---
+
 # RV_STATE — 124 Visuals v1.5.8 Full Stability Audit (2026-11-15)
 
 - Test branch `v1.5.8-full-audit-stability-fix-test` from v1.5.7 commit `6005ed702a0ca03ec16621e3f4e73e1e46ebb62c`.

@@ -35,7 +35,7 @@ local function refreshTracers()
         end
         return
     end
-    local radiusStuds = state.espRangeMeters / CONFIG.StudMeters
+    local radiusStuds = math.min(state.espRangeMeters, state.espTracerMaxMeters) / CONFIG.StudMeters
     local radiusSquared = radiusStuds * radiusStuds
     for player, data in pairs(renderData) do
         local ch = data.character
@@ -180,7 +180,7 @@ local function refreshShapes()
         return
     end
     local activeCount, active = 0, perfCounters.espVisual.active
-    local radiusStuds = state.espRangeMeters / CONFIG.StudMeters
+    local radiusStuds = math.min(state.espRangeMeters, state.espBoxMaxMeters) / CONFIG.StudMeters
     local radiusSquared = radiusStuds * radiusStuds
     local tier = visualPerfTier()
     local budget = tier == "ECO" and CONFIG.EspShapeEcoLimit
