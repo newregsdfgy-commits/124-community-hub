@@ -5,7 +5,7 @@
   Noclip per-part CanCollide setter failures no longer disable independent Speed/Fly.
 - Current Compact ESP appearance/toggles, AIM, Key, Player FX, music and Booster preserved.
 - New tests `DeepAudit158.test.cjs`, `build-stability158-runtime.cjs`.
-- CI pending, Roblox/Android client not tested. Details `AUDIT_DEEP_v1.5.8.md`.
+- **CI verified:** release #43721490644 and extended #43721490709 SUCCESS on code commit `b121429e4fe98558157a1bafc4d94638aca74c21`; 161/161 Node tests, all Luau compilation and source-extracted Noclip/ESP fault injection. Roblox/Android client not tested. Details `AUDIT_DEEP_v1.5.8.md`.
 
 ---
 

@@ -62,7 +62,13 @@ but no longer disables unrelated movement controls.
   motion, explicit QUALITY, ECO, low FPS and Guard.
 - Both bundled entrypoints rebuilt identically from twelve modules;
   `Start.lua` pinned to v1.5.8.
-- CI results to be recorded after a successful GitHub Actions run.
+- **Verified GitHub Actions success on implementation commit `b121429e4fe98558157a1bafc4d94638aca74c21`:**
+  - Release integrity: [run 43721490644](https://github.com/newregsdfgy-commits/124-community-hub/actions/runs/43721490644) — SUCCESS.
+  - Full regression: [run 43721490709](https://github.com/newregsdfgy-commits/124-community-hub/actions/runs/43721490709) — SUCCESS.
+  - 161/161 Node regression tests, 0 failures.
+  - Official Luau parser and binary compiler passed Hub.lua, Visuals.lua, Start.lua.
+  - Source-extracted Luau fault injection passed denied/mutating CanCollide writes, independent-part retry, destroyed snapshot cleanup, 10/18 Hz long-range ESP camera-motion budgets, explicit QUALITY, ECO and Guard.
+  - No real Roblox/Android GUI testing or measured FPS was performed.
 
 ## Manual regression checklist (not tested here)
 
