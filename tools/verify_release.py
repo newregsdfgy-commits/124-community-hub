@@ -11,8 +11,8 @@ import re
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = "1.5.2"
-BRANCH = "v1.5.2-aim-pinned-switch-test"
+VERSION = "1.5.3"
+BRANCH = "v1.5.3-premium-interface-redesign-test"
 CHECK_COUNT = [0]
 
 
@@ -226,6 +226,16 @@ def main() -> int:
               "local function applyResponsiveLayout()")), failures)
     check("Purple Neon UI 2.0 label",
           "PURPLE NEON 2.0" in hub, failures)
+    check("Premium UI 3.0 stable visual primitives",
+          all(token in hub for token in (
+              'Name = "NavigationOverline"',
+              'Name = "ToggleActiveRail"',
+              'Name = "SectionDivider"',
+              'Name = "ActionAccent"',
+              'BackgroundColor3 = P.tile, BorderSizePixel = 0,',
+              'conn.Text = sidebarWidth < 108',
+              'Name = "BrandMark", Visible = true',
+              'AimPinnedControlDock')), failures)
     check("Mobile wide only near native size",
           "view.X >= 960" in hub and "view.Y >= 540" in hub, failures)
     check("Safe desktop and mobile margins",
