@@ -1,3 +1,13 @@
+# RV_STATE — 124 Visuals v1.5.4 Deep Audit / UI Visibility Stability (2026-11-15)
+
+- Branch: `v1.5.4-deep-audit-visibility-stability-test` from v1.5.3 at `1ac82f682367ae39bfb0f6f88d5609d96b42347f`; main and v1.5.3 preserved.
+- One source behavior fix: generic `safeActivate` rejects late events on hidden controls/pages or disabled GUI using the existing ancestor visibility helper. AIM targeting and pinned AIM behavior untouched.
+- Source-fragment builder updated to v1.5.4; identical Hub/Visuals bundles and pinned launcher prepared.
+- Current CI tests plus newly added hidden-control Luau fault injection to be checked on GitHub Actions. Historical v1.1.41 screenshot UI test suite is not applicable to the current UI.
+- No Roblox live test, Android screen test, weapon runtime or FPS measurement. Review `AUDIT_DEEP_v1.5.4.md`.
+
+---
+
 # RV_STATE — v1.4.4 Player/Weather/AIM/Menu Stability (2026-11-14)
 
 - Test branch `v1.4.4-controls-player-ui-fix-test` from v1.4.3; `main` unchanged.

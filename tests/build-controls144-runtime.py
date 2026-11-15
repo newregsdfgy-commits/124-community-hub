@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Execute actual v1.4.5 GUI input and weather callbacks in Luau.
+"""Execute actual v1.5.4 GUI input and weather callbacks in Luau.
 
 Deterministic fakes for Roblox signal and state are used; UI rendering must
 still be manually verified in a Roblox client.
@@ -17,6 +17,7 @@ def extract(src, start, end):
     assert src.count(start)==1, f"ambiguous {start}"
     return src[a:b]
 
+visibility=extract(gui, "local function uiVisibleThroughParents(obj)", "local function pointerOverScroll(position)")
 core=extract(gui, "local function allowTap(input)", "-- Dashboard доступен")
 selector=extract(gui, "local function columnFor(page)", "local function registerWidget(page, widget)")
 
@@ -47,6 +48,11 @@ local function signal()
    return x
 end
 local function connect(ev,cb) return ev:Connect(cb) end
+local nativeTypeof=typeof
+local typeof=function(value)
+    if type(value)=="table" and value.__fakeInstance then return "Instance" end
+    return nativeTypeof(value)
+end
 local eventErrors={}
 local function tell(s) eventErrors[#eventErrors+1]=s end
 '''
@@ -96,6 +102,26 @@ now=now+0.18
 button.MouseButton1Click:Fire()
 assert(calls==beforeFast+4,"fallback-only press must remain clickable")
 assert(#eventErrors==0)
+-- Модель события, пришедшего после скрытия страницы/отключения ScreenGui.
+local screen={__fakeInstance=true,Enabled=true}
+function screen:IsA(cls) return cls=="ScreenGui" end
+button.__fakeInstance=true
+button.Visible=true
+button.Parent=screen
+function button:IsA(cls) return cls=="TextButton" or cls=="GuiObject" end
+local beforeVisibility=calls
+now=now+0.5
+screen.Enabled=false
+button.Activated:Fire(mouse)
+assert(calls==beforeVisibility,"Disabled ScreenGui must not receive late click")
+screen.Enabled=true
+button.Visible=false
+button.Activated:Fire(mouse)
+assert(calls==beforeVisibility,"Hidden control must not receive late click")
+button.Visible=true
+button.Activated:Fire(mouse)
+assert(calls==beforeVisibility+1,"Restored visible control must accept click")
+
 
 -- Production columnFor must take the initial responsive result even if
 -- widgets are appended later, before a second ViewportSizeChanged event.
@@ -153,7 +179,7 @@ ok=pcall(onWeatherChoice,"FOG")
 assert(not ok and state.playerWeatherEnabled==false)
 print("PASS: real Gui safeActivate double-click/touch; late responsive columns; weather callbacks and rollback")
 '''
-content=pre+"\n"+core+"\n"+after_core+"\n"+selector+"\n"+after_selector
+content=pre+"\n"+visibility+"\n"+core+"\n"+after_core+"\n"+selector+"\n"+after_selector
 content+="\nlocal onWeatherToggle = "+toggle
 content+="\nlocal onWeatherChoice = "+choice
 content+="\n"+checks

@@ -1127,6 +1127,8 @@ local function safeActivate(control, callback)
     end)
     local function fire(input, ...)
         if not alive or not allowTap(input) then return end
+        -- Не исполнять отложенное нажатие на скрытой странице или после закрытия GUI.
+        if typeof(control) == "Instance" and not uiVisibleThroughParents(control) then return end
         local now = os.clock()
         local pointer = input == nil
             or input.UserInputType == Enum.UserInputType.MouseButton1

@@ -11,8 +11,8 @@ import re
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = "1.5.3"
-BRANCH = "v1.5.3-premium-interface-redesign-test"
+VERSION = "1.5.4"
+BRANCH = "v1.5.4-deep-audit-visibility-stability-test"
 CHECK_COUNT = [0]
 
 
@@ -146,6 +146,9 @@ def main() -> int:
     launcher = (ROOT / "Start.lua").read_text(encoding="utf-8")
 
     check("Hub.lua and Visuals.lua are byte-identical", hub == visuals, failures)
+    check("Generic UI actions reject hidden or disabled ancestors",
+          'not uiVisibleThroughParents(control)' in hub
+          and 'typeof(control) == "Instance"' in hub, failures)
     check("Release version matches", f'Version = "{VERSION}"' in hub, failures)
     check("Launcher verifies release", f'Version = "{VERSION}"' in launcher, failures)
     check("Launcher points at same branch", f"{BRANCH}/Visuals.lua" in launcher, failures)
@@ -224,7 +227,7 @@ def main() -> int:
               "local function aimFrame(dt)",
               "local function refreshESP()",
               "local function applyResponsiveLayout()")), failures)
-    check("Control Center v1.5.3 header label",
+    check("Control Center v1.5.4 header label",
           "CONTROL CENTER  •  v" in hub, failures)
     check("Premium UI 3.0 stable visual primitives",
           all(token in hub for token in (
