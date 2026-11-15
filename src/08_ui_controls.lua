@@ -6,9 +6,15 @@ local function addSection(page, title, subtitle)
         or title == "MOVEMENT" or title == "UTILITY"
     local container = mk("Frame", {
         Name = title .. "Heading", BackgroundTransparency = 1,
-        Size = UDim2.new(1, 0, 0, hero and 62 or 48),
+        Size = UDim2.new(1, 0, 0, hero and 68 or 54),
     }, columnFor(page))
     registerWidget(page, container)
+    mk("Frame", {
+        Name = "SectionDivider", BackgroundColor3 = P.border,
+        BackgroundTransparency = 0.77, BorderSizePixel = 0,
+        Position = UDim2.new(0, 14, 1, -3), Size = UDim2.new(1, -27, 0, 1),
+        Active = false,
+    }, container)
     -- Every heading uses a vertical rule with reserved text padding.
     -- The old 19px *horizontal* rule literally ran across "ADVANCED".
     local sectionBar = mk("Frame", {Name = "SectionAccent", BackgroundColor3 = P.accent,
@@ -19,16 +25,16 @@ local function addSection(page, title, subtitle)
         BackgroundTransparency = 1,
         Position = UDim2.fromOffset(18, hero and 5 or 3),
         Size = UDim2.new(1, -28, 0, hero and 29 or 21),
-        Text = title, Font = Enum.Font.GothamBold, TextSize = hero and 18 or 13,
+        Text = title, Font = Enum.Font.GothamBold, TextSize = hero and 17 or 13,
         TextColor3 = P.text, TextXAlignment = Enum.TextXAlignment.Left,
         TextTruncate = Enum.TextTruncate.AtEnd,
     }, container)
     mk("TextLabel", {
         BackgroundTransparency = 1,
-        Position = UDim2.fromOffset(18, hero and 39 or 27),
-        Size = UDim2.new(1, -28, 0, 14),
+        Position = UDim2.fromOffset(18, hero and 40 or 29),
+        Size = UDim2.new(1, -28, 0, 15),
         Text = subtitle, Font = Enum.Font.Gotham,
-        TextSize = hero and 10 or 10, TextColor3 = P.dim,
+        TextSize = 10, TextColor3 = P.dim,
         TextXAlignment = Enum.TextXAlignment.Left,
         TextTruncate = Enum.TextTruncate.AtEnd,
     }, container)
@@ -36,50 +42,58 @@ end
 
 local function addToggle(page, title, description, key, onChanged)
     local row = mk("TextButton", {
-        Name = key, Size = UDim2.new(1, 0, 0, 54),
-        BackgroundColor3 = Color3.fromRGB(37, 31, 56), BorderSizePixel = 0,
+        Name = key, Size = UDim2.new(1, 0, 0, 62),
+        BackgroundColor3 = P.tile, BorderSizePixel = 0,
         AutoButtonColor = false, Text = "",
     }, columnFor(page))
     registerWidget(page, row)
-    round(row, 10)
-    local rowBorder = mk("UIStroke", {Color = P.border, Transparency = 0.59, Thickness = 1}, row)
+    round(row, 11)
+    local rowBorder = mk("UIStroke", {Color = P.border, Transparency = 0.67, Thickness = 1}, row)
+    local activeAccent = mk("Frame", {
+        Name = "ToggleActiveRail", BackgroundColor3 = P.accent,
+        BackgroundTransparency = 0.12, BorderSizePixel = 0,
+        Position = UDim2.fromOffset(4, 12), Size = UDim2.fromOffset(3, 38),
+        Visible = false, Active = false,
+    }, row)
+    round(activeAccent, 2)
     mk("UIGradient", {Rotation = 0,
-        Color = ColorSequence.new(Color3.fromRGB(43, 35, 66),
-            Color3.fromRGB(27, 23, 43))}, row)
+        Color = ColorSequence.new(Color3.fromRGB(41, 37, 61),
+            Color3.fromRGB(29, 27, 45))}, row)
     mk("TextLabel", {
         BackgroundTransparency = 1,
-        Position = UDim2.fromOffset(13, 7), Size = UDim2.new(1, -72, 0, 20),
-        Text = title, TextSize = 12, Font = Enum.Font.GothamBold,
+        Position = UDim2.fromOffset(16, 9), Size = UDim2.new(1, -79, 0, 22),
+        Text = title, TextSize = 13, Font = Enum.Font.GothamBold,
         TextColor3 = P.text, TextXAlignment = Enum.TextXAlignment.Left,
         TextTruncate = Enum.TextTruncate.AtEnd,
     }, row)
     mk("TextLabel", {
         BackgroundTransparency = 1,
-        Position = UDim2.fromOffset(13, 30), Size = UDim2.new(1, -72, 0, 15),
-        Text = description, TextSize = 9, Font = Enum.Font.Gotham,
+        Position = UDim2.fromOffset(16, 35), Size = UDim2.new(1, -79, 0, 17),
+        Text = description, TextSize = 10, Font = Enum.Font.Gotham,
         TextColor3 = P.dim, TextXAlignment = Enum.TextXAlignment.Left,
         TextTruncate = Enum.TextTruncate.AtEnd,
     }, row)
     local pill = mk("Frame", {
         Name = "Switch", AnchorPoint = Vector2.new(1, 0.5),
-        Position = UDim2.new(1, -12, 0.5, 0),
-        Size = UDim2.fromOffset(34, 18), BackgroundColor3 = P.off,
+        Position = UDim2.new(1, -15, 0.5, 0),
+        Size = UDim2.fromOffset(40, 22), BackgroundColor3 = P.off,
         BorderSizePixel = 0,
     }, row)
-    round(pill, 9)
+    round(pill, 11)
     local pillBorder = mk("UIStroke", {Color = P.border, Transparency = 0.62, Thickness = 1}, pill)
     local knob = mk("Frame", {
         Name = "Knob", Position = UDim2.fromOffset(2, 2),
-        Size = UDim2.fromOffset(14, 14),
-        BackgroundColor3 = Color3.fromRGB(222, 223, 227), BorderSizePixel = 0,
+        Size = UDim2.fromOffset(18, 18),
+        BackgroundColor3 = Color3.fromRGB(235, 230, 245), BorderSizePixel = 0,
     }, pill)
-    round(knob, 7)
+    round(knob, 9)
     local knobTween = nil
     local function update(animate)
         if not row.Parent then return end
         local enabled = state[key] == true
+        activeAccent.Visible = enabled
         pill.BackgroundColor3 = enabled and P.accent or P.off
-        local targetPosition = UDim2.fromOffset(enabled and 18 or 2, 2)
+        local targetPosition = UDim2.fromOffset(enabled and 20 or 2, 2)
         -- Fast double taps must not leave the knob with an obsolete tween.
         if knobTween then pcall(function() knobTween:Cancel() end); knobTween = nil end
         if animate == true then
@@ -102,7 +116,7 @@ local function addToggle(page, title, description, key, onChanged)
         pillBorder.Color = enabled and P.accent or P.border
         pillBorder.Transparency = enabled and 0.17 or 0.64
         rowBorder.Color = enabled and P.accent or P.border
-        rowBorder.Transparency = enabled and 0.29 or 0.63
+        rowBorder.Transparency = enabled and 0.24 or 0.70
     end
     refreshToggles[key] = update
     local function onRowActivated()
@@ -258,33 +272,38 @@ end
 local function addButton(page, text, description, handler)
     local button = mk("TextButton", {
         BackgroundColor3 = P.tile,
-        Size = UDim2.new(1, 0, 0, 55),
+        Size = UDim2.new(1, 0, 0, 61),
         Text = "", AutoButtonColor = true, BorderSizePixel = 0,
     }, columnFor(page))
     registerWidget(page, button)
-    round(button, 10)
-    mk("UIStroke", {Color = P.border, Transparency = 0.54, Thickness = 1}, button)
+    round(button, 11)
+    mk("UIStroke", {Color = P.border, Transparency = 0.66, Thickness = 1}, button)
+    mk("Frame", {
+        Name = "ActionAccent", BackgroundColor3 = P.accent, BorderSizePixel = 0,
+        BackgroundTransparency = 0.15, Position = UDim2.fromOffset(5, 18),
+        Size = UDim2.fromOffset(3, 25), Active = false,
+    }, button)
     mk("UIGradient", {Rotation = 0,
-        Color = ColorSequence.new(Color3.fromRGB(42, 35, 61),
-            Color3.fromRGB(29, 26, 43))}, button)
+        Color = ColorSequence.new(Color3.fromRGB(39, 35, 60),
+            Color3.fromRGB(30, 28, 47))}, button)
     mk("TextLabel", {
         BackgroundTransparency = 1,
-        Position = UDim2.fromOffset(11, 5), Size = UDim2.new(1, -39, 0, 21),
-        Text = text, Font = Enum.Font.GothamMedium, TextSize = 12,
+        Position = UDim2.fromOffset(17, 9), Size = UDim2.new(1, -51, 0, 22),
+        Text = text, Font = Enum.Font.GothamBold, TextSize = 13,
         TextColor3 = P.text, TextXAlignment = Enum.TextXAlignment.Left,
         TextTruncate = Enum.TextTruncate.AtEnd,
     }, button)
     mk("TextLabel", {
         BackgroundTransparency = 1,
-        Position = UDim2.fromOffset(11, 32), Size = UDim2.new(1, -39, 0, 15),
-        Text = description, Font = Enum.Font.Gotham, TextSize = 9,
+        Position = UDim2.fromOffset(17, 36), Size = UDim2.new(1, -51, 0, 16),
+        Text = description, Font = Enum.Font.Gotham, TextSize = 10,
         TextColor3 = P.dim, TextXAlignment = Enum.TextXAlignment.Left,
         TextTruncate = Enum.TextTruncate.AtEnd,
     }, button)
     mk("TextLabel", {
-        BackgroundTransparency = 1, Position = UDim2.new(1, -31, 0.5, -10),
-        Size = UDim2.fromOffset(20, 20), Text = "›", Font = Enum.Font.GothamBold,
-        TextSize = 19, TextColor3 = P.accent,
+        BackgroundTransparency = 1, Position = UDim2.new(1, -35, 0.5, -11),
+        Size = UDim2.fromOffset(22, 22), Text = "›", Font = Enum.Font.GothamBold,
+        TextSize = 20, TextColor3 = P.accent,
     }, button)
     safeActivate(button, function()
         if not alive then return end
