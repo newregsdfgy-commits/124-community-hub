@@ -49,4 +49,11 @@ screen rotation, mobile controls, cleanup/relaunch and Roblox Output.
 
 ## CI
 
-Pending initial GitHub Actions.
+**Verified CI success on code commit `9b23e7e59f1de20b2dd5c9a6751025ec44c10392`**
+- Release integrity: [run #43717367794](https://github.com/newregsdfgy-commits/124-community-hub/actions/runs/43717367794) — SUCCESS.
+- Extended ESP and system regression: [run #43717367789](https://github.com/newregsdfgy-commits/124-community-hub/actions/runs/43717367789) — SUCCESS.
+- 150/150 Node tests; 0 failures.
+- Official Luau parser/bytecode compilation of Hub.lua, Visuals.lua and Start.lua.
+- New production corner-box fault injection in Luau passed eight segments, team color/thickness, camera point inversion, and short geometry hiding.
+- Preserved existing AIM, UI, Weather, Player, Booster, Key, Movement and music runtime harnesses all passed.
+- Actual Roblox engine visual fidelity, Android UI and FPS were not tested.

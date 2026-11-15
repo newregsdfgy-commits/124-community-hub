@@ -7,7 +7,7 @@
   budgets and cleanup retained; no weapon/AIM changes.
 - Increased bounded 2D line creation budget from 8 to 12.
 - New tests: `EspModern156.test.cjs`, `build-esp156-runtime.cjs`.
-- CI status pending. Roblox/Android UI + actual FPS not yet verified.
+- Verified GitHub Actions: release #43717367794 SUCCESS; extended regression #43717367789 SUCCESS (150/150 Node tests, official Luau compilation and corner geometry runtime). Roblox/Android visuals and FPS still require live tests.
 - See `AUDIT_ESP_v1.5.6.md`.
 
 ---
