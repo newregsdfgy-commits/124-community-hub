@@ -731,17 +731,19 @@ local function uiSafeView(raw)
     return raw
 end
 local TweenService = game:GetService("TweenService")
--- Premium violet palette. UI-only: gameplay and ESP colors are unchanged.
--- Static gradients and borders are cheap; no blur, particles or RenderStepped FX.
+-- Purple Atelier UI 3.0: low-noise graphite/violet palette.
+-- Static gradients only: no BlurEffect, render loops or gameplay changes.
 local P = {
-    background = Color3.fromRGB(14, 12, 26),
-    panel = Color3.fromRGB(23, 18, 39),
-    tile = Color3.fromRGB(36, 28, 57),
-    border = Color3.fromRGB(108, 72, 157),
-    text = Color3.fromRGB(249, 245, 255),
-    dim = Color3.fromRGB(195, 178, 220),
-    accent = Color3.fromRGB(189, 139, 255),
-    off = Color3.fromRGB(68, 55, 91),
+    background = Color3.fromRGB(13, 13, 23),
+    panel = Color3.fromRGB(22, 21, 36),
+    tile = Color3.fromRGB(34, 31, 52),
+    border = Color3.fromRGB(91, 78, 128),
+    text = Color3.fromRGB(246, 242, 253),
+    dim = Color3.fromRGB(179, 171, 203),
+    accent = Color3.fromRGB(178, 140, 245),
+    off = Color3.fromRGB(65, 59, 82),
+    positive = Color3.fromRGB(124, 210, 170),
+    muted = Color3.fromRGB(125, 116, 151),
 }
 -- На телефоне даже альбомный экран остаётся одноколоночным: элементы
 -- управления не должны уменьшаться до нечитабельного размера.
@@ -811,8 +813,8 @@ local panel = mk("Frame", {
 round(panel, 18)
 mk("UIStroke", {Color = P.accent, Transparency = 0.24, Thickness = 1.5}, panel)
 mk("UIGradient", {Rotation = 110,
-    Color = ColorSequence.new(Color3.fromRGB(22, 17, 41),
-        Color3.fromRGB(11, 10, 23))}, panel)
+    Color = ColorSequence.new(Color3.fromRGB(26, 23, 43),
+        Color3.fromRGB(12, 12, 22))}, panel)
 local panelScale = mk("UIScale", {Scale = uiBaseScale}, panel)
 local function syncVioletAura()
     if not panel.Parent or not aura.Parent then return end
@@ -868,8 +870,8 @@ end
 local cornerWash = mk("Frame", {
     Name = "VioletCornerWash", AnchorPoint = Vector2.new(1, 1),
     Position = UDim2.fromScale(1, 1), Size = UDim2.fromOffset(310, 190),
-    BackgroundColor3 = Color3.fromRGB(73, 29, 132),
-    BackgroundTransparency = 0.58, BorderSizePixel = 0, Active = false,
+    BackgroundColor3 = Color3.fromRGB(73, 47, 116),
+    BackgroundTransparency = 0.79, BorderSizePixel = 0, Active = false,
 }, panel)
 round(cornerWash, 110)
 mk("UIGradient", {
@@ -882,54 +884,54 @@ mk("UIGradient", {
 mk("Frame", {
     Name = "TopAccent", BorderSizePixel = 0,
     BackgroundColor3 = P.accent,
-    Position = UDim2.fromOffset(17, 0), Size = UDim2.fromOffset(110, 2),
+    Position = UDim2.fromOffset(19, 0), Size = UDim2.fromOffset(139, 2),
 }, panel)
 local bar = mk("Frame", {
-    Name = "DragBar", BackgroundColor3 = Color3.fromRGB(26, 20, 41),
+    Name = "DragBar", BackgroundColor3 = Color3.fromRGB(25, 23, 39),
     BackgroundTransparency = 0,
     Size = UDim2.new(1, 0, 0, 76), Active = true,
 }, panel)
 -- Static gradient only; no perpetual UI animation or extra frame hooks.
 mk("UIGradient", {Rotation = 0,
-    Color = ColorSequence.new(Color3.fromRGB(33, 24, 53),
-        Color3.fromRGB(17, 15, 27))}, bar)
+    Color = ColorSequence.new(Color3.fromRGB(35, 29, 55),
+        Color3.fromRGB(18, 18, 31))}, bar)
 local emblem = mk("Frame", {
-    Name = "BrandMark", Visible = false, BackgroundColor3 = P.tile,
-    BorderSizePixel = 0, Position = UDim2.fromOffset(16, 17),
-    Size = UDim2.fromOffset(37, 37),
+    Name = "BrandMark", Visible = true, BackgroundColor3 = Color3.fromRGB(69, 47, 105),
+    BorderSizePixel = 0, Position = UDim2.fromOffset(17, 16),
+    Size = UDim2.fromOffset(40, 40),
 }, bar)
-round(emblem, 3)
-mk("UIStroke", {Color = P.accent, Thickness = 1, Transparency = 0.53}, emblem)
+round(emblem, 10)
+mk("UIStroke", {Color = P.accent, Thickness = 1, Transparency = 0.26}, emblem)
 mk("TextLabel", {
     BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1),
     Text = "124", Font = Enum.Font.GothamBold,
-    TextColor3 = P.accent, TextSize = 13,
+    TextColor3 = P.text, TextSize = 13,
 }, emblem)
 mk("TextLabel", {
     Name = "BrandTitle", BackgroundTransparency = 1,
-    Position = UDim2.fromOffset(19, 14), Size = UDim2.new(1, -183, 0, 21),
-    Text = "124 VISUALS", TextColor3 = P.text, TextSize = 19,
+    Position = UDim2.fromOffset(66, 15), Size = UDim2.fromOffset(151, 22),
+    Text = "124 VISUALS", TextColor3 = P.text, TextSize = 16,
     Font = Enum.Font.GothamBold, TextXAlignment = Enum.TextXAlignment.Left,
     TextTruncate = Enum.TextTruncate.AtEnd,
 }, bar)
 mk("TextLabel", {
     Name = "BrandCaption", BackgroundTransparency = 1,
-    Position = UDim2.fromOffset(21, 39), Size = UDim2.new(1, -183, 0, 16),
+    Position = UDim2.fromOffset(67, 38), Size = UDim2.fromOffset(151, 16),
     Text = "PURPLE NEON 2.0  •  v" .. CONFIG.Version,
-    TextColor3 = P.dim, Font = Enum.Font.Code,
-    TextSize = 10, TextXAlignment = Enum.TextXAlignment.Left,
+    TextColor3 = P.muted, Font = Enum.Font.Code,
+    TextSize = 9, TextXAlignment = Enum.TextXAlignment.Left,
     TextTruncate = Enum.TextTruncate.AtEnd,
 }, bar)
 local pageHeader = mk("TextLabel", {
     Name = "CurrentPageTitle", BackgroundTransparency = 1,
-    Position = UDim2.fromOffset(206, 15), Size = UDim2.new(1, -335, 0, 29),
-    Text = "ОБЗОР", TextColor3 = P.text, TextSize = 19,
+    Position = UDim2.fromOffset(222, 15), Size = UDim2.new(1, -353, 0, 25),
+    Text = "ОБЗОР", TextColor3 = P.text, TextSize = 17,
     Font = Enum.Font.GothamBold, TextXAlignment = Enum.TextXAlignment.Left,
     Visible = false, TextTruncate = Enum.TextTruncate.AtEnd,
 }, bar)
 local pageSubHeader = mk("TextLabel", {
     Name = "CurrentPageSubtitle", BackgroundTransparency = 1,
-    Position = UDim2.fromOffset(207, 46), Size = UDim2.new(1, -336, 0, 16),
+    Position = UDim2.fromOffset(223, 42), Size = UDim2.new(1, -354, 0, 18),
     Text = "Мониторинг локальной сессии",
     TextColor3 = P.dim, TextSize = 11, Font = Enum.Font.Gotham,
     TextXAlignment = Enum.TextXAlignment.Left, Visible = false,
@@ -938,18 +940,18 @@ local pageSubHeader = mk("TextLabel", {
 local cleanup -- Обработчик выгрузки определяется ниже.
 local hide = mk("TextButton", {
     Name = "Minimize", Position = UDim2.new(1, -100, 0, 17),
-    Size = UDim2.fromOffset(42, 42), BackgroundColor3 = P.tile,
+    Size = UDim2.fromOffset(42, 42), BackgroundColor3 = Color3.fromRGB(44, 39, 63),
     Text = "—", TextColor3 = P.dim, TextSize = 16,
     Font = Enum.Font.GothamMedium, AutoButtonColor = true,
 }, bar)
-round(hide, 6)
+round(hide, 11)
 local close = mk("TextButton", {
     Name = "CloseHub", Position = UDim2.new(1, -51, 0, 17),
-    Size = UDim2.fromOffset(42, 42), BackgroundColor3 = P.tile,
+    Size = UDim2.fromOffset(42, 42), BackgroundColor3 = Color3.fromRGB(54, 37, 58),
     Text = "×", TextColor3 = Color3.fromRGB(242, 146, 154),
     Font = Enum.Font.GothamMedium, TextSize = 16, AutoButtonColor = true,
 }, bar)
-round(close, 6)
+round(close, 11)
 mk("Frame", {
     Name = "HeaderDivider", BorderSizePixel = 0, BackgroundColor3 = P.border,
     Position = UDim2.fromOffset(0, 75), Size = UDim2.new(1, 0, 0, 1),
@@ -959,22 +961,22 @@ local contentPlate = mk("Frame", {
     Name = "PremiumContentPlate",
     Position = UDim2.fromOffset(207, 81),
     Size = UDim2.new(1, -220, 1, -121),
-    BackgroundColor3 = Color3.fromRGB(23, 19, 36),
+    BackgroundColor3 = Color3.fromRGB(22, 21, 35),
     BorderSizePixel = 0, ClipsDescendants = true,
 }, panel)
-round(contentPlate, 15)
-mk("UIStroke", {Color = P.accent, Transparency = 0.71, Thickness = 1}, contentPlate)
+round(contentPlate, 16)
+mk("UIStroke", {Color = P.border, Transparency = 0.52, Thickness = 1}, contentPlate)
 mk("UIGradient", {
     Rotation = 20,
-    Color = ColorSequence.new(Color3.fromRGB(31, 24, 49),
-        Color3.fromRGB(18, 16, 30)),
+    Color = ColorSequence.new(Color3.fromRGB(31, 28, 47),
+        Color3.fromRGB(20, 19, 34)),
 }, contentPlate)
 local plateShine = mk("Frame", {
     Name = "VioletHeaderSheen", AnchorPoint = Vector2.new(1, 0),
     Position = UDim2.new(1, 0, 0, 0),
     Size = UDim2.new(0.52, 0, 0, 125),
-    BackgroundColor3 = Color3.fromRGB(97, 38, 170),
-    BackgroundTransparency = 0.75, BorderSizePixel = 0, Active = false,
+    BackgroundColor3 = Color3.fromRGB(90, 61, 144),
+    BackgroundTransparency = 0.88, BorderSizePixel = 0, Active = false,
 }, contentPlate)
 round(plateShine, 68)
 mk("UIGradient", {
@@ -988,19 +990,19 @@ mk("UIGradient", {
 -- Reference 403VIP: permanent LEFT navigation in desktop and portrait layouts.
 -- The narrow sidebar preserves a large invisible click region for each tab.
 local tabs = mk("Frame", {
-    Name = "VisualsNavigation", BackgroundColor3 = Color3.fromRGB(20, 16, 31),
+    Name = "VisualsNavigation", BackgroundColor3 = Color3.fromRGB(18, 17, 30),
     BorderSizePixel = 0,
     Position = UDim2.fromOffset(0, 76), Size = UDim2.new(0, 196, 1, -76),
     ClipsDescendants = true,
 }, panel)
 mk("UIGradient", {Rotation = 90,
-    Color = ColorSequence.new(Color3.fromRGB(28, 19, 47),
-        Color3.fromRGB(15, 13, 26))}, tabs)
+    Color = ColorSequence.new(Color3.fromRGB(27, 24, 43),
+        Color3.fromRGB(17, 16, 28))}, tabs)
 local sidebarAura = mk("Frame", {
     Name = "SidebarVioletSheen", AnchorPoint = Vector2.new(0, 1),
     Position = UDim2.new(0, 0, 1, 0), Size = UDim2.new(1, 0, 0, 150),
-    BackgroundColor3 = Color3.fromRGB(94, 35, 160),
-    BackgroundTransparency = 0.85, BorderSizePixel = 0, Active = false,
+    BackgroundColor3 = Color3.fromRGB(88, 54, 146),
+    BackgroundTransparency = 0.93, BorderSizePixel = 0, Active = false,
 }, tabs)
 mk("UIGradient", {Rotation = 90,
     Transparency = NumberSequence.new({
@@ -1010,13 +1012,21 @@ mk("UIGradient", {Rotation = 90,
 -- Отделяем декоративную линию от горизонтального UIListLayout.
 -- В v1.0.0 линия занимала полный слот и выталкивала вкладки ЗА окно.
 mk("Frame", {
-    Name = "NavLine", BackgroundColor3 = Color3.fromRGB(98, 72, 142),
+    Name = "NavLine", BackgroundColor3 = P.border,
     BorderSizePixel = 0, BackgroundTransparency = 0.48,
     Position = UDim2.new(1, -1, 0, 0), Size = UDim2.new(0, 1, 1, 0),
 }, tabs)
+-- Small navigation overline stays outside the scrolling list.
+local navOverline = mk("TextLabel", {
+    Name = "NavigationOverline", BackgroundTransparency = 1,
+    Position = UDim2.fromOffset(14, 6), Size = UDim2.new(1, -23, 0, 18),
+    Text = "НАВИГАЦИЯ", Font = Enum.Font.GothamBold,
+    TextSize = 10, TextColor3 = P.muted, TextXAlignment = Enum.TextXAlignment.Left,
+    TextTruncate = Enum.TextTruncate.AtEnd,
+}, tabs)
 local navSlots = mk("ScrollingFrame", {
     Name = "NavigationSlots", BackgroundTransparency = 1, BorderSizePixel = 0,
-    Position = UDim2.fromOffset(0, 96), Size = UDim2.new(1, 0, 1, -190),
+    Position = UDim2.fromOffset(0, 30), Size = UDim2.new(1, 0, 1, -90),
     CanvasSize = UDim2.fromOffset(0, 0),
     AutomaticCanvasSize = Enum.AutomaticSize.Y,
     ScrollingDirection = Enum.ScrollingDirection.Y,
@@ -1024,8 +1034,8 @@ local navSlots = mk("ScrollingFrame", {
     Active = true, ClipsDescendants = true,
 }, tabs)
 mk("UIPadding", {
-    PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10),
-    PaddingTop = UDim.new(0, 7), PaddingBottom = UDim.new(0, 7),
+    PaddingLeft = UDim.new(0, 9), PaddingRight = UDim.new(0, 9),
+    PaddingTop = UDim.new(0, 5), PaddingBottom = UDim.new(0, 7),
 }, navSlots)
 local navigationLayout = mk("UIListLayout", {
     FillDirection = Enum.FillDirection.Vertical,
@@ -1185,22 +1195,33 @@ for idx, tab in ipairs(navigation) do
     local key = tab.key
     local button = mk("TextButton", {
         Name = key .. "Tab", LayoutOrder = idx,
-        BackgroundColor3 = P.panel,
+        BackgroundColor3 = Color3.fromRGB(30, 28, 47),
         BorderSizePixel = 0,
         Size = UDim2.new(1, -6, 0, 56),
         Text = tab.symbol .. "  " .. tab.label,
         Visible = not tab.hidden,
         Font = Enum.Font.GothamMedium, TextSize = 11,
         TextXAlignment = Enum.TextXAlignment.Center,
-        TextColor3 = P.dim, AutoButtonColor = false,
+        TextColor3 = P.dim, AutoButtonColor = false, Active = true,
     }, navSlots)
-    round(button, 10)
-    tabOutlines[key] = mk("UIStroke", {Color = P.accent, Transparency = 1, Thickness = 1.2}, button)
+    round(button, 9)
+    tabOutlines[key] = mk("UIStroke", {Color = P.accent, Transparency = 0.96, Thickness = 1}, button)
+    -- Mouse hover is optional decoration; the click path is unchanged.
+    connect(button.MouseEnter, function()
+        if alive and currentPage ~= key then
+            button.BackgroundColor3 = Color3.fromRGB(47, 40, 68)
+        end
+    end)
+    connect(button.MouseLeave, function()
+        if alive and currentPage ~= key then
+            button.BackgroundColor3 = Color3.fromRGB(30, 28, 47)
+        end
+    end)
     tabButtons[key] = button
     tabUnderline[key] = mk("Frame", {
         Name = "ActiveLine", BackgroundColor3 = P.accent,
-        BorderSizePixel = 0, Position = UDim2.new(0.5, -11, 1, -3),
-        Size = UDim2.fromOffset(22, 2), Visible = false,
+        BorderSizePixel = 0, Position = UDim2.new(0.5, -13, 1, -3),
+        Size = UDim2.fromOffset(26, 2), Visible = false,
     }, button)
     local page = mk("Frame", {
         Name = key .. "Page", BackgroundTransparency = 1,
@@ -1413,9 +1434,9 @@ do
         TextTruncate = Enum.TextTruncate.AtEnd,
     }, info)
     local sideStatus = mk("TextLabel", {
-        Name = "SidebarStatus", Visible = false, BackgroundTransparency = 1,
+        Name = "SidebarStatus", Visible = true, BackgroundTransparency = 1,
         Position = UDim2.new(0, 14, 1, -42), Size = UDim2.fromOffset(160, 23),
-        Text = "●  CLIENT ACTIVE", TextColor3 = Color3.fromRGB(96, 209, 148),
+        Text = "●  CLIENT ONLINE", TextColor3 = P.positive,
         Font = Enum.Font.GothamMedium, TextSize = 10,
         TextXAlignment = Enum.TextXAlignment.Left,
     }, tabs)
@@ -1546,12 +1567,23 @@ local function applyResponsiveLayout()
     -- Единая шапка 76px не перекрывается навигацией.
     local sidebarHeader = 76
     local compactShort = not wide and height < 320
-    local navTop = wide and 14 or (compactShort and 5 or 11)
+    local navTop = wide and 31 or (compactShort and 26 or 29)
     local bottomReserve = wide and 39 or (height < 300 and 9 or 53)
     local buttonHeight = wide and 49 or 44 -- Keep 5 tabs within ordinary desktop height.
     tabs.Position = UDim2.fromOffset(0, sidebarHeader)
     tabs.Size = UDim2.new(0, sidebarWidth, 1, -sidebarHeader)
     navSlots.Position = UDim2.fromOffset(0, navTop)
+    navOverline.Visible = not compactShort
+    navOverline.Text = sidebarWidth < 108 and "МЕНЮ" or "НАВИГАЦИЯ"
+    navOverline.TextSize = sidebarWidth < 108 and 9 or 10
+    if boosterPro.dashboard and boosterPro.dashboard.sidebarStatus then
+        local conn = boosterPro.dashboard.sidebarStatus
+        conn.Text = sidebarWidth < 108 and "●" or "●  CLIENT ONLINE"
+        conn.Position = UDim2.new(0, sidebarWidth < 108 and 19 or 14, 1, -38)
+        conn.Size = UDim2.new(1, -20, 0, 21)
+        conn.TextSize = sidebarWidth < 108 and 17 or 10
+        conn.Visible = height >= 310
+    end
     navSlots.Size = UDim2.new(1, 0, 0,
         math.max(0, height - sidebarHeader - navTop - bottomReserve))
     navigationLayout.FillDirection = Enum.FillDirection.Vertical
@@ -1562,7 +1594,7 @@ local function applyResponsiveLayout()
         local button = tabButtons[nav.key]
         if wide then
             button.Size = UDim2.new(1, -6, 0, buttonHeight)
-            button.Text = "  " .. nav.symbol .. "   " .. nav.label
+            button.Text = "  " .. nav.symbol .. "    " .. nav.label
             button.TextSize = 13
             button.TextXAlignment = Enum.TextXAlignment.Left
         else
@@ -1629,11 +1661,14 @@ local function applyResponsiveLayout()
     local brandTitle = bar:FindFirstChild("BrandTitle")
     local brandCaption = bar:FindFirstChild("BrandCaption")
     if brandTitle then
-        brandTitle.Size = wide and UDim2.fromOffset(168, 21) or UDim2.new(1, -130, 0, 21)
-        brandTitle.TextSize = 15
+        brandTitle.Position = UDim2.fromOffset(66, 14)
+        brandTitle.Size = UDim2.fromOffset(wide and 150 or math.max(60, math.min(155, width - 190)), 23)
+        brandTitle.TextSize = width < 340 and 12 or 16
     end
     if brandCaption then
-        brandCaption.Size = wide and UDim2.fromOffset(169, 16) or UDim2.new(1, -130, 0, 16)
+        brandCaption.Position = UDim2.fromOffset(67, 38)
+        brandCaption.Size = UDim2.fromOffset(math.max(60, math.min(155, width - 190)), 16)
+        brandCaption.Visible = width >= 390
     end
 end
 
@@ -1658,12 +1693,12 @@ local function showPage(key)
     for name, page in pairs(pages) do
         local selected = name == key
         page.Visible = selected
-        tabButtons[name].BackgroundColor3 = selected and Color3.fromRGB(96, 52, 153)
-            or Color3.fromRGB(31, 25, 48)
+        tabButtons[name].BackgroundColor3 = selected and Color3.fromRGB(70, 47, 108)
+            or Color3.fromRGB(30, 28, 47)
         tabButtons[name].TextColor3 = selected and P.text or P.dim
         tabButtons[name].Font = selected and Enum.Font.GothamBold or Enum.Font.GothamMedium
         tabUnderline[name].Visible = selected
-        tabOutlines[name].Transparency = selected and 0.02 or 0.87
+        tabOutlines[name].Transparency = selected and 0.28 or 0.92
     end
 end
 for name, button in pairs(tabButtons) do
