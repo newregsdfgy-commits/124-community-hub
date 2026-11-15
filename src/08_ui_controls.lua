@@ -316,54 +316,54 @@ end
 -- Общий drag-handler работает и с мышью, и с touch; нет RenderStepped у слайдеров.
 local function addSlider(page, title, description, key, minValue, maxValue, step, formatter, onChanged)
     local container = mk("Frame", {
-        Name = key .. "Slider", Size = UDim2.new(1, 0, 0, 83),
+        Name = key .. "Slider", Size = UDim2.new(1, 0, 0, 92),
         BackgroundColor3 = P.tile, BorderSizePixel = 0,
     }, columnFor(page))
     registerWidget(page, container)
-    round(container, 9)
-    mk("UIStroke", {Color = P.border, Transparency = 0.54, Thickness = 1}, container)
+    round(container, 11)
+    mk("UIStroke", {Color = P.border, Transparency = 0.68, Thickness = 1}, container)
     mk("TextLabel", {
-        BackgroundTransparency = 1, Position = UDim2.fromOffset(10, 5),
-        Size = UDim2.new(1, -103, 0, 18), Text = title,
+        BackgroundTransparency = 1, Position = UDim2.fromOffset(15, 10),
+        Size = UDim2.new(1, -115, 0, 20), Text = title,
         TextColor3 = P.text,
-        Font = Enum.Font.GothamMedium, TextSize = 12,
+        Font = Enum.Font.GothamBold, TextSize = 13,
         TextXAlignment = Enum.TextXAlignment.Left,
     }, container)
     local valueLabel = mk("TextLabel", {
-        BackgroundTransparency = 1, Position = UDim2.new(1, -105, 0, 5),
-        Size = UDim2.fromOffset(95, 18),
+        BackgroundTransparency = 1, Position = UDim2.new(1, -112, 0, 10),
+        Size = UDim2.fromOffset(98, 20),
         TextColor3 = P.accent, Font = Enum.Font.Code,
         TextSize = 12, TextXAlignment = Enum.TextXAlignment.Right,
     }, container)
     mk("TextLabel", {
-        BackgroundTransparency = 1, Position = UDim2.fromOffset(10, 24),
-        Size = UDim2.new(1, -20, 0, 13), Text = description,
+        BackgroundTransparency = 1, Position = UDim2.fromOffset(15, 35),
+        Size = UDim2.new(1, -30, 0, 16), Text = description,
         TextColor3 = P.dim, Font = Enum.Font.Gotham,
-        TextSize = 9, TextXAlignment = Enum.TextXAlignment.Left,
+        TextSize = 10, TextXAlignment = Enum.TextXAlignment.Left,
     }, container)
     local touchArea = mk("TextButton", {
         Name = "DragArea", BackgroundTransparency = 1, Text = "",
         AutoButtonColor = false,
-        Position = UDim2.fromOffset(10, 44), Size = UDim2.new(1, -20, 0, 32),
+        Position = UDim2.fromOffset(10, 52), Size = UDim2.new(1, -20, 0, 32),
     }, container)
     local track = mk("Frame", {
         Name = "Track", BorderSizePixel = 0,
-        BackgroundColor3 = Color3.fromRGB(70, 63, 88),
-        Position = UDim2.new(0, 6, 0.5, -2),
-        Size = UDim2.new(1, -12, 0, 4),
+        BackgroundColor3 = Color3.fromRGB(68, 61, 90),
+        Position = UDim2.new(0, 6, 0.5, -3),
+        Size = UDim2.new(1, -12, 0, 6),
     }, touchArea)
-    round(track, 2)
+    round(track, 3)
     local fill = mk("Frame", {
         Name = "Fill", BorderSizePixel = 0,
         BackgroundColor3 = P.accent, Size = UDim2.fromScale(0, 1),
     }, track)
-    round(fill, 2)
+    round(fill, 3)
     local thumb = mk("Frame", {
         Name = "Thumb", AnchorPoint = Vector2.new(0.5, 0.5),
-        Position = UDim2.fromScale(0, 0.5), Size = UDim2.fromOffset(12, 12),
-        BackgroundColor3 = Color3.fromRGB(248, 239, 255), BorderSizePixel = 0,
+        Position = UDim2.fromScale(0, 0.5), Size = UDim2.fromOffset(16, 16),
+        BackgroundColor3 = Color3.fromRGB(248, 243, 255), BorderSizePixel = 0,
     }, track)
-    round(thumb, 6)
+    round(thumb, 8)
 
     local function repaint()
         if not container.Parent then return end
@@ -545,14 +545,14 @@ local function addAimKeybind(page)
 end
 
 local function addChoice(page, label, choices, key, callback)
-    local row = mk("Frame", {Name = key .. "Choices", Size = UDim2.new(1, 0, 0, 64),
+    local row = mk("Frame", {Name = key .. "Choices", Size = UDim2.new(1, 0, 0, 72),
         BackgroundColor3 = P.tile, BorderSizePixel = 0}, columnFor(page))
     registerWidget(page, row)
-    round(row, 10)
-    mk("UIStroke", {Color = P.border, Transparency = 0.48, Thickness = 1}, row)
+    round(row, 11)
+    mk("UIStroke", {Color = P.border, Transparency = 0.64, Thickness = 1}, row)
     mk("TextLabel", {Text = label, BackgroundTransparency = 1, Font = Enum.Font.GothamMedium,
-        TextSize = 11, TextColor3 = P.text,
-        Position = UDim2.fromOffset(10, 4), Size = UDim2.new(1, -20, 0, 20),
+        TextSize = 12, TextColor3 = P.text,
+        Position = UDim2.fromOffset(13, 7), Size = UDim2.new(1, -26, 0, 20),
         TextXAlignment = Enum.TextXAlignment.Left}, row)
     local buttons = {}
     local function repaint()
@@ -560,8 +560,8 @@ local function addChoice(page, label, choices, key, callback)
             local button = buttons[option.value]
             if button and button.Parent then
                 local enabled = state[key] == option.value
-                button.BackgroundColor3 = enabled and Color3.fromRGB(110, 60, 170)
-                    or Color3.fromRGB(42, 35, 57)
+                button.BackgroundColor3 = enabled and Color3.fromRGB(91, 59, 139)
+                    or Color3.fromRGB(45, 41, 64)
                 button.TextColor3 = enabled and P.text or P.dim
             end
         end
@@ -569,9 +569,9 @@ local function addChoice(page, label, choices, key, callback)
     for i, option in ipairs(choices) do
         local button = mk("TextButton", {Text = option.label, BackgroundColor3 = P.tile,
             TextColor3 = P.dim, BorderSizePixel = 0, AutoButtonColor = true,
-            TextSize = 9, Font = Enum.Font.GothamBold,
-            Position = UDim2.new((i - 1) / #choices, 7, 0, 30),
-            Size = UDim2.new(1 / #choices, -14 / #choices, 0, 27)}, row)
+            TextSize = 10, Font = Enum.Font.GothamBold,
+            Position = UDim2.new((i - 1) / #choices, 7, 0, 34),
+            Size = UDim2.new(1 / #choices, -14 / #choices, 0, 30)}, row)
         round(button, 6)
         buttons[option.value] = button
         safeActivate(button, function()
