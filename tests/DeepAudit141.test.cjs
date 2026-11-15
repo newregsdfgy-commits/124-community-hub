@@ -23,9 +23,9 @@ test("both launchable Luau sources are exact mirrors of all 12 modules", () => {
     assert.equal(modules.map(name=>read("src/"+name)).join(""),hub);
 });
 test("v1.4.1 launch and version locked to isolated stability branch", () => {
-    assert.match(hub, /Version = "1\.5\.5"/);
-    assert.match(launcher, /v1\.5\.5-deep-audit-camera-music-reliability-test\/Visuals\.lua/);
-    assert.match(launcher, /Version = "1\.5\.5"/);
+    assert.match(hub, /Version = "1\.5\.6"/);
+    assert.match(launcher, /v1\.5\.6-modern-esp-visual-redesign-test\/Visuals\.lua/);
+    assert.match(launcher, /Version = "1\.5\.6"/);
 });
 test("Booster protects exact owner instances, never colliding object names", () => {
     assert.match(state, /playerFxOwned = setmetatable\(\{\}, \{__mode = "k"\}\)/);

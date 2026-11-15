@@ -55,7 +55,7 @@ local function refreshTracers()
             if not data.tracer or not data.tracer.Parent then
                 data.tracer = mk("Frame", {
                     Name = "Army124TopTracer", AnchorPoint = Vector2.new(0.5, 0.5),
-                    BackgroundColor3 = CONFIG.Neutral, BackgroundTransparency = 0.38,
+                    BackgroundColor3 = CONFIG.Neutral, BackgroundTransparency = 0.60,
                     BorderSizePixel = 0, ZIndex = 1,
                 }, tracerGui)
             end
@@ -64,7 +64,7 @@ local function refreshTracers()
             local length = vector.Magnitude
             setIfDifferent(data.tracer, "Visible", length > 2)
             if length > 2 then
-                setIfDifferent(data.tracer, "Size", UDim2.fromOffset(length, 1))
+                setIfDifferent(data.tracer, "Size", UDim2.fromOffset(length, 2))
                 setIfDifferent(data.tracer, "Position",
                     UDim2.fromOffset((goal2d.X + source.X) / 2, (goal2d.Y + source.Y) / 2))
                 setIfDifferent(data.tracer, "Rotation", math.deg(math.atan2(vector.Y, vector.X)))
@@ -76,13 +76,13 @@ local function refreshTracers()
     end
 end
 
--- LITE 2D Box: only four reusable lines per visible player.
+-- Tactical HUD 2D Box: eight lightweight corner segments per visible player.
 local shapeData = {}
 local shapeNewContainersLeft = 0
 local shapeNewLinesLeft = 0
 local function shapeLine(parent)
     return mk("Frame", {BackgroundColor3 = CONFIG.Accent,
-        BackgroundTransparency = 0.22, BorderSizePixel = 0,
+        BackgroundTransparency = 0.15, BorderSizePixel = 0,
         AnchorPoint = Vector2.new(0.5, 0.5), Visible = false,
         Size = UDim2.fromOffset(1, 1)}, parent)
 end
@@ -127,6 +127,38 @@ local function ensureShapeLines(item, kind, count)
     -- Incomplete shapes stay hidden and finish incrementally on later frames.
     return #lines >= count
 end
+-- One bounded eight-segment corner frame, reusing the previous Box toggle.
+local function drawCornerBox(item, top, bottom, thickness, color)
+    local topY, bottomY = math.min(top.Y, bottom.Y), math.max(top.Y, bottom.Y)
+    local height = bottomY - topY
+    if height < 4 then
+        hideShape(item)
+        return
+    end
+    local half = math.clamp(height * 0.23, 4, 160)
+    local left, right = top.X - half, top.X + half
+    local cornerX = math.max(2, math.min(18, half * 0.72))
+    local cornerY = math.max(3, math.min(20, height * 0.21))
+    -- Upper corners.
+    setLine(item.box[1], Vector2.new(left, topY),
+        Vector2.new(left + cornerX, topY), thickness, color)
+    setLine(item.box[2], Vector2.new(left, topY),
+        Vector2.new(left, topY + cornerY), thickness, color)
+    setLine(item.box[3], Vector2.new(right - cornerX, topY),
+        Vector2.new(right, topY), thickness, color)
+    setLine(item.box[4], Vector2.new(right, topY),
+        Vector2.new(right, topY + cornerY), thickness, color)
+    -- Lower corners.
+    setLine(item.box[5], Vector2.new(left, bottomY),
+        Vector2.new(left + cornerX, bottomY), thickness, color)
+    setLine(item.box[6], Vector2.new(left, bottomY - cornerY),
+        Vector2.new(left, bottomY), thickness, color)
+    setLine(item.box[7], Vector2.new(right - cornerX, bottomY),
+        Vector2.new(right, bottomY), thickness, color)
+    setLine(item.box[8], Vector2.new(right, bottomY - cornerY),
+        Vector2.new(right, bottomY), thickness, color)
+end
+
 local function refreshShapes()
     if not alive or not state.esp or not state.espBox then
         if next(shapeData) ~= nil then clearShapes() end
@@ -182,18 +214,8 @@ local function refreshShapes()
                 if item then
                     active[player] = true
                     item.inactiveSince = nil
-                    if ensureShapeLines(item, "box", 4) then
-                        local color = getPlayerColor(player)
-                        local half = math.clamp(math.abs(bottom.Y - top.Y) * 0.23, 4, 160)
-                        local left, right = top.X - half, top.X + half
-                        setLine(item.box[1], Vector2.new(left, top.Y),
-                            Vector2.new(right, top.Y), state.espLineThickness, color)
-                        setLine(item.box[2], Vector2.new(left, bottom.Y),
-                            Vector2.new(right, bottom.Y), state.espLineThickness, color)
-                        setLine(item.box[3], Vector2.new(left, top.Y),
-                            Vector2.new(left, bottom.Y), state.espLineThickness, color)
-                        setLine(item.box[4], Vector2.new(right, top.Y),
-                            Vector2.new(right, bottom.Y), state.espLineThickness, color)
+                    if ensureShapeLines(item, "box", 8) then
+                        drawCornerBox(item, top, bottom, state.espLineThickness, getPlayerColor(player))
                     else
                         hideShape(item) -- Incomplete boxes never display partially.
                     end

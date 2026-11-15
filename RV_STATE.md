@@ -1,3 +1,17 @@
+# RV_STATE — 124 Visuals v1.5.6 Modern ESP (2026-11-15)
+
+- Branch `v1.5.6-modern-esp-visual-redesign-test`; base v1.5.5 @ `0edb58df06767dc8c88b490d9fa759e421a27d9c`.
+- New UI: compact team-accent name badge, proportional HP strip, distance badge,
+  eight-segment corner box, subtler Highlight and 2px top tracers.
+- All original ESP toggles, roster/range/team logic, caching, performance
+  budgets and cleanup retained; no weapon/AIM changes.
+- Increased bounded 2D line creation budget from 8 to 12.
+- New tests: `EspModern156.test.cjs`, `build-esp156-runtime.cjs`.
+- CI status pending. Roblox/Android UI + actual FPS not yet verified.
+- See `AUDIT_ESP_v1.5.6.md`.
+
+---
+
 # RV_STATE — 124 Visuals v1.5.5 Camera FOV & Music Reliability (2026-11-15)
 
 - Candidate branch: `v1.5.5-deep-audit-camera-music-reliability-test`; base v1.5.4 `c9708a34538b0882fdb4e10e33b6a1537a12139f`.

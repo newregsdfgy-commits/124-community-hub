@@ -1,11 +1,11 @@
--- 124 Visuals v1.5.5 | Camera Ownership & Audio Recovery Audit
+-- 124 Visuals v1.5.6 | Modern Tactical ESP Visual Redesign
 -- Первый плейс: 18537079992. Запуск поддерживает все игровые PlaceId.
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.5.5",
+    Version = "1.5.6",
     OriginalPlaceId = 18537079992,
     EspRefreshSeconds = 0.35, -- Быстрый поиск персонажей, без обновления UI каждый кадр.
     EspEventMinSeconds = 0.18, -- Коалесцированные события не запускают 16 полных сканов/сек.
@@ -34,17 +34,17 @@ local CONFIG = {
         and "124_community_settings_v09.json"
         or ("124_visuals_settings_" .. tostring(game.PlaceId) .. ".json"),
     MenuKey = Enum.KeyCode.RightShift,
-    EspFillTransparency = 0.88, -- Менее заметная подсветка.
-    EspOutlineTransparency = 0.38, -- Встроенный Highlight не имеет толщины в px.
-    EspNameSizeNear = 12,
-    EspNameSizeMid = 11,
-    EspNameSizeFar = 10, -- Ранее 8px: дальние подписи были почти нечитаемыми.
+    EspFillTransparency = 0.94, -- Тонкая контурная подсветка, меньше цветной заливки.
+    EspOutlineTransparency = 0.24, -- Чёткий силуэт вместо сплошной яркой заливки.
+    EspNameSizeNear = 13,
+    EspNameSizeMid = 12,
+    EspNameSizeFar = 11, -- Отдалённые имена остаются читаемыми.
     EspMetaSizeNear = 10, -- HP и дистанция, независимые TextLabel.
     EspMetaSizeFar = 9,
     EspMidDistanceMeters = 80,
     EspFarDistanceMeters = 150,
-    EspLabelWidth = 148,
-    EspLabelHeight = 27,
+    EspLabelWidth = 176,
+    EspLabelHeight = 49,
     AimFovDefaultPixels = 175,
     AimFovMinPixels = 40,
     AimFovMaxPixels = 400,
@@ -105,7 +105,7 @@ local CONFIG = {
     EspShapeBalancedLimit = 18,
     EspShapeQualityLimit = 32,
     ShapeNewContainersPerDraw = 2, -- Создаём 2D ESP постепенно, без пакетного всплеска.
-    ShapeNewLinesPerDraw = 8, -- Ограничиваем Instance.new в рендер-проходе.
+    ShapeNewLinesPerDraw = 12, -- Угловые скобки из 8 сегментов; ограниченный бюджет создания.
     PerfEcoEnterFps = 44,
     PerfEcoExitFps = 54, -- Гистерезис без прыгания ECO/BALANCED каждый замер.
     PerfTierEcoEnterDwell = 2, -- Быстрый переход в ECO при просадках FPS.

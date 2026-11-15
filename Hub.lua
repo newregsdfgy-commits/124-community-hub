@@ -1,11 +1,11 @@
--- 124 Visuals v1.5.5 | Camera Ownership & Audio Recovery Audit
+-- 124 Visuals v1.5.6 | Modern Tactical ESP Visual Redesign
 -- Первый плейс: 18537079992. Запуск поддерживает все игровые PlaceId.
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.5.5",
+    Version = "1.5.6",
     OriginalPlaceId = 18537079992,
     EspRefreshSeconds = 0.35, -- Быстрый поиск персонажей, без обновления UI каждый кадр.
     EspEventMinSeconds = 0.18, -- Коалесцированные события не запускают 16 полных сканов/сек.
@@ -34,17 +34,17 @@ local CONFIG = {
         and "124_community_settings_v09.json"
         or ("124_visuals_settings_" .. tostring(game.PlaceId) .. ".json"),
     MenuKey = Enum.KeyCode.RightShift,
-    EspFillTransparency = 0.88, -- Менее заметная подсветка.
-    EspOutlineTransparency = 0.38, -- Встроенный Highlight не имеет толщины в px.
-    EspNameSizeNear = 12,
-    EspNameSizeMid = 11,
-    EspNameSizeFar = 10, -- Ранее 8px: дальние подписи были почти нечитаемыми.
+    EspFillTransparency = 0.94, -- Тонкая контурная подсветка, меньше цветной заливки.
+    EspOutlineTransparency = 0.24, -- Чёткий силуэт вместо сплошной яркой заливки.
+    EspNameSizeNear = 13,
+    EspNameSizeMid = 12,
+    EspNameSizeFar = 11, -- Отдалённые имена остаются читаемыми.
     EspMetaSizeNear = 10, -- HP и дистанция, независимые TextLabel.
     EspMetaSizeFar = 9,
     EspMidDistanceMeters = 80,
     EspFarDistanceMeters = 150,
-    EspLabelWidth = 148,
-    EspLabelHeight = 27,
+    EspLabelWidth = 176,
+    EspLabelHeight = 49,
     AimFovDefaultPixels = 175,
     AimFovMinPixels = 40,
     AimFovMaxPixels = 400,
@@ -105,7 +105,7 @@ local CONFIG = {
     EspShapeBalancedLimit = 18,
     EspShapeQualityLimit = 32,
     ShapeNewContainersPerDraw = 2, -- Создаём 2D ESP постепенно, без пакетного всплеска.
-    ShapeNewLinesPerDraw = 8, -- Ограничиваем Instance.new в рендер-проходе.
+    ShapeNewLinesPerDraw = 12, -- Угловые скобки из 8 сегментов; ограниченный бюджет создания.
     PerfEcoEnterFps = 44,
     PerfEcoExitFps = 54, -- Гистерезис без прыгания ECO/BALANCED каждый замер.
     PerfTierEcoEnterDwell = 2, -- Быстрый переход в ECO при просадках FPS.
@@ -1120,8 +1120,8 @@ local function espParts(character)
     return anchor, positionPart, character:FindFirstChildOfClass("Humanoid")
 end
 
--- Тонкий ESP. Ник над игроком; HP и дистанция в отдельной нижней строке.
--- Каждой подписи свой размер, без масштабирования GUI при отдалении.
+-- Modern Tactical ESP: компактные карточки с цветным маркером команды,
+-- HP-полосой и дистанцией. Функциональные переключатели остались прежними.
 local function createRender(player, character, head)
     local hl = mk("Highlight", {
         Name = "Army124ESPHighlight",
@@ -1130,65 +1130,98 @@ local function createRender(player, character, head)
         FillTransparency = CONFIG.EspFillTransparency,
         OutlineTransparency = CONFIG.EspOutlineTransparency,
     }, character)
-    -- Publish the highlight immediately. If any following Gui constructor
-    -- fails, the caller's protected error handler can destroy this partial
-    -- object rather than leave an orphaned Highlight in the avatar.
+    -- Публикуем запись до следующих Instance.new: частичный GUI можно убрать.
     local item = {character = character, highlight = hl, inactiveSince = nil}
     renderData[player] = item
     local bb = mk("BillboardGui", {
         Name = "Army124ESPLabel",
         Adornee = head,
-        AlwaysOnTop = true,
-        LightInfluence = 0,
-        -- BillboardGui.MaxDistance is camera-relative, while the ESP range
-        -- is player-relative. Leave the engine cap off and filter below.
-        MaxDistance = 0,
+        AlwaysOnTop = true, LightInfluence = 0,
+        MaxDistance = 0, -- Радиус по-прежнему рассчитывается от LocalPlayer.
         Size = UDim2.fromOffset(CONFIG.EspLabelWidth, CONFIG.EspLabelHeight),
-        StudsOffsetWorldSpace = Vector3.new(0, 2.1, 0),
+        StudsOffsetWorldSpace = Vector3.new(0, 2.65, 0),
         ResetOnSpawn = false,
     }, PlayerGui)
     item.billboard = bb
-    local nameLabel = mk("TextLabel", {
-        BackgroundTransparency = 1,
+
+    local identity = mk("Frame", {
+        Name = "Army124ESPIdentity", Size = UDim2.new(1, 0, 0, 25),
         Position = UDim2.fromOffset(0, 0),
-        Size = UDim2.new(1, 0, 0, 13),
-        TextSize = CONFIG.EspNameSizeNear,
-        TextScaled = false,
-        TextWrapped = false,
-        TextTruncate = Enum.TextTruncate.AtEnd,
-        Font = Enum.Font.GothamMedium,
-        TextStrokeTransparency = 0.55,
-        TextColor3 = Color3.new(1, 1, 1),
-        Text = "",
+        BackgroundColor3 = Color3.fromRGB(17, 20, 32),
+        BackgroundTransparency = 0.14, BorderSizePixel = 0,
     }, bb)
-    local healthLabel = mk("TextLabel", {
-        BackgroundTransparency = 1,
-        Position = UDim2.fromOffset(0, 13),
-        Size = UDim2.new(0.5, -3, 0, 12),
-        TextXAlignment = Enum.TextXAlignment.Right,
-        TextSize = CONFIG.EspMetaSizeNear,
-        TextScaled = false,
-        TextWrapped = false,
-        TextTruncate = Enum.TextTruncate.AtEnd,
-        Font = Enum.Font.Gotham,
-        TextStrokeTransparency = 0.55,
-        TextColor3 = Color3.fromRGB(120, 255, 160),
-        Text = "",
-    }, bb)
-    local distanceLabel = mk("TextLabel", {
-        BackgroundTransparency = 1,
-        Position = UDim2.new(0.5, 3, 0, 13),
-        Size = UDim2.new(0.5, -3, 0, 12),
+    mk("UICorner", {CornerRadius = UDim.new(0, 7)}, identity)
+    local identityBorder = mk("UIStroke", {
+        Color = CONFIG.Neutral, Transparency = 0.31, Thickness = 1,
+    }, identity)
+    local identityRail = mk("Frame", {
+        Name = "TeamAccent", Position = UDim2.fromOffset(7, 6),
+        Size = UDim2.fromOffset(3, 13), BackgroundColor3 = CONFIG.Neutral,
+        BorderSizePixel = 0,
+    }, identity)
+    mk("UICorner", {CornerRadius = UDim.new(0, 2)}, identityRail)
+    local nameLabel = mk("TextLabel", {
+        Name = "EspName", BackgroundTransparency = 1,
+        Position = UDim2.fromOffset(16, 2),
+        Size = UDim2.new(1, -24, 1, -4),
         TextXAlignment = Enum.TextXAlignment.Left,
-        TextSize = CONFIG.EspMetaSizeNear,
-        TextScaled = false,
-        TextWrapped = false,
+        TextSize = CONFIG.EspNameSizeNear,
+        TextScaled = false, TextWrapped = false,
         TextTruncate = Enum.TextTruncate.AtEnd,
-        Font = Enum.Font.Gotham,
-        TextStrokeTransparency = 0.55,
-        TextColor3 = Color3.fromRGB(220, 220, 220),
-        Text = "",
+        Font = Enum.Font.GothamBold,
+        TextStrokeTransparency = 0.80,
+        TextColor3 = Color3.fromRGB(245, 246, 253), Text = "",
+    }, identity)
+
+    local healthChip = mk("Frame", {
+        Name = "Army124ESPHealthBadge",
+        Position = UDim2.fromOffset(0, 28),
+        Size = UDim2.new(0.5, -3, 0, 21),
+        BackgroundColor3 = Color3.fromRGB(18, 23, 31),
+        BackgroundTransparency = 0.13, BorderSizePixel = 0,
     }, bb)
+    mk("UICorner", {CornerRadius = UDim.new(0, 6)}, healthChip)
+    local healthLabel = mk("TextLabel", {
+        Name = "EspHealth", BackgroundTransparency = 1,
+        Position = UDim2.fromOffset(8, 0), Size = UDim2.new(1, -16, 0, 16),
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextSize = CONFIG.EspMetaSizeNear, TextScaled = false,
+        TextWrapped = false, TextTruncate = Enum.TextTruncate.AtEnd,
+        Font = Enum.Font.GothamMedium, TextStrokeTransparency = 0.80,
+        TextColor3 = Color3.fromRGB(100, 220, 157), Text = "",
+    }, healthChip)
+    local healthTrack = mk("Frame", {
+        Name = "HpTrack", Position = UDim2.new(0, 8, 1, -5),
+        Size = UDim2.new(1, -16, 0, 2),
+        BackgroundColor3 = Color3.fromRGB(61, 69, 77),
+        BorderSizePixel = 0,
+    }, healthChip)
+    local healthFill = mk("Frame", {
+        Name = "HpFill", Size = UDim2.fromScale(1, 1),
+        BackgroundColor3 = Color3.fromRGB(100, 220, 157),
+        BorderSizePixel = 0,
+    }, healthTrack)
+
+    local distanceChip = mk("Frame", {
+        Name = "Army124ESPDistanceBadge",
+        Position = UDim2.new(0.5, 3, 0, 28),
+        Size = UDim2.new(0.5, -3, 0, 21),
+        BackgroundColor3 = Color3.fromRGB(18, 23, 31),
+        BackgroundTransparency = 0.13, BorderSizePixel = 0,
+    }, bb)
+    mk("UICorner", {CornerRadius = UDim.new(0, 6)}, distanceChip)
+    local distanceLabel = mk("TextLabel", {
+        Name = "EspDistance", BackgroundTransparency = 1,
+        Position = UDim2.fromOffset(6, 0),
+        Size = UDim2.new(1, -12, 1, 0),
+        TextXAlignment = Enum.TextXAlignment.Center,
+        TextSize = CONFIG.EspMetaSizeNear, TextScaled = false,
+        TextWrapped = false, TextTruncate = Enum.TextTruncate.AtEnd,
+        Font = Enum.Font.GothamMedium, TextStrokeTransparency = 0.80,
+        TextColor3 = Color3.fromRGB(220, 224, 235), Text = "",
+    }, distanceChip)
+    item.nameChip, item.identityBorder, item.identityRail = identity, identityBorder, identityRail
+    item.healthChip, item.healthFill, item.distanceChip = healthChip, healthFill, distanceChip
     item.nameLabel, item.healthLabel, item.distanceLabel =
         nameLabel, healthLabel, distanceLabel
     return item
@@ -1211,14 +1244,15 @@ local function updatePlayer(player, myRoot)
     end
     local item = renderData[player]
     if item and (item.character ~= character or not isLive(item.highlight)
-        or not isLive(item.billboard) or not isLive(item.distanceLabel)) then
+        or not isLive(item.billboard) or not isLive(item.nameChip)
+        or not isLive(item.healthFill) or not isLive(item.distanceLabel)) then
         deleteRender(player)
         item = nil
     end
     if not item then item = createRender(player, character, head) end
     -- Кешируем части, которые рендерятся чаще, чем обновляется список игроков.
     item.head, item.root, item.humanoid = head, root, hum
-    local strokeAlpha = referenceStrokeEnabled and 0.55 or 1
+    local strokeAlpha = referenceStrokeEnabled and 0.80 or 1
     setIfDifferent(item.nameLabel, "TextStrokeTransparency", strokeAlpha)
     setIfDifferent(item.healthLabel, "TextStrokeTransparency", strokeAlpha)
     setIfDifferent(item.distanceLabel, "TextStrokeTransparency", strokeAlpha)
@@ -1258,33 +1292,44 @@ local function updatePlayer(player, myRoot)
     local metaSize = near and CONFIG.EspMetaSizeNear or CONFIG.EspMetaSizeFar
     setIfDifferent(item.highlight, "FillColor", color)
     setIfDifferent(item.highlight, "OutlineColor", color)
+    setIfDifferent(item.identityBorder, "Color", color)
+    setIfDifferent(item.identityRail, "BackgroundColor3", color)
     setIfDifferent(item.nameLabel, "Text", state.names and player.DisplayName or "")
     setIfDifferent(item.nameLabel, "TextSize", nameSize)
-    setIfDifferent(item.nameLabel, "TextColor3", color)
-    setIfDifferent(item.nameLabel, "Visible", state.names)
+    setIfDifferent(item.nameChip, "Visible", state.names)
     setIfDifferent(item.distanceLabel, "Text", state.distance and (tostring(meters) .. " м") or "")
     setIfDifferent(item.distanceLabel, "TextSize", metaSize)
-    setIfDifferent(item.distanceLabel, "Visible", state.distance)
+    setIfDifferent(item.distanceChip, "Visible", state.distance)
+    local hpFraction = 0
     if state.health then
         if hum then
             local maxHp = math.max(hum.MaxHealth, 1)
-            local hp = math.clamp(hum.Health / maxHp, 0, 1)
+            hpFraction = math.clamp(hum.Health / maxHp, 0, 1)
             setIfDifferent(item.healthLabel, "Text",
                 string.format("HP %d/%d", math.ceil(hum.Health), math.ceil(maxHp)))
-            setIfDifferent(item.healthLabel, "TextColor3",
-                Color3.fromRGB(math.floor(255 * (1 - hp)), math.floor(255 * hp), 90))
         else
             setIfDifferent(item.healthLabel, "Text", "HP --")
         end
+        local hpColor = Color3.fromRGB(math.floor(232 - 145 * hpFraction),
+            math.floor(86 + 141 * hpFraction), math.floor(108 + 23 * hpFraction))
+        setIfDifferent(item.healthLabel, "TextColor3", hpColor)
+        setIfDifferent(item.healthFill, "BackgroundColor3", hpColor)
+        setIfDifferent(item.healthFill, "Size", UDim2.new(hpFraction, 0, 1, 0))
     end
     setIfDifferent(item.healthLabel, "TextSize", metaSize)
-    setIfDifferent(item.healthLabel, "Visible", state.health)
-    -- При отключении имени нижняя строка поднимается на его место.
-    local lowerY = state.names and 13 or 0
-    setIfDifferent(item.healthLabel, "Position", UDim2.fromOffset(0, lowerY))
-    setIfDifferent(item.distanceLabel, "Position", UDim2.new(0.5, 3, 0, lowerY))
+    setIfDifferent(item.healthChip, "Visible", state.health)
+    -- Each optional badge expands to full width when the other is hidden.
     local hasMeta = state.health or state.distance
-    local height = state.names and (hasMeta and CONFIG.EspLabelHeight or 14) or 14
+    local lowerY = state.names and 28 or 0
+    local both = state.health and state.distance
+    setIfDifferent(item.healthChip, "Position", UDim2.fromOffset(0, lowerY))
+    setIfDifferent(item.healthChip, "Size", both
+        and UDim2.new(0.5, -3, 0, 21) or UDim2.new(1, 0, 0, 21))
+    setIfDifferent(item.distanceChip, "Position", both
+        and UDim2.new(0.5, 3, 0, lowerY) or UDim2.fromOffset(0, lowerY))
+    setIfDifferent(item.distanceChip, "Size", both
+        and UDim2.new(0.5, -3, 0, 21) or UDim2.new(1, 0, 0, 21))
+    local height = state.names and (hasMeta and CONFIG.EspLabelHeight or 25) or 21
     setIfDifferent(item.billboard, "Size", UDim2.fromOffset(CONFIG.EspLabelWidth, height))
     setIfDifferent(item.billboard, "Enabled", state.names or hasMeta)
     -- Дешёвый кэш флагов: не создаём строки/таблицы при каждом кадре.
@@ -6087,7 +6132,7 @@ local function refreshTracers()
             if not data.tracer or not data.tracer.Parent then
                 data.tracer = mk("Frame", {
                     Name = "Army124TopTracer", AnchorPoint = Vector2.new(0.5, 0.5),
-                    BackgroundColor3 = CONFIG.Neutral, BackgroundTransparency = 0.38,
+                    BackgroundColor3 = CONFIG.Neutral, BackgroundTransparency = 0.60,
                     BorderSizePixel = 0, ZIndex = 1,
                 }, tracerGui)
             end
@@ -6096,7 +6141,7 @@ local function refreshTracers()
             local length = vector.Magnitude
             setIfDifferent(data.tracer, "Visible", length > 2)
             if length > 2 then
-                setIfDifferent(data.tracer, "Size", UDim2.fromOffset(length, 1))
+                setIfDifferent(data.tracer, "Size", UDim2.fromOffset(length, 2))
                 setIfDifferent(data.tracer, "Position",
                     UDim2.fromOffset((goal2d.X + source.X) / 2, (goal2d.Y + source.Y) / 2))
                 setIfDifferent(data.tracer, "Rotation", math.deg(math.atan2(vector.Y, vector.X)))
@@ -6108,13 +6153,13 @@ local function refreshTracers()
     end
 end
 
--- LITE 2D Box: only four reusable lines per visible player.
+-- Tactical HUD 2D Box: eight lightweight corner segments per visible player.
 local shapeData = {}
 local shapeNewContainersLeft = 0
 local shapeNewLinesLeft = 0
 local function shapeLine(parent)
     return mk("Frame", {BackgroundColor3 = CONFIG.Accent,
-        BackgroundTransparency = 0.22, BorderSizePixel = 0,
+        BackgroundTransparency = 0.15, BorderSizePixel = 0,
         AnchorPoint = Vector2.new(0.5, 0.5), Visible = false,
         Size = UDim2.fromOffset(1, 1)}, parent)
 end
@@ -6159,6 +6204,38 @@ local function ensureShapeLines(item, kind, count)
     -- Incomplete shapes stay hidden and finish incrementally on later frames.
     return #lines >= count
 end
+-- One bounded eight-segment corner frame, reusing the previous Box toggle.
+local function drawCornerBox(item, top, bottom, thickness, color)
+    local topY, bottomY = math.min(top.Y, bottom.Y), math.max(top.Y, bottom.Y)
+    local height = bottomY - topY
+    if height < 4 then
+        hideShape(item)
+        return
+    end
+    local half = math.clamp(height * 0.23, 4, 160)
+    local left, right = top.X - half, top.X + half
+    local cornerX = math.max(2, math.min(18, half * 0.72))
+    local cornerY = math.max(3, math.min(20, height * 0.21))
+    -- Upper corners.
+    setLine(item.box[1], Vector2.new(left, topY),
+        Vector2.new(left + cornerX, topY), thickness, color)
+    setLine(item.box[2], Vector2.new(left, topY),
+        Vector2.new(left, topY + cornerY), thickness, color)
+    setLine(item.box[3], Vector2.new(right - cornerX, topY),
+        Vector2.new(right, topY), thickness, color)
+    setLine(item.box[4], Vector2.new(right, topY),
+        Vector2.new(right, topY + cornerY), thickness, color)
+    -- Lower corners.
+    setLine(item.box[5], Vector2.new(left, bottomY),
+        Vector2.new(left + cornerX, bottomY), thickness, color)
+    setLine(item.box[6], Vector2.new(left, bottomY - cornerY),
+        Vector2.new(left, bottomY), thickness, color)
+    setLine(item.box[7], Vector2.new(right - cornerX, bottomY),
+        Vector2.new(right, bottomY), thickness, color)
+    setLine(item.box[8], Vector2.new(right, bottomY - cornerY),
+        Vector2.new(right, bottomY), thickness, color)
+end
+
 local function refreshShapes()
     if not alive or not state.esp or not state.espBox then
         if next(shapeData) ~= nil then clearShapes() end
@@ -6214,18 +6291,8 @@ local function refreshShapes()
                 if item then
                     active[player] = true
                     item.inactiveSince = nil
-                    if ensureShapeLines(item, "box", 4) then
-                        local color = getPlayerColor(player)
-                        local half = math.clamp(math.abs(bottom.Y - top.Y) * 0.23, 4, 160)
-                        local left, right = top.X - half, top.X + half
-                        setLine(item.box[1], Vector2.new(left, top.Y),
-                            Vector2.new(right, top.Y), state.espLineThickness, color)
-                        setLine(item.box[2], Vector2.new(left, bottom.Y),
-                            Vector2.new(right, bottom.Y), state.espLineThickness, color)
-                        setLine(item.box[3], Vector2.new(left, top.Y),
-                            Vector2.new(left, bottom.Y), state.espLineThickness, color)
-                        setLine(item.box[4], Vector2.new(right, top.Y),
-                            Vector2.new(right, bottom.Y), state.espLineThickness, color)
+                    if ensureShapeLines(item, "box", 8) then
+                        drawCornerBox(item, top, bottom, state.espLineThickness, getPlayerColor(player))
                     else
                         hideShape(item) -- Incomplete boxes never display partially.
                     end
@@ -6860,7 +6927,7 @@ local function addChoice(page, label, choices, key, callback)
     return repaint
 end
 
-addSection(pages.ESP, "VISUALS", "Компактные подписи и тонкие ESP-линии")
+addSection(pages.ESP, "VISUALS", "Tactical HUD: угловые рамки, бейджи HP и дистанции")
 
 addToggle(pages.ESP, "ESP подсветка", "Подсветка в выбранном радиусе до 1000 м", "esp", function()
     syncEspVisuals()
@@ -6869,7 +6936,7 @@ addToggle(pages.ESP, "Линия над игроками", "От верха эк
     if not enabled then clearTracers() end
     if enabled and not state.esp then tell("Включи ESP, чтобы отображать линии") end
 end)
-addToggle(pages.ESP, "2D Box", "Контур (при включённом ESP)", "espBox", function(enabled)
+addToggle(pages.ESP, "2D Box", "Угловые скобки вместо сплошного контура", "espBox", function(enabled)
     if not enabled then clearShapes() end
     if enabled and not state.esp then tell("Включи ESP для отображения 2D Box") end
 end)
@@ -6901,7 +6968,7 @@ addButton(pages.ESP, "Диагностика ESP",
             .. " | Возраст скана " .. string.format("%.2f", math.max(0,
                 os.clock() - info.lastScanAt)) .. " сек")
     end)
-addSlider(pages.ESP, "Толщина линий", "Box (1–2 px), Tracer всегда 1 px", "espLineThickness", 1, 2, 1,
+addSlider(pages.ESP, "Толщина линий", "Угловые рамки (1–2 px), Tracer — 2 px", "espLineThickness", 1, 2, 1,
     function(v) return tostring(v) .. " px" end)
 repaintColors = addChoice(pages.ESP, "Цвет ESP", {
     {value="TEAM", label="TEAM"}, {value="GOLD", label="GOLD"},

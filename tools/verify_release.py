@@ -11,8 +11,8 @@ import re
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = "1.5.5"
-BRANCH = "v1.5.5-deep-audit-camera-music-reliability-test"
+VERSION = "1.5.6"
+BRANCH = "v1.5.6-modern-esp-visual-redesign-test"
 CHECK_COUNT = [0]
 
 
@@ -146,6 +146,18 @@ def main() -> int:
     launcher = (ROOT / "Start.lua").read_text(encoding="utf-8")
 
     check("Hub.lua and Visuals.lua are byte-identical", hub == visuals, failures)
+    check("New ESP badge UI and corner-box geometry",
+          "Army124ESPIdentity" in hub and "Army124ESPHealthBadge" in hub
+          and "Army124ESPDistanceBadge" in hub
+          and 'ensureShapeLines(item, "box", 8)' in hub
+          and "drawCornerBox(item, top, bottom" in hub, failures)
+    check("ESP original switches and scan lifecycle preserved",
+          'addToggle(pages.ESP, "2D Box"' in hub
+          and 'addToggle(pages.ESP, "Имена"' in hub
+          and 'addToggle(pages.ESP, "Здоровье"' in hub
+          and 'addToggle(pages.ESP, "Дистанция"' in hub
+          and "local function refreshESP()" in hub
+          and "local function deleteRender(player)" in hub, failures)
     check("Camera FOV ownership and external baseline retained",
           'written = setmetatable({}, {__mode = "k"})' in hub
           and 'controller.saved[camera] = current' in hub
@@ -233,7 +245,7 @@ def main() -> int:
               "local function aimFrame(dt)",
               "local function refreshESP()",
               "local function applyResponsiveLayout()")), failures)
-    check("Control Center v1.5.5 header label",
+    check("Control Center v1.5.6 header label",
           "CONTROL CENTER  •  v" in hub, failures)
     check("Premium UI 3.0 stable visual primitives",
           all(token in hub for token in (

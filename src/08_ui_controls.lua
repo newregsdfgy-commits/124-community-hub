@@ -598,7 +598,7 @@ local function addChoice(page, label, choices, key, callback)
     return repaint
 end
 
-addSection(pages.ESP, "VISUALS", "Компактные подписи и тонкие ESP-линии")
+addSection(pages.ESP, "VISUALS", "Tactical HUD: угловые рамки, бейджи HP и дистанции")
 
 addToggle(pages.ESP, "ESP подсветка", "Подсветка в выбранном радиусе до 1000 м", "esp", function()
     syncEspVisuals()
@@ -607,7 +607,7 @@ addToggle(pages.ESP, "Линия над игроками", "От верха эк
     if not enabled then clearTracers() end
     if enabled and not state.esp then tell("Включи ESP, чтобы отображать линии") end
 end)
-addToggle(pages.ESP, "2D Box", "Контур (при включённом ESP)", "espBox", function(enabled)
+addToggle(pages.ESP, "2D Box", "Угловые скобки вместо сплошного контура", "espBox", function(enabled)
     if not enabled then clearShapes() end
     if enabled and not state.esp then tell("Включи ESP для отображения 2D Box") end
 end)
@@ -639,7 +639,7 @@ addButton(pages.ESP, "Диагностика ESP",
             .. " | Возраст скана " .. string.format("%.2f", math.max(0,
                 os.clock() - info.lastScanAt)) .. " сек")
     end)
-addSlider(pages.ESP, "Толщина линий", "Box (1–2 px), Tracer всегда 1 px", "espLineThickness", 1, 2, 1,
+addSlider(pages.ESP, "Толщина линий", "Угловые рамки (1–2 px), Tracer — 2 px", "espLineThickness", 1, 2, 1,
     function(v) return tostring(v) .. " px" end)
 repaintColors = addChoice(pages.ESP, "Цвет ESP", {
     {value="TEAM", label="TEAM"}, {value="GOLD", label="GOLD"},

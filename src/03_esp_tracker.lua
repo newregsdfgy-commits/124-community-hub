@@ -95,8 +95,8 @@ local function espParts(character)
     return anchor, positionPart, character:FindFirstChildOfClass("Humanoid")
 end
 
--- Тонкий ESP. Ник над игроком; HP и дистанция в отдельной нижней строке.
--- Каждой подписи свой размер, без масштабирования GUI при отдалении.
+-- Modern Tactical ESP: компактные карточки с цветным маркером команды,
+-- HP-полосой и дистанцией. Функциональные переключатели остались прежними.
 local function createRender(player, character, head)
     local hl = mk("Highlight", {
         Name = "Army124ESPHighlight",
@@ -105,65 +105,98 @@ local function createRender(player, character, head)
         FillTransparency = CONFIG.EspFillTransparency,
         OutlineTransparency = CONFIG.EspOutlineTransparency,
     }, character)
-    -- Publish the highlight immediately. If any following Gui constructor
-    -- fails, the caller's protected error handler can destroy this partial
-    -- object rather than leave an orphaned Highlight in the avatar.
+    -- Публикуем запись до следующих Instance.new: частичный GUI можно убрать.
     local item = {character = character, highlight = hl, inactiveSince = nil}
     renderData[player] = item
     local bb = mk("BillboardGui", {
         Name = "Army124ESPLabel",
         Adornee = head,
-        AlwaysOnTop = true,
-        LightInfluence = 0,
-        -- BillboardGui.MaxDistance is camera-relative, while the ESP range
-        -- is player-relative. Leave the engine cap off and filter below.
-        MaxDistance = 0,
+        AlwaysOnTop = true, LightInfluence = 0,
+        MaxDistance = 0, -- Радиус по-прежнему рассчитывается от LocalPlayer.
         Size = UDim2.fromOffset(CONFIG.EspLabelWidth, CONFIG.EspLabelHeight),
-        StudsOffsetWorldSpace = Vector3.new(0, 2.1, 0),
+        StudsOffsetWorldSpace = Vector3.new(0, 2.65, 0),
         ResetOnSpawn = false,
     }, PlayerGui)
     item.billboard = bb
-    local nameLabel = mk("TextLabel", {
-        BackgroundTransparency = 1,
+
+    local identity = mk("Frame", {
+        Name = "Army124ESPIdentity", Size = UDim2.new(1, 0, 0, 25),
         Position = UDim2.fromOffset(0, 0),
-        Size = UDim2.new(1, 0, 0, 13),
-        TextSize = CONFIG.EspNameSizeNear,
-        TextScaled = false,
-        TextWrapped = false,
-        TextTruncate = Enum.TextTruncate.AtEnd,
-        Font = Enum.Font.GothamMedium,
-        TextStrokeTransparency = 0.55,
-        TextColor3 = Color3.new(1, 1, 1),
-        Text = "",
+        BackgroundColor3 = Color3.fromRGB(17, 20, 32),
+        BackgroundTransparency = 0.14, BorderSizePixel = 0,
     }, bb)
-    local healthLabel = mk("TextLabel", {
-        BackgroundTransparency = 1,
-        Position = UDim2.fromOffset(0, 13),
-        Size = UDim2.new(0.5, -3, 0, 12),
-        TextXAlignment = Enum.TextXAlignment.Right,
-        TextSize = CONFIG.EspMetaSizeNear,
-        TextScaled = false,
-        TextWrapped = false,
-        TextTruncate = Enum.TextTruncate.AtEnd,
-        Font = Enum.Font.Gotham,
-        TextStrokeTransparency = 0.55,
-        TextColor3 = Color3.fromRGB(120, 255, 160),
-        Text = "",
-    }, bb)
-    local distanceLabel = mk("TextLabel", {
-        BackgroundTransparency = 1,
-        Position = UDim2.new(0.5, 3, 0, 13),
-        Size = UDim2.new(0.5, -3, 0, 12),
+    mk("UICorner", {CornerRadius = UDim.new(0, 7)}, identity)
+    local identityBorder = mk("UIStroke", {
+        Color = CONFIG.Neutral, Transparency = 0.31, Thickness = 1,
+    }, identity)
+    local identityRail = mk("Frame", {
+        Name = "TeamAccent", Position = UDim2.fromOffset(7, 6),
+        Size = UDim2.fromOffset(3, 13), BackgroundColor3 = CONFIG.Neutral,
+        BorderSizePixel = 0,
+    }, identity)
+    mk("UICorner", {CornerRadius = UDim.new(0, 2)}, identityRail)
+    local nameLabel = mk("TextLabel", {
+        Name = "EspName", BackgroundTransparency = 1,
+        Position = UDim2.fromOffset(16, 2),
+        Size = UDim2.new(1, -24, 1, -4),
         TextXAlignment = Enum.TextXAlignment.Left,
-        TextSize = CONFIG.EspMetaSizeNear,
-        TextScaled = false,
-        TextWrapped = false,
+        TextSize = CONFIG.EspNameSizeNear,
+        TextScaled = false, TextWrapped = false,
         TextTruncate = Enum.TextTruncate.AtEnd,
-        Font = Enum.Font.Gotham,
-        TextStrokeTransparency = 0.55,
-        TextColor3 = Color3.fromRGB(220, 220, 220),
-        Text = "",
+        Font = Enum.Font.GothamBold,
+        TextStrokeTransparency = 0.80,
+        TextColor3 = Color3.fromRGB(245, 246, 253), Text = "",
+    }, identity)
+
+    local healthChip = mk("Frame", {
+        Name = "Army124ESPHealthBadge",
+        Position = UDim2.fromOffset(0, 28),
+        Size = UDim2.new(0.5, -3, 0, 21),
+        BackgroundColor3 = Color3.fromRGB(18, 23, 31),
+        BackgroundTransparency = 0.13, BorderSizePixel = 0,
     }, bb)
+    mk("UICorner", {CornerRadius = UDim.new(0, 6)}, healthChip)
+    local healthLabel = mk("TextLabel", {
+        Name = "EspHealth", BackgroundTransparency = 1,
+        Position = UDim2.fromOffset(8, 0), Size = UDim2.new(1, -16, 0, 16),
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextSize = CONFIG.EspMetaSizeNear, TextScaled = false,
+        TextWrapped = false, TextTruncate = Enum.TextTruncate.AtEnd,
+        Font = Enum.Font.GothamMedium, TextStrokeTransparency = 0.80,
+        TextColor3 = Color3.fromRGB(100, 220, 157), Text = "",
+    }, healthChip)
+    local healthTrack = mk("Frame", {
+        Name = "HpTrack", Position = UDim2.new(0, 8, 1, -5),
+        Size = UDim2.new(1, -16, 0, 2),
+        BackgroundColor3 = Color3.fromRGB(61, 69, 77),
+        BorderSizePixel = 0,
+    }, healthChip)
+    local healthFill = mk("Frame", {
+        Name = "HpFill", Size = UDim2.fromScale(1, 1),
+        BackgroundColor3 = Color3.fromRGB(100, 220, 157),
+        BorderSizePixel = 0,
+    }, healthTrack)
+
+    local distanceChip = mk("Frame", {
+        Name = "Army124ESPDistanceBadge",
+        Position = UDim2.new(0.5, 3, 0, 28),
+        Size = UDim2.new(0.5, -3, 0, 21),
+        BackgroundColor3 = Color3.fromRGB(18, 23, 31),
+        BackgroundTransparency = 0.13, BorderSizePixel = 0,
+    }, bb)
+    mk("UICorner", {CornerRadius = UDim.new(0, 6)}, distanceChip)
+    local distanceLabel = mk("TextLabel", {
+        Name = "EspDistance", BackgroundTransparency = 1,
+        Position = UDim2.fromOffset(6, 0),
+        Size = UDim2.new(1, -12, 1, 0),
+        TextXAlignment = Enum.TextXAlignment.Center,
+        TextSize = CONFIG.EspMetaSizeNear, TextScaled = false,
+        TextWrapped = false, TextTruncate = Enum.TextTruncate.AtEnd,
+        Font = Enum.Font.GothamMedium, TextStrokeTransparency = 0.80,
+        TextColor3 = Color3.fromRGB(220, 224, 235), Text = "",
+    }, distanceChip)
+    item.nameChip, item.identityBorder, item.identityRail = identity, identityBorder, identityRail
+    item.healthChip, item.healthFill, item.distanceChip = healthChip, healthFill, distanceChip
     item.nameLabel, item.healthLabel, item.distanceLabel =
         nameLabel, healthLabel, distanceLabel
     return item
@@ -186,14 +219,15 @@ local function updatePlayer(player, myRoot)
     end
     local item = renderData[player]
     if item and (item.character ~= character or not isLive(item.highlight)
-        or not isLive(item.billboard) or not isLive(item.distanceLabel)) then
+        or not isLive(item.billboard) or not isLive(item.nameChip)
+        or not isLive(item.healthFill) or not isLive(item.distanceLabel)) then
         deleteRender(player)
         item = nil
     end
     if not item then item = createRender(player, character, head) end
     -- Кешируем части, которые рендерятся чаще, чем обновляется список игроков.
     item.head, item.root, item.humanoid = head, root, hum
-    local strokeAlpha = referenceStrokeEnabled and 0.55 or 1
+    local strokeAlpha = referenceStrokeEnabled and 0.80 or 1
     setIfDifferent(item.nameLabel, "TextStrokeTransparency", strokeAlpha)
     setIfDifferent(item.healthLabel, "TextStrokeTransparency", strokeAlpha)
     setIfDifferent(item.distanceLabel, "TextStrokeTransparency", strokeAlpha)
@@ -233,33 +267,44 @@ local function updatePlayer(player, myRoot)
     local metaSize = near and CONFIG.EspMetaSizeNear or CONFIG.EspMetaSizeFar
     setIfDifferent(item.highlight, "FillColor", color)
     setIfDifferent(item.highlight, "OutlineColor", color)
+    setIfDifferent(item.identityBorder, "Color", color)
+    setIfDifferent(item.identityRail, "BackgroundColor3", color)
     setIfDifferent(item.nameLabel, "Text", state.names and player.DisplayName or "")
     setIfDifferent(item.nameLabel, "TextSize", nameSize)
-    setIfDifferent(item.nameLabel, "TextColor3", color)
-    setIfDifferent(item.nameLabel, "Visible", state.names)
+    setIfDifferent(item.nameChip, "Visible", state.names)
     setIfDifferent(item.distanceLabel, "Text", state.distance and (tostring(meters) .. " м") or "")
     setIfDifferent(item.distanceLabel, "TextSize", metaSize)
-    setIfDifferent(item.distanceLabel, "Visible", state.distance)
+    setIfDifferent(item.distanceChip, "Visible", state.distance)
+    local hpFraction = 0
     if state.health then
         if hum then
             local maxHp = math.max(hum.MaxHealth, 1)
-            local hp = math.clamp(hum.Health / maxHp, 0, 1)
+            hpFraction = math.clamp(hum.Health / maxHp, 0, 1)
             setIfDifferent(item.healthLabel, "Text",
                 string.format("HP %d/%d", math.ceil(hum.Health), math.ceil(maxHp)))
-            setIfDifferent(item.healthLabel, "TextColor3",
-                Color3.fromRGB(math.floor(255 * (1 - hp)), math.floor(255 * hp), 90))
         else
             setIfDifferent(item.healthLabel, "Text", "HP --")
         end
+        local hpColor = Color3.fromRGB(math.floor(232 - 145 * hpFraction),
+            math.floor(86 + 141 * hpFraction), math.floor(108 + 23 * hpFraction))
+        setIfDifferent(item.healthLabel, "TextColor3", hpColor)
+        setIfDifferent(item.healthFill, "BackgroundColor3", hpColor)
+        setIfDifferent(item.healthFill, "Size", UDim2.new(hpFraction, 0, 1, 0))
     end
     setIfDifferent(item.healthLabel, "TextSize", metaSize)
-    setIfDifferent(item.healthLabel, "Visible", state.health)
-    -- При отключении имени нижняя строка поднимается на его место.
-    local lowerY = state.names and 13 or 0
-    setIfDifferent(item.healthLabel, "Position", UDim2.fromOffset(0, lowerY))
-    setIfDifferent(item.distanceLabel, "Position", UDim2.new(0.5, 3, 0, lowerY))
+    setIfDifferent(item.healthChip, "Visible", state.health)
+    -- Each optional badge expands to full width when the other is hidden.
     local hasMeta = state.health or state.distance
-    local height = state.names and (hasMeta and CONFIG.EspLabelHeight or 14) or 14
+    local lowerY = state.names and 28 or 0
+    local both = state.health and state.distance
+    setIfDifferent(item.healthChip, "Position", UDim2.fromOffset(0, lowerY))
+    setIfDifferent(item.healthChip, "Size", both
+        and UDim2.new(0.5, -3, 0, 21) or UDim2.new(1, 0, 0, 21))
+    setIfDifferent(item.distanceChip, "Position", both
+        and UDim2.new(0.5, 3, 0, lowerY) or UDim2.fromOffset(0, lowerY))
+    setIfDifferent(item.distanceChip, "Size", both
+        and UDim2.new(0.5, -3, 0, 21) or UDim2.new(1, 0, 0, 21))
+    local height = state.names and (hasMeta and CONFIG.EspLabelHeight or 25) or 21
     setIfDifferent(item.billboard, "Size", UDim2.fromOffset(CONFIG.EspLabelWidth, height))
     setIfDifferent(item.billboard, "Enabled", state.names or hasMeta)
     -- Дешёвый кэш флагов: не создаём строки/таблицы при каждом кадре.
