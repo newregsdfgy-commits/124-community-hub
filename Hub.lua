@@ -1,11 +1,11 @@
--- 124 Visuals v1.5.4 | Deep UI Visibility & Release Audit
+-- 124 Visuals v1.5.5 | Camera Ownership & Audio Recovery Audit
 -- Первый плейс: 18537079992. Запуск поддерживает все игровые PlaceId.
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.5.4",
+    Version = "1.5.5",
     OriginalPlaceId = 18537079992,
     EspRefreshSeconds = 0.35, -- Быстрый поиск персонажей, без обновления UI каждый кадр.
     EspEventMinSeconds = 0.18, -- Коалесцированные события не запускают 16 полных сканов/сек.
@@ -4432,7 +4432,8 @@ end
 -- v1.1.0 MEMORY: автономные контроллеры со снимками исходных свойств.
 -- Один локальный контейнер во избежание лимита локальных переменных Luau.
 local memoryFX = {
-    camera = {saved = setmetatable({}, {__mode = "k"}), current = nil, bindingName =
+    camera = {saved = setmetatable({}, {__mode = "k"}),
+        written = setmetatable({}, {__mode = "k"}), current = nil, bindingName =
         "Army124CameraFov_" .. tostring(LocalPlayer.UserId), bound = false},
     spin = {character = nil, humanoid = nil, originalAuto = nil,
         joint = nil, originalC0 = nil, nextJointSearch = 0, lastError = 0,
@@ -4446,10 +4447,22 @@ function memoryFX.camera.restore(camera)
     local old = camera and controller.saved[camera]
     if old == nil then return true end
     local ok = pcall(function()
-        if camera.FieldOfView ~= old then camera.FieldOfView = old end
-        if camera.FieldOfView ~= old then error("Camera FOV restore mismatch") end
+        local current = camera.FieldOfView
+        local imposed = controller.written[camera]
+        -- Preserve a newer game-owned FOV; restore only our last confirmed write.
+        if imposed ~= nil and math.abs(current - imposed) <= 0.01
+            and math.abs(current - old) > 0.01 then
+            -- Some setters mutate the property before raising an exception.
+            pcall(function() camera.FieldOfView = old end)
+            if math.abs(camera.FieldOfView - old) > 0.01 then
+                error("Camera FOV restore mismatch")
+            end
+        end
     end)
-    if ok then controller.saved[camera] = nil end
+    if ok then
+        controller.saved[camera] = nil
+        controller.written[camera] = nil
+    end
     return ok
 end
 
@@ -4472,8 +4485,18 @@ function memoryFX.camera.apply()
             controller.current = camera
             pcall(function()
                 local degrees = math.clamp(state.cameraFovDegrees, 55, 110)
-                if math.abs(camera.FieldOfView - degrees) > 0.01 then
-                    camera.FieldOfView = degrees
+                local current = camera.FieldOfView
+                local imposed = controller.written[camera]
+                -- Follow camera effects/zoom from the game as the new baseline.
+                if imposed ~= nil and math.abs(current - imposed) > 0.01 then
+                    controller.saved[camera] = current
+                    controller.written[camera] = nil
+                end
+                if math.abs(current - degrees) > 0.01 then
+                    pcall(function() camera.FieldOfView = degrees end)
+                    if math.abs(camera.FieldOfView - degrees) <= 0.01 then
+                        controller.written[camera] = degrees
+                    end
                 end
             end)
         end
@@ -7883,7 +7906,13 @@ function privateMusic.play(id)
     if type(id) ~= "string" or #id < 1 or #id > 19 or not id:match("^%d+$")
         or tonumber(id) == 0 then return false, "Укажи числовой Roblox Audio ID" end
     local ok, err = pcall(function()
-        if privateMusic.sound and privateMusic.currentId ~= id then privateMusic.stop() end
+        local soundService = game:GetService("SoundService")
+        -- Roblox can destroy/reparent our Sound while a saved ID remains.
+        -- Never reuse an unparented or externally replaced audio instance.
+        if privateMusic.sound and (privateMusic.currentId ~= id
+            or privateMusic.sound.Parent ~= soundService) then
+            privateMusic.stop()
+        end
         local sound = privateMusic.sound
         if not sound then
             sound = Instance.new("Sound")
@@ -7892,7 +7921,7 @@ function privateMusic.play(id)
             sound.SoundId = "rbxassetid://" .. id
             sound.Volume = math.clamp(state.musicVolume / 100, 0, 1)
             sound.Looped = state.musicLoop == true
-            sound.Parent = game:GetService("SoundService")
+            sound.Parent = soundService
             privateMusic.listeners[#privateMusic.listeners + 1] = sound.Loaded:Connect(function()
                 if alive and privateMusic.sound == sound then
                     privateMusic.statusText("Аудио загружено · ID " .. id)

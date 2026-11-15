@@ -1644,7 +1644,13 @@ function privateMusic.play(id)
     if type(id) ~= "string" or #id < 1 or #id > 19 or not id:match("^%d+$")
         or tonumber(id) == 0 then return false, "Укажи числовой Roblox Audio ID" end
     local ok, err = pcall(function()
-        if privateMusic.sound and privateMusic.currentId ~= id then privateMusic.stop() end
+        local soundService = game:GetService("SoundService")
+        -- Roblox can destroy/reparent our Sound while a saved ID remains.
+        -- Never reuse an unparented or externally replaced audio instance.
+        if privateMusic.sound and (privateMusic.currentId ~= id
+            or privateMusic.sound.Parent ~= soundService) then
+            privateMusic.stop()
+        end
         local sound = privateMusic.sound
         if not sound then
             sound = Instance.new("Sound")
@@ -1653,7 +1659,7 @@ function privateMusic.play(id)
             sound.SoundId = "rbxassetid://" .. id
             sound.Volume = math.clamp(state.musicVolume / 100, 0, 1)
             sound.Looped = state.musicLoop == true
-            sound.Parent = game:GetService("SoundService")
+            sound.Parent = soundService
             privateMusic.listeners[#privateMusic.listeners + 1] = sound.Loaded:Connect(function()
                 if alive and privateMusic.sound == sound then
                     privateMusic.statusText("Аудио загружено · ID " .. id)

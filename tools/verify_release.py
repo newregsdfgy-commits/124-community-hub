@@ -11,8 +11,8 @@ import re
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = "1.5.4"
-BRANCH = "v1.5.4-deep-audit-visibility-stability-test"
+VERSION = "1.5.5"
+BRANCH = "v1.5.5-deep-audit-camera-music-reliability-test"
 CHECK_COUNT = [0]
 
 
@@ -146,6 +146,12 @@ def main() -> int:
     launcher = (ROOT / "Start.lua").read_text(encoding="utf-8")
 
     check("Hub.lua and Visuals.lua are byte-identical", hub == visuals, failures)
+    check("Camera FOV ownership and external baseline retained",
+          'written = setmetatable({}, {__mode = "k"})' in hub
+          and 'controller.saved[camera] = current' in hub
+          and 'controller.written[camera] = nil' in hub, failures)
+    check("Local Sound destroyed externally is replaced before reuse",
+          'privateMusic.sound.Parent ~= soundService' in hub, failures)
     check("Generic UI actions reject hidden or disabled ancestors",
           'not uiVisibleThroughParents(control)' in hub
           and 'typeof(control) == "Instance"' in hub, failures)
@@ -227,7 +233,7 @@ def main() -> int:
               "local function aimFrame(dt)",
               "local function refreshESP()",
               "local function applyResponsiveLayout()")), failures)
-    check("Control Center v1.5.4 header label",
+    check("Control Center v1.5.5 header label",
           "CONTROL CENTER  •  v" in hub, failures)
     check("Premium UI 3.0 stable visual primitives",
           all(token in hub for token in (

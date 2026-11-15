@@ -1,3 +1,15 @@
+# RV_STATE — 124 Visuals v1.5.5 Camera FOV & Music Reliability (2026-11-15)
+
+- Candidate branch: `v1.5.5-deep-audit-camera-music-reliability-test`; base v1.5.4 `c9708a34538b0882fdb4e10e33b6a1537a12139f`.
+- FOV: weak-key written-value ownership, preserve external game FOV when disabling.
+- Music: recreate a Sound removed/reparented by game before same-ID replay.
+- Full 12-module build, pinned launcher and official Luau regression workflow.
+- New tests: `OwnershipRecovery155.test.cjs`, `build-ownership155-runtime.cjs`.
+- CI pending; real Roblox and Android QA unperformed.
+- See `AUDIT_DEEP_v1.5.5.md`.
+
+---
+
 # RV_STATE — 124 Visuals v1.5.4 Deep Audit / UI Visibility Stability (2026-11-15)
 
 - Branch: `v1.5.4-deep-audit-visibility-stability-test` from v1.5.3 at `1ac82f682367ae39bfb0f6f88d5609d96b42347f`; main and v1.5.3 preserved.
