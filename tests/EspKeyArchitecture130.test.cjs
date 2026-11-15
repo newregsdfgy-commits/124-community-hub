@@ -32,7 +32,7 @@ test("module bundle is byte-equivalent and 12 fragments appear in order", () => 
 });
 test("entrypoint version and launcher point to isolated test branch", () => {
     assert.match(hub, /Version = "1\.5\.9"/);
-    assert.match(launcher, /v1\.5\.9-full-audit-stability-fix-test\/Visuals\.lua/);
+    assert.match(launcher, /v1\.5\.9-esp-independent-range-controls-test\/Visuals\.lua/);
     assert.match(launcher, /Version = "1\.5\.9"/);
     assert.match(launcher, /ARMY124_START_RUNNING = true/);
     assert.match(launcher, /ARMY124_START_RUNNING = nil/);

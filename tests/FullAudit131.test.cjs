@@ -14,7 +14,7 @@ const hub = read("Hub.lua"), visuals = read("Visuals.lua"), start = read("Start.
 
 test("compiled release matches version and 12 modules", () => {
   assert.match(config, /Version = "1\.5\.9"/);
-  assert.match(start, /v1\.5\.9-full-audit-stability-fix-test\/Visuals\.lua/);
+  assert.match(start, /v1\.5\.9-esp-independent-range-controls-test\/Visuals\.lua/);
   assert.match(start, /Version = "1\.5\.9"/);
   assert.equal(hub, visuals);
   const names = ["00_config", "01_access_gate", "02_state_and_services",
