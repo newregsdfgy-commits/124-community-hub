@@ -5884,6 +5884,8 @@ local function applyResponsiveLayout()
         brandTitle.Position = UDim2.fromOffset(66, 14)
         brandTitle.Size = UDim2.fromOffset(wide and 150 or math.max(60, math.min(155, width - 190)), 23)
         brandTitle.TextSize = width < 340 and 12 or 16
+        -- On extremely narrow viewports the 42px Roblox window controls win.
+        brandTitle.Visible = width >= 280
     end
     if brandCaption then
         brandCaption.Position = UDim2.fromOffset(67, 38)
@@ -6934,17 +6936,21 @@ do
         Text = "", TextColor3 = P.text, TextSize = 13,
         Font = Enum.Font.GothamBold, ZIndex = 31,
     }, aimDock)
-    round(directButton, 7)
+    round(directButton, 9)
+    local directOutline = mk("UIStroke", {
+        Color = P.accent, Transparency = 0.74, Thickness = 1,
+    }, directButton)
     local counter = {presses = 0, released = 0, activated = 0,
         rejected = 0, source = "ready", error = ""}
     boosterPro.pinnedAimClickDebug = counter
     local function repaintPinned()
         local enabled = state.aimbot == true
         directButton.Text = enabled
-            and "AIM: ON  •  НАЖМИ ДЛЯ ВЫКЛЮЧЕНИЯ"
-            or "AIM: OFF  •  НАЖМИ ДЛЯ ВКЛЮЧЕНИЯ"
-        directButton.BackgroundColor3 = enabled and Color3.fromRGB(92, 51, 146)
-            or Color3.fromRGB(48, 38, 69)
+            and "AIM ON  •  ВЫКЛЮЧИТЬ"
+            or "AIM OFF  •  ВКЛЮЧИТЬ"
+        directButton.BackgroundColor3 = enabled and Color3.fromRGB(82, 55, 129)
+            or Color3.fromRGB(44, 39, 63)
+        directOutline.Transparency = enabled and 0.22 or 0.74
     end
     local previousAimUpdate = refreshToggles.aimbot
     refreshToggles.aimbot = function(...)
