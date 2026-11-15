@@ -10,10 +10,10 @@ const ui=read("src/08_ui_controls.lua");
 const hub=read("Hub.lua");
 const visuals=read("Visuals.lua");
 const launcher=read("Start.lua");
-test("v1.5.7 entrypoints, launcher and visual-only migration",()=>{
+test("v1.5.8 entrypoints, launcher and visual-only migration",()=>{
   assert.equal(hub,visuals);
-  assert.ok(hub.includes('Version = "1.5.7"'));
-  assert.ok(launcher.includes("v1.5.7-compact-esp-ui-test/Visuals.lua"));
+  assert.ok(hub.includes('Version = "1.5.8"'));
+  assert.ok(launcher.includes("v1.5.8-full-audit-stability-fix-test/Visuals.lua"));
   assert.match(tracker,/local function createRender\(player, character, head\)/);
   assert.match(tracker,/local function updatePlayer\(player, myRoot\)/);
   assert.match(overlays,/syncEspVisuals = function\(\)/);

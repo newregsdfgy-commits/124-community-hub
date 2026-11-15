@@ -1,11 +1,11 @@
--- 124 Visuals v1.5.7 | Compact Tactical ESP
+-- 124 Visuals v1.5.8 | Full Stability Audit & Movement/ESP Budget Fix
 -- Первый плейс: 18537079992. Запуск поддерживает все игровые PlaceId.
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.5.7",
+    Version = "1.5.8",
     OriginalPlaceId = 18537079992,
     EspRefreshSeconds = 0.35, -- Быстрый поиск персонажей, без обновления UI каждый кадр.
     EspEventMinSeconds = 0.18, -- Коалесцированные события не запускают 16 полных сканов/сек.
@@ -7408,12 +7408,21 @@ function movement.retryPending()
     return speedOK and autoRotateOK
 end
 
+-- A single protected/streaming BasePart must not disable Speed/Fly/Noclip.
+-- Readback covers setters that mutate CanCollide and then throw an error.
 function movement.recordPart(obj)
-    if not obj:IsA("BasePart") then return end
+    if not obj:IsA("BasePart") then return true end
+    local readOK, collides = pcall(function() return obj.CanCollide end)
+    if not readOK then return false end
     if movement.collisionOriginals[obj] == nil then
-        movement.collisionOriginals[obj] = obj.CanCollide
+        movement.collisionOriginals[obj] = collides
     end
-    if obj.CanCollide then obj.CanCollide = false end
+    if collides then
+        pcall(function() obj.CanCollide = false end)
+        local checked, after = pcall(function() return obj.CanCollide end)
+        return checked and after == false
+    end
+    return true
 end
 
 function movement.startNoclip(character)
@@ -7598,7 +7607,15 @@ function movement.step()
         if now >= movement.nextNoclipAt then
             movement.nextNoclipAt = now + 1 / CONFIG.MiscNoclipRefreshHz
             for part in pairs(movement.collisionOriginals) do
-                if part.Parent and part.CanCollide then part.CanCollide = false end
+                local existsOK, exists = pcall(function() return part.Parent ~= nil end)
+                if not existsOK or not exists then
+                    -- Drop destroyed parts rather than indefinitely retrying them.
+                    movement.collisionOriginals[part] = nil
+                else
+                    -- Isolate rejected setters; a single accessory must never
+                    -- turn off independent Speed/Fly controls.
+                    movement.recordPart(part)
+                end
             end
         end
     elseif movement.noclipCharacter then
@@ -9738,7 +9755,11 @@ perfCounters.espVisual.frame = function(dt)
         if tier ~= "ECO" and (not state.performanceGuard
             or perfCounters.guard.level == 0)
             and measuredFps >= CONFIG.EspCameraMotionMinFps
-            and os.clock() < motion.motionUntil then
+            and os.clock() < motion.motionUntil
+            -- Camera-motion boost must not override long-range 18/10Hz
+            -- budget in AUTO/BALANCED; explicit QUALITY still stays at 60Hz.
+            and (state.performanceMode == "QUALITY"
+                or state.espRangeMeters < CONFIG.EspLongRangeMeters) then
             hz = math.max(hz, CONFIG.EspCameraMotionVisualHz)
         end
         espVisualElapsed = espVisualElapsed + math.min(dt, 0.12)

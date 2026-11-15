@@ -1,3 +1,14 @@
+# RV_STATE — 124 Visuals v1.5.8 Full Stability Audit (2026-11-15)
+
+- Test branch `v1.5.8-full-audit-stability-fix-test` from v1.5.7 commit `6005ed702a0ca03ec16621e3f4e73e1e46ebb62c`.
+- Two source fixes: ESP camera-motion respects 350/700m AUTO long-range budgets;
+  Noclip per-part CanCollide setter failures no longer disable independent Speed/Fly.
+- Current Compact ESP appearance/toggles, AIM, Key, Player FX, music and Booster preserved.
+- New tests `DeepAudit158.test.cjs`, `build-stability158-runtime.cjs`.
+- CI pending, Roblox/Android client not tested. Details `AUDIT_DEEP_v1.5.8.md`.
+
+---
+
 # RV_STATE — 124 Visuals v1.5.7 Compact ESP (2026-11-15)
 
 - Base v1.5.6 `b752f64fff2aa74334eeb9625d791bf7baca8fc7`; patch branch `v1.5.7-compact-esp-ui-test`.

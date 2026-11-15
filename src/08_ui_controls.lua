@@ -1063,12 +1063,21 @@ function movement.retryPending()
     return speedOK and autoRotateOK
 end
 
+-- A single protected/streaming BasePart must not disable Speed/Fly/Noclip.
+-- Readback covers setters that mutate CanCollide and then throw an error.
 function movement.recordPart(obj)
-    if not obj:IsA("BasePart") then return end
+    if not obj:IsA("BasePart") then return true end
+    local readOK, collides = pcall(function() return obj.CanCollide end)
+    if not readOK then return false end
     if movement.collisionOriginals[obj] == nil then
-        movement.collisionOriginals[obj] = obj.CanCollide
+        movement.collisionOriginals[obj] = collides
     end
-    if obj.CanCollide then obj.CanCollide = false end
+    if collides then
+        pcall(function() obj.CanCollide = false end)
+        local checked, after = pcall(function() return obj.CanCollide end)
+        return checked and after == false
+    end
+    return true
 end
 
 function movement.startNoclip(character)
@@ -1253,7 +1262,15 @@ function movement.step()
         if now >= movement.nextNoclipAt then
             movement.nextNoclipAt = now + 1 / CONFIG.MiscNoclipRefreshHz
             for part in pairs(movement.collisionOriginals) do
-                if part.Parent and part.CanCollide then part.CanCollide = false end
+                local existsOK, exists = pcall(function() return part.Parent ~= nil end)
+                if not existsOK or not exists then
+                    -- Drop destroyed parts rather than indefinitely retrying them.
+                    movement.collisionOriginals[part] = nil
+                else
+                    -- Isolate rejected setters; a single accessory must never
+                    -- turn off independent Speed/Fly controls.
+                    movement.recordPart(part)
+                end
             end
         end
     elseif movement.noclipCharacter then

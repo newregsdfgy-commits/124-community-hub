@@ -13,8 +13,8 @@ const recoil = hub.slice(hub.indexOf("local recoil = (function()"),
 
 test("mirrors, launch version, previous functions retained", () => {
     assert.equal(hub, visuals);
-    assert.match(hub, /Version = "1\.5\.7"/);
-    assert.match(launcher, /v1\.5\.7-compact-esp-ui-test\/Visuals\.lua/);
+    assert.match(hub, /Version = "1\.5\.8"/);
+    assert.match(launcher, /v1\.5\.8-full-audit-stability-fix-test\/Visuals\.lua/);
     for (const expected of ["local function aimFrame(dt)", "local function refreshESP()",
         "function boosterPro.restoreGraphicsSliced(", "CONTROL CENTER  •  v",
         "local function shutdownRecoilControl()", "local function recoilFrame(dt)",

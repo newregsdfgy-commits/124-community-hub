@@ -11,8 +11,8 @@ import re
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = "1.5.7"
-BRANCH = "v1.5.7-compact-esp-ui-test"
+VERSION = "1.5.8"
+BRANCH = "v1.5.8-full-audit-stability-fix-test"
 CHECK_COUNT = [0]
 
 
@@ -146,6 +146,15 @@ def main() -> int:
     launcher = (ROOT / "Start.lua").read_text(encoding="utf-8")
 
     check("Hub.lua and Visuals.lua are byte-identical", hub == visuals, failures)
+    check("Long-range ESP motion boost respects AUTO/ECO budget",
+          'state.performanceMode == "QUALITY"' in hub
+          and 'or state.espRangeMeters < CONFIG.EspLongRangeMeters' in hub
+          and 'hz = math.max(hz, CONFIG.EspCameraMotionVisualHz)' in hub, failures)
+    check("One denied Noclip part never disables Speed/Fly",
+          'local readOK, collides = pcall(function() return obj.CanCollide end)' in hub
+          and 'return checked and after == false' in hub
+          and 'movement.recordPart(part)' in hub
+          and 'movement.collisionOriginals[part] = nil' in hub, failures)
     check("Compact ESP constants and behavior preserved",
           'EspLabelWidth = 116' in hub and 'EspLabelHeight = 29' in hub
           and 'EspCompactDetailsMaxMeters = 90' in hub
@@ -256,7 +265,7 @@ def main() -> int:
               "local function aimFrame(dt)",
               "local function refreshESP()",
               "local function applyResponsiveLayout()")), failures)
-    check("Control Center v1.5.7 header label",
+    check("Control Center v1.5.8 header label",
           "CONTROL CENTER  •  v" in hub, failures)
     check("Premium UI 3.0 stable visual primitives",
           all(token in hub for token in (

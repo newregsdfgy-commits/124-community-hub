@@ -128,7 +128,11 @@ perfCounters.espVisual.frame = function(dt)
         if tier ~= "ECO" and (not state.performanceGuard
             or perfCounters.guard.level == 0)
             and measuredFps >= CONFIG.EspCameraMotionMinFps
-            and os.clock() < motion.motionUntil then
+            and os.clock() < motion.motionUntil
+            -- Camera-motion boost must not override long-range 18/10Hz
+            -- budget in AUTO/BALANCED; explicit QUALITY still stays at 60Hz.
+            and (state.performanceMode == "QUALITY"
+                or state.espRangeMeters < CONFIG.EspLongRangeMeters) then
             hz = math.max(hz, CONFIG.EspCameraMotionVisualHz)
         end
         espVisualElapsed = espVisualElapsed + math.min(dt, 0.12)
