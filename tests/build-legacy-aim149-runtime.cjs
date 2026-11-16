@@ -8,7 +8,8 @@ function extract(a,b) {
 }
 const rig=extract("local function aimPart(character, name)","local function sameTeam(");
 const prediction=extract("local function predictedPoint(part)","local function signedAngle(");
-const findTarget=extract("local function findAimTarget(camera)","local function isRobloxMenuOpen()");
+const findTarget=extract("local function aimCandidateBefore(a, b)","local function isRobloxMenuOpen()");
+assert.ok(findTarget.includes("local function findAimTarget(camera)"), "Missing target selector");
 
 
 const program=String.raw`
@@ -72,7 +73,7 @@ do
     local ch={FindFirstChild=function(self,key)
         if key=="UpperTorso" then return {Position=vec(0,0,0),IsA=function() return true end} end
     end}
-    local player={Parent=Players,Character=ch,rank=1}
+    local player={Parent=Players,Character=ch,rank=1,UserId=1}
     perfCounters.roster={player}
     aimTarget={player=player,character=ch,part=good}
     local blocked=findAimTarget(camera)
@@ -90,14 +91,31 @@ do
     table.clear(perfCounters.roster)
     for i=1,15 do
         local c={FindFirstChild=ch.FindFirstChild}
-        perfCounters.roster[i]={Parent=Players,Character=c,rank=i}
+        perfCounters.roster[i]={Parent=Players,Character=c,rank=i,UserId=i}
     end
     losChecks=0
     local result=findAimTarget(camera)
     assert(result==nil and losChecks==8,"too many LOS raycasts in dense server")
+    -- Exercise the actual selector, both sorted LOS and streaming minimum paths.
+    local low={Parent=Players,Character=ch,rank=4,UserId=10}
+    local high={Parent=Players,Character=ch,rank=4,UserId=20}
+    visible=true
+    state.targetLock=false
+    for _,withLOS in ipairs({true,false}) do
+        state.visibleCheck=withLOS
+        for _,roster in ipairs({{high,low},{low,high}}) do
+            perfCounters.roster=roster
+            local selected=findAimTarget(camera)
+            assert(selected and selected.player==low,
+                "equal-score priority must use UserId, independent of roster/LOS")
+        end
+    end
+    low.rank=5
+    assert(findAimTarget(camera).player==high,"score must precede UserId")
+    print("LUAU AIM EQUAL SCORE PASS: UserId tie-break in both LOS modes")
     print("LUAU AIM LOCK/LOS PASS: no wall tracking, transient hold, 8-candidate cap")
 end
 
 `;
-fs.writeFileSync("/tmp/Army124-LegacyAim149.luau",program,"utf8");
+fs.writeFileSync(process.argv[2] || "/tmp/Army124-LegacyAim149.luau",program,"utf8");
 console.log("Generated extracted production Luau legacy AIM targeting regression");
