@@ -29,8 +29,8 @@ test("new settings are saved, validated and editable",()=>{
  assert.match(ui,/"playerAuraQuality", function\(\) playerFX\.syncAvatar\(\) end/);
  assert.match(ui,/"playerGlowPulse", function\(\) playerFX\.syncAvatar\(\) end/);
 });
-test("v1.5.9 launcher and source bundles are consistent",()=>{
- assert.match(read("Start.lua"),/v1\.5\.9-esp-independent-range-controls-test\/Visuals\.lua/);
+test("v1.6.0 launcher and source bundles are consistent",()=>{
+ assert.match(read("Start.lua"),/v1\.6\.0-aim-rework-test\/Visuals\.lua/);
  assert.equal(read("Hub.lua"),read("Visuals.lua"));
- assert.match(read("Hub.lua"),/Version = "1\.5\.9"/);
+ assert.match(read("Hub.lua"),/Version = "1\.6\.0"/);
 });

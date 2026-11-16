@@ -11,8 +11,8 @@ import re
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = "1.5.9"
-BRANCH = "v1.5.9-esp-independent-range-controls-test"
+VERSION = "1.6.0"
+BRANCH = "v1.6.0-aim-rework-test"
 CHECK_COUNT = [0]
 
 
@@ -274,7 +274,7 @@ def main() -> int:
               "local function aimFrame(dt)",
               "local function refreshESP()",
               "local function applyResponsiveLayout()")), failures)
-    check("Control Center v1.5.9 header label",
+    check("Control Center v1.6.0 header label",
           "CONTROL CENTER  •  v" in hub, failures)
     check("Premium UI 3.0 stable visual primitives",
           all(token in hub for token in (
@@ -372,13 +372,13 @@ def main() -> int:
           "input.Focused:Connect(function() moveForKeyboard(true) end)" in hub,
           failures)
     check("Same source bundle as 12 source modules",
-          hub == b"".join((ROOT / "src" / name).read_bytes() for name in (
+          (ROOT / "Hub.lua").read_bytes() == b"".join((ROOT / "src" / name).read_bytes() for name in (
               "00_config.lua", "01_access_gate.lua", "02_state_and_services.lua",
               "03_esp_tracker.lua", "04_lighting_and_booster.lua",
               "05_weapons_and_recoil.lua", "05_player_visuals.lua", "06_gui_runtime.lua",
               "07_esp_overlays.lua", "08_ui_controls.lua",
               "09_misc_and_diagnostics.lua", "10_run_and_cleanup.lua"
-          )).decode("utf-8"), failures)
+          )), failures)
     check("ESP local respawn retains existing overlays",
           "if not myRoot then" in hub and
           "if isLive(item.highlight) then item.highlight.Enabled = false end" in hub and

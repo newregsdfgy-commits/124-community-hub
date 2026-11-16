@@ -12,8 +12,8 @@ test("generic UI actions reject disabled and hidden Roblox ancestors",()=>{
     assert.match(gui,/if current:IsA\("GuiObject"\) and not current.Visible then return false end/);
     assert.match(gui,/if current:IsA\("ScreenGui"\) then return current.Enabled end/);
 });
-test("v1.5.9 bundles and launcher are aligned",()=>{
+test("v1.6.0 bundles and launcher are aligned",()=>{
     assert.equal(hub,visuals);
-    assert.ok(hub.includes('Version = "1.5.9"'));
-    assert.ok(launcher.includes("v1.5.9-esp-independent-range-controls-test/Visuals.lua"));
+    assert.ok(hub.includes('Version = "1.6.0"'));
+    assert.ok(launcher.includes("v1.6.0-aim-rework-test/Visuals.lua"));
 });

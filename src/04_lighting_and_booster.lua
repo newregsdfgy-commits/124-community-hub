@@ -951,14 +951,25 @@ end
 local function predictedPoint(part)
     local point = part.Position
     if not state.prediction then return point end
+    local seconds = state.predictionSeconds
+    if type(seconds) ~= "number" or seconds ~= seconds
+        or seconds < 0 or seconds == math.huge then return point end
     local ok, velocity = pcall(function() return part.AssemblyLinearVelocity end)
     if ok and typeof(velocity) == "Vector3" then
-        local offset = velocity * state.predictionSeconds
+        if velocity.X ~= velocity.X or velocity.Y ~= velocity.Y or velocity.Z ~= velocity.Z
+            or math.abs(velocity.X) == math.huge or math.abs(velocity.Y) == math.huge
+            or math.abs(velocity.Z) == math.huge then return point end
+        local offset = velocity * seconds
         local distance = offset.Magnitude
+        if distance ~= distance or distance == math.huge then return point end
         if distance > CONFIG.AimPredictionMaxStuds then
             offset = offset * (CONFIG.AimPredictionMaxStuds / distance)
         end
-        point = point + offset
+        local predicted = point + offset
+        if predicted.X ~= predicted.X or predicted.Y ~= predicted.Y or predicted.Z ~= predicted.Z
+            or math.abs(predicted.X) == math.huge or math.abs(predicted.Y) == math.huge
+            or math.abs(predicted.Z) == math.huge then return point end
+        point = predicted
     end
     return point
 end
@@ -986,6 +997,13 @@ local function examineTarget(camera, player, part, myRoot, center, fovLimit, wit
     if withLos and not canSee(camera, point, character) then return nil end
     return {player = player, part = part, character = character,
         humanoid = hum, pixelsSquared = pixelSquared}
+end
+
+local function aimCandidateBefore(a, b)
+    if a.pixelsSquared ~= b.pixelsSquared then
+        return a.pixelsSquared < b.pixelsSquared
+    end
+    return a.player.UserId < b.player.UserId
 end
 
 local function findAimTarget(camera)
@@ -1036,7 +1054,7 @@ local function findAimTarget(camera)
                 if found then
                     if state.visibleCheck then
                         candidates[#candidates + 1] = found
-                    elseif not best or found.pixelsSquared < best.pixelsSquared then
+                    elseif not best or aimCandidateBefore(found, best) then
                         best = found
                     end
                 end
@@ -1044,7 +1062,7 @@ local function findAimTarget(camera)
         end
     end
     if not state.visibleCheck then return done(best) end
-    table.sort(candidates, function(a, b) return a.pixelsSquared < b.pixelsSquared end)
+    table.sort(candidates, aimCandidateBefore)
     local tested = 0
     for _, candidate in ipairs(candidates) do
         if tested >= CONFIG.AimLosCandidatesPerScan then break end
@@ -1066,6 +1084,11 @@ local function isRobloxMenuOpen()
 end
 
 local function aimFrame(dt)
+    local camera = Workspace.CurrentCamera
+    if aimPro.camera ~= camera then
+        aimPro.reset()
+        aimPro.camera = camera
+    end
     -- Отсутствие Tool — абсолютный запрет движения камеры, даже при F6/ПКМ/touch.
     if not alive or not state.aimbot or not (aimHeldMouse or aimHeldTouch or aimHeldKey)
         or not aimPro.equippedTool() then
@@ -1077,7 +1100,6 @@ local function aimFrame(dt)
         return
     end
     if UserInputService:GetFocusedTextBox() ~= nil then return end
-    local camera = Workspace.CurrentCamera
     if not camera then aimTarget = nil; return end
     local now = os.clock()
     local tier = perfTier()
