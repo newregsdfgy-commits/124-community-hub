@@ -11,8 +11,8 @@ import re
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = "1.6.1"
-BRANCH = "v1.6.1-stability-audit-test"
+VERSION = "1.6.2"
+BRANCH = "v1.6.2-esp-aim-stability-test"
 CHECK_COUNT = [0]
 
 
@@ -274,7 +274,7 @@ def main() -> int:
               "local function aimFrame(dt)",
               "local function refreshESP()",
               "local function applyResponsiveLayout()")), failures)
-    check("Control Center v1.6.1 header label",
+    check("Control Center v1.6.2 header label",
           "CONTROL CENTER  •  v" in hub, failures)
     check("Premium UI 3.0 stable visual primitives",
           all(token in hub for token in (
