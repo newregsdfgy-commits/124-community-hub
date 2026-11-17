@@ -1,15 +1,16 @@
--- 124 Visuals v1.6.0 | Independent ESP Visibility Ranges
+-- 124 Visuals v1.6.1 | Stability / Frame Pacing / Performance Guard
 -- Первый плейс: 18537079992. Запуск поддерживает все игровые PlaceId.
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.6.0",
+    Version = "1.6.1",
     OriginalPlaceId = 18537079992,
     EspRefreshSeconds = 0.35, -- Быстрый поиск персонажей, без обновления UI каждый кадр.
     EspEventMinSeconds = 0.18, -- Коалесцированные события не запускают 16 полных сканов/сек.
     EspMaxPlayers = 64, -- Видимый, настраиваемый лимит вместо скрытого TOP 6/12.
+    EspNewRendersPerScan = 4, -- Budget expensive Billboard/Highlight creation.
     EspRangeMinMeters = 10,
     EspRangeMaxMeters = 1000,
     EspRangeStepMeters = 5,
@@ -77,6 +78,7 @@ local CONFIG = {
     SpreadEventMinSeconds = 0.05, -- Не чаще 20 реактивных проверок в секунду.
     SpreadDiscoverySeconds = 3.0, -- Обнаружить новые атрибуты и переименованные параметры.
     SpreadDiscoveryBatch = 48, -- Ограничение работы одного обновления.
+    SpreadDiscoveryStepDelay = 0.05, -- Small async discovery steps.
     SpreadShotRecheckSeconds = 0.18,
     SpreadPostShotSeconds = 0.06,
     SpreadMaxWritableValue = 1000000,
@@ -117,6 +119,7 @@ local CONFIG = {
     GuardLowFps = 39, GuardCriticalFps = 29,
     GuardRecoveryFps = 55, GuardLowSamples = 3,
     GuardRecoverSamples = 8, GuardMinStepSeconds = 12,
+    GuardEscalateSeconds = 3, -- Fast degradation, careful recovery.
     GuardEspMaxL1 = 6, GuardEspMaxL2 = 4,
     GuardShapeMaxL1 = 4, GuardShapeMaxL2 = 2,
     GuardVisualHzL1 = 12, GuardVisualHzL2 = 8,
@@ -684,7 +687,7 @@ function perfCounters.guard.update(fps, spikes)
         end
         return
     end
-    if type(fps) ~= "number" or fps <= 0 then return end
+    if type(fps) ~= "number" or fps <= 0 or fps ~= fps or fps == math.huge then return end
     -- Three sustained readings to step down; eight good readings to
     -- step UP. The guard is reversible and never modifies profile settings.
     -- Sustained 50ms+ frametime spikes matter even if average FPS looks fine.
@@ -694,7 +697,6 @@ function perfCounters.guard.update(fps, spikes)
         and g.critical + 1 or 0
     g.good = (fps >= CONFIG.GuardRecoveryFps and stutters == 0)
         and g.good + 1 or 0
-    if os.clock() - g.changed < CONFIG.GuardMinStepSeconds then return end
     local nextLevel = g.level
     if g.level < 2 and g.critical >= CONFIG.GuardLowSamples then
         nextLevel = 2
@@ -703,8 +705,14 @@ function perfCounters.guard.update(fps, spikes)
     elseif g.level > 0 and g.good >= CONFIG.GuardRecoverSamples then
         nextLevel = g.level - 1
     end
+    local now = os.clock()
+    -- Critical stutters must not wait 12 seconds before entering ECO.
+    -- Keep the longer dwell only for recovery to avoid oscillations.
+    if nextLevel < g.level and now - g.changed < CONFIG.GuardMinStepSeconds then return end
+    if nextLevel > g.level and g.level > 0
+        and now - g.changed < CONFIG.GuardEscalateSeconds then return end
     if nextLevel ~= g.level then
-        g.level, g.changed = nextLevel, os.clock()
+        g.level, g.changed = nextLevel, now
         g.low, g.critical, g.good = 0, 0, 0
     end
 end
@@ -1105,7 +1113,17 @@ end
 -- AUTO/ECO now controls refresh frequency and 2D geometry only: it must
 -- never silently remove nearby players from the configured ESP radius.
 local function espLimit()
-    return math.clamp(math.floor(state.espMaxTargets or CONFIG.EspMaxPlayers), 8, 96)
+    local configured = math.clamp(math.floor(state.espMaxTargets or CONFIG.EspMaxPlayers), 8, 96)
+    -- Guard is opt-in. Restrict expensive visible GUI while retaining the
+    -- user's saved target limit for automatic recovery.
+    if state.performanceGuard then
+        if perfCounters.guard.level == 2 then
+            return math.min(configured, CONFIG.GuardEspMaxL2)
+        elseif perfCounters.guard.level == 1 then
+            return math.min(configured, CONFIG.GuardEspMaxL1)
+        end
+    end
+    return configured
 end
 
 -- StreamingEnabled may give us Head or Torso before HumanoidRootPart.
@@ -1246,7 +1264,7 @@ local function setIfDifferent(instance, property, value)
     if instance[property] ~= value then instance[property] = value end
 end
 
-local function updatePlayer(player, myRoot)
+local function updatePlayer(player, myRoot, allowCreate)
     if not state.esp or player.Parent ~= Players then
         deleteRender(player)
         return
@@ -1264,7 +1282,12 @@ local function updatePlayer(player, myRoot)
         deleteRender(player)
         item = nil
     end
-    if not item then item = createRender(player, character, head) end
+    local created = false
+    if not item then
+        if not allowCreate then return false end
+        item = createRender(player, character, head)
+        created = true
+    end
     -- Кешируем части, которые рендерятся чаще, чем обновляется список игроков.
     item.head, item.root, item.humanoid = head, root, hum
     local strokeAlpha = referenceStrokeEnabled and 0.80 or 1
@@ -1363,6 +1386,7 @@ local function updatePlayer(player, myRoot)
     item.lastTeam = player.Team
     item.lastTeamColor = player.TeamColor
     item.lastDisplayName = player.DisplayName
+    return created
 end
 
 local function sameTeamESP(player)
@@ -1391,6 +1415,7 @@ local function refreshESP()
         perfCounters.espVisual.eligible = 0
         perfCounters.espVisual.omitted = 0
         perfCounters.espVisual.missing = 0
+        perfCounters.espVisual.deferredCreates = 0
         return
     end
     local character = LocalPlayer.Character
@@ -1411,6 +1436,7 @@ local function refreshESP()
         perfCounters.espVisual.eligible = 0
         perfCounters.espVisual.omitted = 0
         perfCounters.espVisual.missing = 0
+        perfCounters.espVisual.deferredCreates = 0
         return
     end
     -- Рисуем ближайших, чтобы не создавать десятки дорогих Highlight.
@@ -1461,22 +1487,33 @@ local function refreshESP()
     perfCounters.espVisual.eligible = #candidates
     perfCounters.espVisual.omitted = #candidates - limit
     perfCounters.espVisual.missing = missingParts
+    perfCounters.espVisual.deferredCreates = 0
+    local createBudget = CONFIG.EspNewRendersPerScan
+    if state.performanceGuard and perfCounters.guard.level > 0 then
+        createBudget = math.min(createBudget, 2)
+    end
     for i = 1, limit do
         local player = candidates[i].player
         keep[player] = true
-        -- One broken/streaming avatar must not abort the entire ESP scan.
-        local ok, err = pcall(updatePlayer, player, myRoot)
+        -- Distribute heavyweight GUI allocation over several scans.
+        local ok, createdOrError = pcall(updatePlayer, player, myRoot, createBudget > 0)
         if not ok then
             deleteRender(player)
             perfCounters.espVisual.renderFailures = perfCounters.espVisual.renderFailures + 1
             local now = os.clock()
             if now - perfCounters.espVisual.scanErrorAt > 3 then
                 warn("[124 Community Visuals] ESP player " .. tostring(player.UserId)
-                    .. ": " .. tostring(err))
+                    .. ": " .. tostring(createdOrError))
                 perfCounters.espVisual.scanErrorAt = now
             end
+        elseif createdOrError then
+            createBudget = createBudget - 1
         end
-        if renderData[player] then ordered[#ordered + 1] = player end
+        if renderData[player] then
+            ordered[#ordered + 1] = player
+        else
+            perfCounters.espVisual.deferredCreates = perfCounters.espVisual.deferredCreates + 1
+        end
     end
     local now, cached = os.clock(), 0
     for player, item in pairs(renderData) do
@@ -3126,9 +3163,9 @@ function controller.applySpread()
             spread.currentTool = nil -- Следующее событие сможет повторить индексацию.
             return 0
         end
-        for _, descendant in ipairs(descendants) do
-            registerSpreadCandidate(descendant)
-        end
+        -- Scan attributes progressively: custom Tools can contain many parts.
+        spread.discoveryList = descendants
+        spread.discoveryIndex = 1
         spread.nextDiscoveryAt = os.clock() + CONFIG.SpreadDiscoverySeconds
     elseif spread.discoveryList == nil and os.clock() >= spread.nextDiscoveryAt then
         -- Атрибут Spread может появиться у уже существующего объекта:
@@ -3155,6 +3192,15 @@ function controller.applySpread()
             spread.discoveryList = nil
             spread.discoveryIndex = 1
         end
+    end
+    if spread.discoveryList then
+        local generation = spread.generation
+        task.delay(CONFIG.SpreadDiscoveryStepDelay, function()
+            if alive and state.noSpread and recoilTool == tool
+                and spread.generation == generation and not spread.applying then
+                safeApplySpread()
+            end
+        end)
     end
     local changed = 0
     local function patch(instance)
@@ -3429,7 +3475,7 @@ local function recoilFrame(dt)
         local now = os.clock()
         if now >= controller.spread.nextCheckAt then
             controller.spread.nextCheckAt = now + CONFIG.SpreadVerificationSeconds
-            safeApplySpread()
+            queueSpreadRefresh() -- Avoid heavy scanning in RenderStep.
         end
     end
     -- OFF: нулевые вычисления углов камеры.
@@ -3459,16 +3505,7 @@ local function recoilFrame(dt)
         controller.lastRecoilStatus = "первый кадр камеры"
         return
     end
-    if isRobloxMenuOpen() or UserInputService:GetFocusedTextBox() ~= nil then
-        controller.lastRecoilStatus = "интерфейс в фокусе"
-        return
-    end
-    -- AIM owns the camera during active aiming, even when the target was
-    -- just lost. Avoid alternating camera writers on intermittent LOS loss.
-    if state.aimbot and (aimHeldMouse or aimHeldTouch or aimHeldKey) then
-        controller.lastRecoilStatus = "камера управляется AIM"
-        return
-    end
+    -- Idle recoil should not inspect GUI every render frame.
     local now = os.clock()
     local fireInputHeld = recoilFireInput ~= nil
     -- Tool.Activated бывает без InputBegan (обработанный ввод в gun framework).
@@ -3485,6 +3522,16 @@ local function recoilFrame(dt)
                 or CONFIG.RecoilOrphanHoldSeconds))
     if not firing then
         controller.lastRecoilStatus = "нет подтверждения стрельбы"
+        return
+    end
+    if isRobloxMenuOpen() or UserInputService:GetFocusedTextBox() ~= nil then
+        controller.lastRecoilStatus = "интерфейс в фокусе"
+        return
+    end
+    -- Reserve camera only when an AIM-compatible Tool is actually equipped.
+    if state.aimbot and (aimHeldMouse or aimHeldTouch or aimHeldKey)
+        and aimPro.equippedTool() then
+        controller.lastRecoilStatus = "камера управляется AIM"
         return
     end
     if dt <= 0 or dt > CONFIG.RecoilMaxFrameSeconds then
@@ -7015,6 +7062,7 @@ addButton(pages.ESP, "Диагностика ESP",
             .. " | Ошибки отрисовки/подписок "
             .. tostring(info.renderFailures) .. "/" .. tostring(info.watcherFailures)
             .. " | Лимит " .. tostring(espLimit())
+            .. " | Отложено GUI " .. tostring(perfCounters.espVisual.deferredCreates or 0)
             .. " | Возраст скана " .. string.format("%.2f", math.max(0,
                 os.clock() - info.lastScanAt)) .. " сек")
     end)
