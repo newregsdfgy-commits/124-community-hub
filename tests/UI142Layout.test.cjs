@@ -11,9 +11,9 @@ const hub=read("Hub.lua"), mirrored=read("Visuals.lua");
 const start=read("Start.lua");
 
 test("v1.4.2 branch and payload version align",()=>{
-    assert.match(hub,/Version = "1\.6\.1"/);
-    assert.match(start,/v1\.6\.1-stability-audit-test\/Visuals\.lua/);
-    assert.match(start,/Version = "1\.6\.1"/);
+    assert.match(hub,/Version = "1\.6\.2"/);
+    assert.match(start,/v1\.6\.2-esp-aim-stability-test\/Visuals\.lua/);
+    assert.match(start,/Version = "1\.6\.2"/);
 });
 test("12-module deterministic build remains byte-identical",()=>{
     const names=["00_config.lua","01_access_gate.lua","02_state_and_services.lua",

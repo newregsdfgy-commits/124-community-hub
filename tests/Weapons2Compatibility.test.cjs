@@ -13,8 +13,8 @@ const recoil = hub.slice(hub.indexOf("local recoil = (function()"),
 
 test("mirrors, launch version, previous functions retained", () => {
     assert.equal(hub, visuals);
-    assert.match(hub, /Version = "1\.6\.1"/);
-    assert.match(launcher, /v1\.6\.1-stability-audit-test\/Visuals\.lua/);
+    assert.match(hub, /Version = "1\.6\.2"/);
+    assert.match(launcher, /v1\.6\.2-esp-aim-stability-test\/Visuals\.lua/);
     for (const expected of ["local function aimFrame(dt)", "local function refreshESP()",
         "function boosterPro.restoreGraphicsSliced(", "CONTROL CENTER  •  v",
         "local function shutdownRecoilControl()", "local function recoilFrame(dt)",
@@ -61,7 +61,7 @@ test("reactive and periodic spread updates are fault-isolated", () => {
 });
 test("recoil respects camera owner and only corrects during fire", () => {
     assert.match(recoil, /recoilTool == nil or recoilTool\.Parent ~= LocalPlayer\.Character/);
-    assert.match(recoil, /if state\.aimbot and \(aimHeldMouse or aimHeldTouch or aimHeldKey\)/);
+    assert.match(recoil, /if aimPro\.wroteCamera then/);
     assert.match(recoil, /if not firing then/);
     assert.match(recoil, /if dt <= 0 or dt > CONFIG\.RecoilMaxFrameSeconds then/);
     assert.match(recoil, /camera\.CFrame = camera\.CFrame \* CFrame\.Angles/);
