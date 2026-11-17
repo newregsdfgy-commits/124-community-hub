@@ -15,7 +15,7 @@ test("v1.6.1 entrypoints, launcher and visual-only migration",()=>{
   assert.ok(hub.includes('Version = "1.6.1"'));
   assert.ok(launcher.includes("v1.6.1-stability-audit-test/Visuals.lua"));
   assert.match(tracker,/local function createRender\(player, character, head\)/);
-  assert.match(tracker,/local function updatePlayer\(player, myRoot\)/);
+  assert.match(tracker,/local function updatePlayer\(player, myRoot, allowCreate\)/);
   assert.match(overlays,/syncEspVisuals = function\(\)/);
 });
 test("new Tactical ESP chips preserve all independent label controls",()=>{
