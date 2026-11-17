@@ -9,10 +9,10 @@ const config=read("src/00_config.lua");
 const ui=read("src/08_ui_controls.lua");
 const launcher=read("Start.lua");
 const hub=read("Hub.lua");
-test("v1.6.1 compact release and exact branch-pinned loader",()=>{
+test("v1.6.2 compact release and exact branch-pinned loader",()=>{
  assert.equal(hub,read("Visuals.lua"));
- assert.match(hub,/Version = "1\.6\.1"/);
- assert.ok(launcher.includes("v1.6.1-stability-audit-test/Visuals.lua"));
+ assert.match(hub,/Version = "1\.6\.2"/);
+ assert.ok(launcher.includes("v1.6.2-esp-aim-stability-test/Visuals.lua"));
 });
 test("billboard bounds reduced by at least a third in each dimension",()=>{
  assert.match(config,/EspLabelWidth = 116/);

@@ -10,10 +10,10 @@ const ui=read("src/08_ui_controls.lua");
 const hub=read("Hub.lua");
 const visuals=read("Visuals.lua");
 const launcher=read("Start.lua");
-test("v1.6.1 entrypoints, launcher and visual-only migration",()=>{
+test("v1.6.2 entrypoints, launcher and visual-only migration",()=>{
   assert.equal(hub,visuals);
-  assert.ok(hub.includes('Version = "1.6.1"'));
-  assert.ok(launcher.includes("v1.6.1-stability-audit-test/Visuals.lua"));
+  assert.ok(hub.includes('Version = "1.6.2"'));
+  assert.ok(launcher.includes("v1.6.2-esp-aim-stability-test/Visuals.lua"));
   assert.match(tracker,/local function createRender\(player, character, head\)/);
   assert.match(tracker,/local function updatePlayer\(player, myRoot, allowCreate\)/);
   assert.match(overlays,/syncEspVisuals = function\(\)/);
@@ -39,7 +39,7 @@ test("corner-box replaces four full edges with eight re-used partial segments",(
   assert.match(overlays,/drawCornerBox\(item, top, bottom, state\.espLineThickness, getPlayerColor\(player\)\)/);
   assert.match(cfg,/ShapeNewLinesPerDraw = 12/);
   assert.match(overlays,/local budget = tier == "ECO"/);
-  assert.match(overlays,/if state\.performanceGuard and perfCounters\.guard\.level == 2/);
+  assert.doesNotMatch(overlays,/budget = math\.min\(budget, CONFIG\.GuardShapeMaxL/);
 });
 test("original ESP switches, team colors, range, tracer and cleanup remain",()=>{
   for(const flag of ["esp","tracers","espBox","names","health","distance",

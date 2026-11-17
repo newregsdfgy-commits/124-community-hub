@@ -9,10 +9,10 @@ const render=read("src/10_run_and_cleanup.lua");
 const tracker=read("src/03_esp_tracker.lua");
 const overlays=read("src/07_esp_overlays.lua");
 const hub=read("Hub.lua");
-test("v1.6.1 source bundles and loader are pinned to the same branch",()=>{
+test("v1.6.2 source bundles and loader are pinned to the same branch",()=>{
  assert.equal(hub,read("Visuals.lua"));
- assert.ok(hub.includes('Version = "1.6.1"'));
- assert.ok(read("Start.lua").includes("v1.6.1-stability-audit-test/Visuals.lua"));
+ assert.ok(hub.includes('Version = "1.6.2"'));
+ assert.ok(read("Start.lua").includes("v1.6.2-esp-aim-stability-test/Visuals.lua"));
 });
 test("ESP camera-motion boost cannot override long-distance AUTO budgets",()=>{
  assert.match(render,/and \(state\.performanceMode == "QUALITY"\s+or state\.espRangeMeters < CONFIG\.EspLongRangeMeters\)/);
