@@ -13,9 +13,9 @@ const hub=read("Hub.lua");
 const visuals=read("Visuals.lua");
 const launcher=read("Start.lua");
 
-test("v1.6.1 launcher and 12-source bundle match",()=>{
-    assert.match(hub,/Version = "1\.6\.1"/);
-    assert.match(launcher,/v1\.6\.1-stability-audit-test\/Visuals\.lua/);
+test("v1.6.2 launcher and 12-source bundle match",()=>{
+    assert.match(hub,/Version = "1\.6\.2"/);
+    assert.match(launcher,/v1\.6\.2-esp-aim-stability-test\/Visuals\.lua/);
     assert.equal(hub,visuals);
     const files=["00_config.lua","01_access_gate.lua","02_state_and_services.lua",
        "03_esp_tracker.lua","04_lighting_and_booster.lua","05_weapons_and_recoil.lua",
