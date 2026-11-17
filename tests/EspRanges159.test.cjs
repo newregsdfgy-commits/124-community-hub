@@ -11,10 +11,10 @@ const save=read("src/06_gui_runtime.lua");
 const overlays=read("src/07_esp_overlays.lua");
 const hub=read("Hub.lua");
 const keys=["espNameMaxMeters","espHealthMaxMeters","espDistanceMaxMeters","espBoxMaxMeters","espTracerMaxMeters"];
-test("v1.6.0 bundles, launcher and source fragments aligned",()=>{
+test("v1.6.1 bundles, launcher and source fragments aligned",()=>{
  assert.equal(hub,read("Visuals.lua"));
- assert.ok(hub.includes('Version = "1.6.0"'));
- assert.ok(read("Start.lua").includes("v1.6.0-aim-rework-test/Visuals.lua"));
+ assert.ok(hub.includes('Version = "1.6.1"'));
+ assert.ok(read("Start.lua").includes("v1.6.1-stability-audit-test/Visuals.lua"));
 });
 test("Five independent slider inputs use canonical ESP bounds and persistence",()=>{
  for(const key of keys){
