@@ -1084,6 +1084,8 @@ local function isRobloxMenuOpen()
 end
 
 local function aimFrame(dt)
+    -- Recoil runs after AIM. Never report stale ownership from an earlier frame.
+    aimPro.wroteCamera = false
     local camera = Workspace.CurrentCamera
     if aimPro.camera ~= camera then
         aimPro.reset()
@@ -1164,7 +1166,18 @@ local function aimFrame(dt)
         aimPro.blockedSince = 0
         aimPro.nextLos = now + losInterval
     end
-    local goal = CFrame.lookAt(origin, predictedPoint(part))
+    local predicted = predictedPoint(part)
+    local look = predicted - origin
+    local lengthSquared = look:Dot(look)
+    -- Prediction may move an otherwise valid target onto the camera origin.
+    -- CFrame.lookAt with a zero/invalid direction can poison the camera.
+    if lengthSquared ~= lengthSquared or lengthSquared <= 0.0025
+        or lengthSquared == math.huge then
+        aimTarget = nil
+        aimNextScan = math.min(aimNextScan, now + CONFIG.AimLostRescanSeconds)
+        return
+    end
+    local goal = CFrame.lookAt(origin, predicted)
     if state.aimSmoothness == 0 then
         camera.CFrame = goal
     else
@@ -1173,7 +1186,8 @@ local function aimFrame(dt)
         local cx, cy, cz = camera.CFrame:ToOrientation()
         local gx, gy = goal:ToOrientation()
         local speed = CONFIG.AimSmoothnessBaseline / state.aimSmoothness
-        local dtSafe = math.clamp(dt, 0, 0.05)
+        local dtSafe = type(dt) == "number" and dt == dt
+            and dt > 0 and dt < math.huge and math.clamp(dt, 0, 0.05) or 0
         local alphaX = math.clamp(1 - math.exp(-speed * state.aimSmoothX / 5 * dtSafe), 0, 1)
         local alphaY = math.clamp(1 - math.exp(-speed * state.aimSmoothY / 5 * dtSafe), 0, 1)
         local maxStep = math.rad(CONFIG.AimMaxTurnDegreesPerSecond) * dtSafe
@@ -1182,5 +1196,6 @@ local function aimFrame(dt)
         camera.CFrame = CFrame.new(origin) * CFrame.fromOrientation(
             cx + pitchStep, cy + yawStep, cz)
     end
+    aimPro.wroteCamera = true
 end
 

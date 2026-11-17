@@ -14,7 +14,19 @@ else
     connect(RunService.Heartbeat, memoryFX.spin.frame)
 end
 
-perfCounters.cpu.wrapped.AIM = perfCounters.cpu.instrument("AIM", aimFrame)
+local aimErrorAt = -math.huge
+local function safeAimFrame(dt)
+    local ok, err = pcall(aimFrame, dt)
+    if not ok then
+        aimPro.reset() -- A failed frame must never retain stale camera ownership.
+        local now = os.clock()
+        if now - aimErrorAt >= 3 then
+            aimErrorAt = now
+            warn("[124 Visuals] AIM frame: " .. tostring(err))
+        end
+    end
+end
+perfCounters.cpu.wrapped.AIM = perfCounters.cpu.instrument("AIM", safeAimFrame)
 perfCounters.cpu.wrapped.Recoil = perfCounters.cpu.instrument("Recoil", recoil.frame)
 perfCounters.cpu.wrapped.ESPScan = perfCounters.cpu.instrument("ESP Scan", refreshESP)
 local okBind, errBind = pcall(function()

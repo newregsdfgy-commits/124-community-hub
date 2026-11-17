@@ -600,9 +600,9 @@ local function recoilFrame(dt)
         controller.lastRecoilStatus = "интерфейс в фокусе"
         return
     end
-    -- Reserve camera only when an AIM-compatible Tool is actually equipped.
-    if state.aimbot and (aimHeldMouse or aimHeldTouch or aimHeldKey)
-        and aimPro.equippedTool() then
+    -- AIM owns the camera only if it actually wrote CFrame this frame.
+    -- An enabled switch without a valid target must not suppress No Recoil.
+    if aimPro.wroteCamera then
         controller.lastRecoilStatus = "камера управляется AIM"
         return
     end

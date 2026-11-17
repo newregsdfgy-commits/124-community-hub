@@ -353,6 +353,7 @@ local aimPro = {
     rayParams = RaycastParams.new(),
     rayIgnore = {},
     candidates = {},
+    wroteCamera = false, -- True only when the current AIM frame actually writes CFrame.
     allowedNames = {}, allowedNamesSource = nil,
     changed = function() end,
 }
@@ -363,6 +364,7 @@ function aimPro.reset()
     aimNextScan = 0
     aimPro.nextLos = 0
     aimPro.blockedSince = 0
+    aimPro.wroteCamera = false
 end
 function aimPro.equippedTool()
     local tool = aimPro.equipped
