@@ -69,20 +69,10 @@ local function visualPerfTier()
     if state.performanceGuard and perfCounters.guard.level > 0 then return "ECO" end
     return perfTier()
 end
--- AUTO/ECO now controls refresh frequency and 2D geometry only: it must
--- never silently remove nearby players from the configured ESP radius.
+-- Never remove players from ESP as a side effect of fluctuating FPS.
+-- Guard reduces redraw frequency and GUI allocation rate, not visibility.
 local function espLimit()
-    local configured = math.clamp(math.floor(state.espMaxTargets or CONFIG.EspMaxPlayers), 8, 96)
-    -- Guard is opt-in. Restrict expensive visible GUI while retaining the
-    -- user's saved target limit for automatic recovery.
-    if state.performanceGuard then
-        if perfCounters.guard.level == 2 then
-            return math.min(configured, CONFIG.GuardEspMaxL2)
-        elseif perfCounters.guard.level == 1 then
-            return math.min(configured, CONFIG.GuardEspMaxL1)
-        end
-    end
-    return configured
+    return math.clamp(math.floor(state.espMaxTargets or CONFIG.EspMaxPlayers), 8, 96)
 end
 
 -- StreamingEnabled may give us Head or Torso before HumanoidRootPart.

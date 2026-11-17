@@ -186,11 +186,8 @@ local function refreshShapes()
     local budget = tier == "ECO" and CONFIG.EspShapeEcoLimit
         or tier == "QUALITY" and CONFIG.EspShapeQualityLimit
         or CONFIG.EspShapeBalancedLimit
-    if state.performanceGuard and perfCounters.guard.level == 2 then
-        budget = math.min(budget, CONFIG.GuardShapeMaxL2)
-    elseif state.performanceGuard and perfCounters.guard.level == 1 then
-        budget = math.min(budget, CONFIG.GuardShapeMaxL1)
-    end
+    -- Guard only throttles draw Hz. Removing boxes when FPS crosses a
+    -- threshold causes the reported random-looking ESP disappear/reappear.
     table.clear(active)
     for _, player in ipairs(perfCounters.espVisual.ordered) do
         if activeCount >= budget then break end
