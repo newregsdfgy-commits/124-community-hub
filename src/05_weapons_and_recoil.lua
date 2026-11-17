@@ -42,6 +42,7 @@ controller.spread = {
     watchers = {}, generation = 0, queued = false, applying = false,
     lastReactiveAt = -math.huge,
     discoveryList = nil, discoveryIndex = 1, nextDiscoveryAt = 0,
+    cleanupQueued = false,
     stats = {writes = 0, checks = 0, errors = 0,
         restoreFailures = 0, lastError = "", lastAppliedAt = 0},
 }
@@ -61,6 +62,7 @@ local function clearSpreadIndex()
     local spread = controller.spread
     spread.generation = spread.generation + 1
     spread.queued = false
+    spread.cleanupQueued = false
     spread.lastReactiveAt = -math.huge
     spread.discoveryList = nil
     spread.discoveryIndex = 1
@@ -230,24 +232,17 @@ function controller.applySpread()
         clearSpreadIndex()
         spread.currentTool = tool
         registerSpreadCandidate(tool)
-        local ok, descendants = pcall(function() return tool:GetDescendants() end)
-        if not ok then
-            spread.currentTool = nil -- Следующее событие сможет повторить индексацию.
-            return 0
-        end
-        -- Scan attributes progressively: custom Tools can contain many parts.
-        spread.discoveryList = descendants
+        -- GetDescendants() is an unbudgeted full-tree allocation and can stall
+        -- a render frame on equip. Visit descendants in small GetChildren batches.
+        spread.discoveryList = {tool}
         spread.discoveryIndex = 1
         spread.nextDiscoveryAt = os.clock() + CONFIG.SpreadDiscoverySeconds
     elseif spread.discoveryList == nil and os.clock() >= spread.nextDiscoveryAt then
         -- Атрибут Spread может появиться у уже существующего объекта:
         -- обходим постепенно, не делаем полный GetAttributes в одном кадре.
-        local ok, items = pcall(function() return tool:GetDescendants() end)
         spread.nextDiscoveryAt = os.clock() + CONFIG.SpreadDiscoverySeconds
-        if ok then
-            spread.discoveryList = items
-            spread.discoveryIndex = 1
-        end
+        spread.discoveryList = {tool}
+        spread.discoveryIndex = 1
     end
     if spread.discoveryList then
         local items = spread.discoveryList
@@ -255,9 +250,24 @@ function controller.applySpread()
             spread.discoveryIndex + CONFIG.SpreadDiscoveryBatch - 1)
         for i = spread.discoveryIndex, last do
             local obj = items[i]
-            if obj and obj.Parent and not spread.candidateSet[obj] then
-                registerSpreadCandidate(obj)
+            if obj and obj.Parent then
+                local ok, valid = pcall(function()
+                    return obj == tool or obj:IsDescendantOf(tool)
+                end)
+                if ok and valid then
+                    if obj ~= tool and not spread.candidateSet[obj] then
+                        registerSpreadCandidate(obj)
+                    end
+                    -- GetChildren here is local to one node; no full Tool walk.
+                    local childrenOK, children = pcall(function() return obj:GetChildren() end)
+                    if childrenOK then
+                        for _, child in ipairs(children) do
+                            items[#items + 1] = child
+                        end
+                    end
+                end
             end
+            items[i] = false -- Release already scanned Instances without holes.
         end
         spread.discoveryIndex = last + 1
         if spread.discoveryIndex > #items then
@@ -482,23 +492,25 @@ local function equipRecoilTool(tool)
                 if controller.spread.candidateSet[obj] then queueSpreadRefresh() end
             end
         end)
-        recoilToolConnections[#recoilToolConnections + 1] = tool.DescendantRemoving:Connect(function(obj)
-            -- Immediate/Deferred: проверяем Parent на следующем цикле.
-            -- Быстро пересозданный/возвращённый объект нельзя забывать.
+        recoilToolConnections[#recoilToolConnections + 1] = tool.DescendantRemoving:Connect(function()
+            -- Removing a model can fire hundreds of descendant signals.
+            -- Coalesce cleanup so one removal burst costs only one index scan.
+            local spread = controller.spread
+            if spread.cleanupQueued then return end
+            spread.cleanupQueued = true
+            local generation = spread.generation
             task.defer(function()
+                if spread.generation ~= generation then return end
+                spread.cleanupQueued = false
                 if recoilTool ~= tool or not alive then return end
-                local ok, stillInside = pcall(function() return obj:IsDescendantOf(tool) end)
-                if not ok or not stillInside then
-                    -- При удалении контейнера очищаем подписки его потомков.
-                    local candidates = controller.spread.candidates
-                    for i = #candidates, 1, -1 do
-                        local candidate = candidates[i]
-                        local insideOK, inside = pcall(function()
-                            return candidate:IsDescendantOf(tool)
-                        end)
-                        if candidate ~= tool and (not insideOK or not inside) then
-                            unregisterSpreadCandidate(candidate)
-                        end
+                local candidates = spread.candidates
+                for i = #candidates, 1, -1 do
+                    local candidate = candidates[i]
+                    local insideOK, inside = pcall(function()
+                        return candidate:IsDescendantOf(tool)
+                    end)
+                    if candidate ~= tool and (not insideOK or not inside) then
+                        unregisterSpreadCandidate(candidate)
                     end
                 end
             end)
