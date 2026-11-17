@@ -53,6 +53,8 @@ jobs:
           set -euo pipefail
           node tests/build-aim160-runtime.cjs
           node tests/build-aim162-runtime.cjs
+          node tests/build-spread162-runtime.cjs
+          ./luau-build/luau .tools/Spread162.luau
           ./luau-build/luau .tools/Aim162.luau
           node tests/build-guard161-runtime.cjs
           ./luau-build/luau .tools/Guard161.luau
