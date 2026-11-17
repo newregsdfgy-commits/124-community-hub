@@ -142,7 +142,7 @@ function perfCounters.guard.update(fps, spikes)
         end
         return
     end
-    if type(fps) ~= "number" or fps <= 0 then return end
+    if type(fps) ~= "number" or fps <= 0 or fps ~= fps or fps == math.huge then return end
     -- Three sustained readings to step down; eight good readings to
     -- step UP. The guard is reversible and never modifies profile settings.
     -- Sustained 50ms+ frametime spikes matter even if average FPS looks fine.
@@ -152,7 +152,6 @@ function perfCounters.guard.update(fps, spikes)
         and g.critical + 1 or 0
     g.good = (fps >= CONFIG.GuardRecoveryFps and stutters == 0)
         and g.good + 1 or 0
-    if os.clock() - g.changed < CONFIG.GuardMinStepSeconds then return end
     local nextLevel = g.level
     if g.level < 2 and g.critical >= CONFIG.GuardLowSamples then
         nextLevel = 2
@@ -161,8 +160,14 @@ function perfCounters.guard.update(fps, spikes)
     elseif g.level > 0 and g.good >= CONFIG.GuardRecoverSamples then
         nextLevel = g.level - 1
     end
+    local now = os.clock()
+    -- Critical stutters must not wait 12 seconds before entering ECO.
+    -- Keep the longer dwell only for recovery to avoid oscillations.
+    if nextLevel < g.level and now - g.changed < CONFIG.GuardMinStepSeconds then return end
+    if nextLevel > g.level and g.level > 0
+        and now - g.changed < CONFIG.GuardEscalateSeconds then return end
     if nextLevel ~= g.level then
-        g.level, g.changed = nextLevel, os.clock()
+        g.level, g.changed = nextLevel, now
         g.low, g.critical, g.good = 0, 0, 0
     end
 end

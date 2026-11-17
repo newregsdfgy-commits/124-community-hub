@@ -235,9 +235,9 @@ function controller.applySpread()
             spread.currentTool = nil -- Следующее событие сможет повторить индексацию.
             return 0
         end
-        for _, descendant in ipairs(descendants) do
-            registerSpreadCandidate(descendant)
-        end
+        -- Scan attributes progressively: custom Tools can contain many parts.
+        spread.discoveryList = descendants
+        spread.discoveryIndex = 1
         spread.nextDiscoveryAt = os.clock() + CONFIG.SpreadDiscoverySeconds
     elseif spread.discoveryList == nil and os.clock() >= spread.nextDiscoveryAt then
         -- Атрибут Spread может появиться у уже существующего объекта:
@@ -264,6 +264,15 @@ function controller.applySpread()
             spread.discoveryList = nil
             spread.discoveryIndex = 1
         end
+    end
+    if spread.discoveryList then
+        local generation = spread.generation
+        task.delay(CONFIG.SpreadDiscoveryStepDelay, function()
+            if alive and state.noSpread and recoilTool == tool
+                and spread.generation == generation and not spread.applying then
+                safeApplySpread()
+            end
+        end)
     end
     local changed = 0
     local function patch(instance)
@@ -538,7 +547,7 @@ local function recoilFrame(dt)
         local now = os.clock()
         if now >= controller.spread.nextCheckAt then
             controller.spread.nextCheckAt = now + CONFIG.SpreadVerificationSeconds
-            safeApplySpread()
+            queueSpreadRefresh() -- Avoid heavy scanning in RenderStep.
         end
     end
     -- OFF: нулевые вычисления углов камеры.
@@ -568,16 +577,7 @@ local function recoilFrame(dt)
         controller.lastRecoilStatus = "первый кадр камеры"
         return
     end
-    if isRobloxMenuOpen() or UserInputService:GetFocusedTextBox() ~= nil then
-        controller.lastRecoilStatus = "интерфейс в фокусе"
-        return
-    end
-    -- AIM owns the camera during active aiming, even when the target was
-    -- just lost. Avoid alternating camera writers on intermittent LOS loss.
-    if state.aimbot and (aimHeldMouse or aimHeldTouch or aimHeldKey) then
-        controller.lastRecoilStatus = "камера управляется AIM"
-        return
-    end
+    -- Idle recoil should not inspect GUI every render frame.
     local now = os.clock()
     local fireInputHeld = recoilFireInput ~= nil
     -- Tool.Activated бывает без InputBegan (обработанный ввод в gun framework).
@@ -594,6 +594,16 @@ local function recoilFrame(dt)
                 or CONFIG.RecoilOrphanHoldSeconds))
     if not firing then
         controller.lastRecoilStatus = "нет подтверждения стрельбы"
+        return
+    end
+    if isRobloxMenuOpen() or UserInputService:GetFocusedTextBox() ~= nil then
+        controller.lastRecoilStatus = "интерфейс в фокусе"
+        return
+    end
+    -- Reserve camera only when an AIM-compatible Tool is actually equipped.
+    if state.aimbot and (aimHeldMouse or aimHeldTouch or aimHeldKey)
+        and aimPro.equippedTool() then
+        controller.lastRecoilStatus = "камера управляется AIM"
         return
     end
     if dt <= 0 or dt > CONFIG.RecoilMaxFrameSeconds then

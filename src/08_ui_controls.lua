@@ -636,6 +636,7 @@ addButton(pages.ESP, "Диагностика ESP",
             .. " | Ошибки отрисовки/подписок "
             .. tostring(info.renderFailures) .. "/" .. tostring(info.watcherFailures)
             .. " | Лимит " .. tostring(espLimit())
+            .. " | Отложено GUI " .. tostring(perfCounters.espVisual.deferredCreates or 0)
             .. " | Возраст скана " .. string.format("%.2f", math.max(0,
                 os.clock() - info.lastScanAt)) .. " сек")
     end)

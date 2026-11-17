@@ -1,15 +1,16 @@
--- 124 Visuals v1.6.0 | Independent ESP Visibility Ranges
+-- 124 Visuals v1.6.1 | Stability / Frame Pacing / Performance Guard
 -- Первый плейс: 18537079992. Запуск поддерживает все игровые PlaceId.
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.6.0",
+    Version = "1.6.1",
     OriginalPlaceId = 18537079992,
     EspRefreshSeconds = 0.35, -- Быстрый поиск персонажей, без обновления UI каждый кадр.
     EspEventMinSeconds = 0.18, -- Коалесцированные события не запускают 16 полных сканов/сек.
     EspMaxPlayers = 64, -- Видимый, настраиваемый лимит вместо скрытого TOP 6/12.
+    EspNewRendersPerScan = 4, -- Budget expensive Billboard/Highlight creation.
     EspRangeMinMeters = 10,
     EspRangeMaxMeters = 1000,
     EspRangeStepMeters = 5,
@@ -77,6 +78,7 @@ local CONFIG = {
     SpreadEventMinSeconds = 0.05, -- Не чаще 20 реактивных проверок в секунду.
     SpreadDiscoverySeconds = 3.0, -- Обнаружить новые атрибуты и переименованные параметры.
     SpreadDiscoveryBatch = 48, -- Ограничение работы одного обновления.
+    SpreadDiscoveryStepDelay = 0.05, -- Small async discovery steps.
     SpreadShotRecheckSeconds = 0.18,
     SpreadPostShotSeconds = 0.06,
     SpreadMaxWritableValue = 1000000,
@@ -117,6 +119,7 @@ local CONFIG = {
     GuardLowFps = 39, GuardCriticalFps = 29,
     GuardRecoveryFps = 55, GuardLowSamples = 3,
     GuardRecoverSamples = 8, GuardMinStepSeconds = 12,
+    GuardEscalateSeconds = 3, -- Fast degradation, careful recovery.
     GuardEspMaxL1 = 6, GuardEspMaxL2 = 4,
     GuardShapeMaxL1 = 4, GuardShapeMaxL2 = 2,
     GuardVisualHzL1 = 12, GuardVisualHzL2 = 8,

@@ -72,7 +72,17 @@ end
 -- AUTO/ECO now controls refresh frequency and 2D geometry only: it must
 -- never silently remove nearby players from the configured ESP radius.
 local function espLimit()
-    return math.clamp(math.floor(state.espMaxTargets or CONFIG.EspMaxPlayers), 8, 96)
+    local configured = math.clamp(math.floor(state.espMaxTargets or CONFIG.EspMaxPlayers), 8, 96)
+    -- Guard is opt-in. Restrict expensive visible GUI while retaining the
+    -- user's saved target limit for automatic recovery.
+    if state.performanceGuard then
+        if perfCounters.guard.level == 2 then
+            return math.min(configured, CONFIG.GuardEspMaxL2)
+        elseif perfCounters.guard.level == 1 then
+            return math.min(configured, CONFIG.GuardEspMaxL1)
+        end
+    end
+    return configured
 end
 
 -- StreamingEnabled may give us Head or Torso before HumanoidRootPart.
@@ -213,7 +223,7 @@ local function setIfDifferent(instance, property, value)
     if instance[property] ~= value then instance[property] = value end
 end
 
-local function updatePlayer(player, myRoot)
+local function updatePlayer(player, myRoot, allowCreate)
     if not state.esp or player.Parent ~= Players then
         deleteRender(player)
         return
@@ -231,7 +241,12 @@ local function updatePlayer(player, myRoot)
         deleteRender(player)
         item = nil
     end
-    if not item then item = createRender(player, character, head) end
+    local created = false
+    if not item then
+        if not allowCreate then return false end
+        item = createRender(player, character, head)
+        created = true
+    end
     -- Кешируем части, которые рендерятся чаще, чем обновляется список игроков.
     item.head, item.root, item.humanoid = head, root, hum
     local strokeAlpha = referenceStrokeEnabled and 0.80 or 1
@@ -330,6 +345,7 @@ local function updatePlayer(player, myRoot)
     item.lastTeam = player.Team
     item.lastTeamColor = player.TeamColor
     item.lastDisplayName = player.DisplayName
+    return created
 end
 
 local function sameTeamESP(player)
@@ -358,6 +374,7 @@ local function refreshESP()
         perfCounters.espVisual.eligible = 0
         perfCounters.espVisual.omitted = 0
         perfCounters.espVisual.missing = 0
+        perfCounters.espVisual.deferredCreates = 0
         return
     end
     local character = LocalPlayer.Character
@@ -378,6 +395,7 @@ local function refreshESP()
         perfCounters.espVisual.eligible = 0
         perfCounters.espVisual.omitted = 0
         perfCounters.espVisual.missing = 0
+        perfCounters.espVisual.deferredCreates = 0
         return
     end
     -- Рисуем ближайших, чтобы не создавать десятки дорогих Highlight.
@@ -428,22 +446,33 @@ local function refreshESP()
     perfCounters.espVisual.eligible = #candidates
     perfCounters.espVisual.omitted = #candidates - limit
     perfCounters.espVisual.missing = missingParts
+    perfCounters.espVisual.deferredCreates = 0
+    local createBudget = CONFIG.EspNewRendersPerScan
+    if state.performanceGuard and perfCounters.guard.level > 0 then
+        createBudget = math.min(createBudget, 2)
+    end
     for i = 1, limit do
         local player = candidates[i].player
         keep[player] = true
-        -- One broken/streaming avatar must not abort the entire ESP scan.
-        local ok, err = pcall(updatePlayer, player, myRoot)
+        -- Distribute heavyweight GUI allocation over several scans.
+        local ok, createdOrError = pcall(updatePlayer, player, myRoot, createBudget > 0)
         if not ok then
             deleteRender(player)
             perfCounters.espVisual.renderFailures = perfCounters.espVisual.renderFailures + 1
             local now = os.clock()
             if now - perfCounters.espVisual.scanErrorAt > 3 then
                 warn("[124 Community Visuals] ESP player " .. tostring(player.UserId)
-                    .. ": " .. tostring(err))
+                    .. ": " .. tostring(createdOrError))
                 perfCounters.espVisual.scanErrorAt = now
             end
+        elseif createdOrError then
+            createBudget = createBudget - 1
         end
-        if renderData[player] then ordered[#ordered + 1] = player end
+        if renderData[player] then
+            ordered[#ordered + 1] = player
+        else
+            perfCounters.espVisual.deferredCreates = perfCounters.espVisual.deferredCreates + 1
+        end
     end
     local now, cached = os.clock(), 0
     for player, item in pairs(renderData) do
