@@ -1,11 +1,11 @@
--- 124 Visuals v1.6.1 | Stability / Frame Pacing / Performance Guard
+-- 124 Visuals v1.6.2 | Stable ESP visibility and AIM frame safety
 -- Первый плейс: 18537079992. Запуск поддерживает все игровые PlaceId.
 -- Локальный Luau-скрипт: ESP, Aim (голова/тело/ноги), Misc, FPS/Ping/часы.
 -- Все изменяющие параметры функции выключены по умолчанию.
 -- При повторном запуске старая копия очищается и настройки сцены восстанавливаются.
 
 local CONFIG = {
-    Version = "1.6.1",
+    Version = "1.6.2",
     OriginalPlaceId = 18537079992,
     EspRefreshSeconds = 0.35, -- Быстрый поиск персонажей, без обновления UI каждый кадр.
     EspEventMinSeconds = 0.18, -- Коалесцированные события не запускают 16 полных сканов/сек.
@@ -898,6 +898,7 @@ local aimPro = {
     rayParams = RaycastParams.new(),
     rayIgnore = {},
     candidates = {},
+    wroteCamera = false, -- True only when the current AIM frame actually writes CFrame.
     allowedNames = {}, allowedNamesSource = nil,
     changed = function() end,
 }
@@ -908,6 +909,7 @@ function aimPro.reset()
     aimNextScan = 0
     aimPro.nextLos = 0
     aimPro.blockedSince = 0
+    aimPro.wroteCamera = false
 end
 function aimPro.equippedTool()
     local tool = aimPro.equipped
@@ -1110,20 +1112,10 @@ local function visualPerfTier()
     if state.performanceGuard and perfCounters.guard.level > 0 then return "ECO" end
     return perfTier()
 end
--- AUTO/ECO now controls refresh frequency and 2D geometry only: it must
--- never silently remove nearby players from the configured ESP radius.
+-- Never remove players from ESP as a side effect of fluctuating FPS.
+-- Guard reduces redraw frequency and GUI allocation rate, not visibility.
 local function espLimit()
-    local configured = math.clamp(math.floor(state.espMaxTargets or CONFIG.EspMaxPlayers), 8, 96)
-    -- Guard is opt-in. Restrict expensive visible GUI while retaining the
-    -- user's saved target limit for automatic recovery.
-    if state.performanceGuard then
-        if perfCounters.guard.level == 2 then
-            return math.min(configured, CONFIG.GuardEspMaxL2)
-        elseif perfCounters.guard.level == 1 then
-            return math.min(configured, CONFIG.GuardEspMaxL1)
-        end
-    end
-    return configured
+    return math.clamp(math.floor(state.espMaxTargets or CONFIG.EspMaxPlayers), 8, 96)
 end
 
 -- StreamingEnabled may give us Head or Torso before HumanoidRootPart.
@@ -2826,6 +2818,8 @@ local function isRobloxMenuOpen()
 end
 
 local function aimFrame(dt)
+    -- Recoil runs after AIM. Never report stale ownership from an earlier frame.
+    aimPro.wroteCamera = false
     local camera = Workspace.CurrentCamera
     if aimPro.camera ~= camera then
         aimPro.reset()
@@ -2906,7 +2900,18 @@ local function aimFrame(dt)
         aimPro.blockedSince = 0
         aimPro.nextLos = now + losInterval
     end
-    local goal = CFrame.lookAt(origin, predictedPoint(part))
+    local predicted = predictedPoint(part)
+    local look = predicted - origin
+    local lengthSquared = look:Dot(look)
+    -- Prediction may move an otherwise valid target onto the camera origin.
+    -- CFrame.lookAt with a zero/invalid direction can poison the camera.
+    if lengthSquared ~= lengthSquared or lengthSquared <= 0.0025
+        or lengthSquared == math.huge then
+        aimTarget = nil
+        aimNextScan = math.min(aimNextScan, now + CONFIG.AimLostRescanSeconds)
+        return
+    end
+    local goal = CFrame.lookAt(origin, predicted)
     if state.aimSmoothness == 0 then
         camera.CFrame = goal
     else
@@ -2915,7 +2920,8 @@ local function aimFrame(dt)
         local cx, cy, cz = camera.CFrame:ToOrientation()
         local gx, gy = goal:ToOrientation()
         local speed = CONFIG.AimSmoothnessBaseline / state.aimSmoothness
-        local dtSafe = math.clamp(dt, 0, 0.05)
+        local dtSafe = type(dt) == "number" and dt == dt
+            and dt > 0 and dt < math.huge and math.clamp(dt, 0, 0.05) or 0
         local alphaX = math.clamp(1 - math.exp(-speed * state.aimSmoothX / 5 * dtSafe), 0, 1)
         local alphaY = math.clamp(1 - math.exp(-speed * state.aimSmoothY / 5 * dtSafe), 0, 1)
         local maxStep = math.rad(CONFIG.AimMaxTurnDegreesPerSecond) * dtSafe
@@ -2924,6 +2930,7 @@ local function aimFrame(dt)
         camera.CFrame = CFrame.new(origin) * CFrame.fromOrientation(
             cx + pitchStep, cy + yawStep, cz)
     end
+    aimPro.wroteCamera = true
 end
 
 local recoil = (function()
@@ -2970,6 +2977,7 @@ controller.spread = {
     watchers = {}, generation = 0, queued = false, applying = false,
     lastReactiveAt = -math.huge,
     discoveryList = nil, discoveryIndex = 1, nextDiscoveryAt = 0,
+    cleanupQueued = false,
     stats = {writes = 0, checks = 0, errors = 0,
         restoreFailures = 0, lastError = "", lastAppliedAt = 0},
 }
@@ -2989,6 +2997,7 @@ local function clearSpreadIndex()
     local spread = controller.spread
     spread.generation = spread.generation + 1
     spread.queued = false
+    spread.cleanupQueued = false
     spread.lastReactiveAt = -math.huge
     spread.discoveryList = nil
     spread.discoveryIndex = 1
@@ -3158,24 +3167,17 @@ function controller.applySpread()
         clearSpreadIndex()
         spread.currentTool = tool
         registerSpreadCandidate(tool)
-        local ok, descendants = pcall(function() return tool:GetDescendants() end)
-        if not ok then
-            spread.currentTool = nil -- Следующее событие сможет повторить индексацию.
-            return 0
-        end
-        -- Scan attributes progressively: custom Tools can contain many parts.
-        spread.discoveryList = descendants
+        -- GetDescendants() is an unbudgeted full-tree allocation and can stall
+        -- a render frame on equip. Visit descendants in small GetChildren batches.
+        spread.discoveryList = {tool}
         spread.discoveryIndex = 1
         spread.nextDiscoveryAt = os.clock() + CONFIG.SpreadDiscoverySeconds
     elseif spread.discoveryList == nil and os.clock() >= spread.nextDiscoveryAt then
         -- Атрибут Spread может появиться у уже существующего объекта:
         -- обходим постепенно, не делаем полный GetAttributes в одном кадре.
-        local ok, items = pcall(function() return tool:GetDescendants() end)
         spread.nextDiscoveryAt = os.clock() + CONFIG.SpreadDiscoverySeconds
-        if ok then
-            spread.discoveryList = items
-            spread.discoveryIndex = 1
-        end
+        spread.discoveryList = {tool}
+        spread.discoveryIndex = 1
     end
     if spread.discoveryList then
         local items = spread.discoveryList
@@ -3183,9 +3185,24 @@ function controller.applySpread()
             spread.discoveryIndex + CONFIG.SpreadDiscoveryBatch - 1)
         for i = spread.discoveryIndex, last do
             local obj = items[i]
-            if obj and obj.Parent and not spread.candidateSet[obj] then
-                registerSpreadCandidate(obj)
+            if obj and obj.Parent then
+                local ok, valid = pcall(function()
+                    return obj == tool or obj:IsDescendantOf(tool)
+                end)
+                if ok and valid then
+                    if obj ~= tool and not spread.candidateSet[obj] then
+                        registerSpreadCandidate(obj)
+                    end
+                    -- GetChildren here is local to one node; no full Tool walk.
+                    local childrenOK, children = pcall(function() return obj:GetChildren() end)
+                    if childrenOK then
+                        for _, child in ipairs(children) do
+                            items[#items + 1] = child
+                        end
+                    end
+                end
             end
+            items[i] = false -- Release already scanned Instances without holes.
         end
         spread.discoveryIndex = last + 1
         if spread.discoveryIndex > #items then
@@ -3410,23 +3427,25 @@ local function equipRecoilTool(tool)
                 if controller.spread.candidateSet[obj] then queueSpreadRefresh() end
             end
         end)
-        recoilToolConnections[#recoilToolConnections + 1] = tool.DescendantRemoving:Connect(function(obj)
-            -- Immediate/Deferred: проверяем Parent на следующем цикле.
-            -- Быстро пересозданный/возвращённый объект нельзя забывать.
+        recoilToolConnections[#recoilToolConnections + 1] = tool.DescendantRemoving:Connect(function()
+            -- Removing a model can fire hundreds of descendant signals.
+            -- Coalesce cleanup so one removal burst costs only one index scan.
+            local spread = controller.spread
+            if spread.cleanupQueued then return end
+            spread.cleanupQueued = true
+            local generation = spread.generation
             task.defer(function()
+                if spread.generation ~= generation then return end
+                spread.cleanupQueued = false
                 if recoilTool ~= tool or not alive then return end
-                local ok, stillInside = pcall(function() return obj:IsDescendantOf(tool) end)
-                if not ok or not stillInside then
-                    -- При удалении контейнера очищаем подписки его потомков.
-                    local candidates = controller.spread.candidates
-                    for i = #candidates, 1, -1 do
-                        local candidate = candidates[i]
-                        local insideOK, inside = pcall(function()
-                            return candidate:IsDescendantOf(tool)
-                        end)
-                        if candidate ~= tool and (not insideOK or not inside) then
-                            unregisterSpreadCandidate(candidate)
-                        end
+                local candidates = spread.candidates
+                for i = #candidates, 1, -1 do
+                    local candidate = candidates[i]
+                    local insideOK, inside = pcall(function()
+                        return candidate:IsDescendantOf(tool)
+                    end)
+                    if candidate ~= tool and (not insideOK or not inside) then
+                        unregisterSpreadCandidate(candidate)
                     end
                 end
             end)
@@ -3528,9 +3547,9 @@ local function recoilFrame(dt)
         controller.lastRecoilStatus = "интерфейс в фокусе"
         return
     end
-    -- Reserve camera only when an AIM-compatible Tool is actually equipped.
-    if state.aimbot and (aimHeldMouse or aimHeldTouch or aimHeldKey)
-        and aimPro.equippedTool() then
+    -- AIM owns the camera only if it actually wrote CFrame this frame.
+    -- An enabled switch without a valid target must not suppress No Recoil.
+    if aimPro.wroteCamera then
         controller.lastRecoilStatus = "камера управляется AIM"
         return
     end
@@ -6360,11 +6379,8 @@ local function refreshShapes()
     local budget = tier == "ECO" and CONFIG.EspShapeEcoLimit
         or tier == "QUALITY" and CONFIG.EspShapeQualityLimit
         or CONFIG.EspShapeBalancedLimit
-    if state.performanceGuard and perfCounters.guard.level == 2 then
-        budget = math.min(budget, CONFIG.GuardShapeMaxL2)
-    elseif state.performanceGuard and perfCounters.guard.level == 1 then
-        budget = math.min(budget, CONFIG.GuardShapeMaxL1)
-    end
+    -- Guard only throttles draw Hz. Removing boxes when FPS crosses a
+    -- threshold causes the reported random-looking ESP disappear/reappear.
     table.clear(active)
     for _, player in ipairs(perfCounters.espVisual.ordered) do
         if activeCount >= budget then break end
@@ -9746,7 +9762,19 @@ else
     connect(RunService.Heartbeat, memoryFX.spin.frame)
 end
 
-perfCounters.cpu.wrapped.AIM = perfCounters.cpu.instrument("AIM", aimFrame)
+local aimErrorAt = -math.huge
+local function safeAimFrame(dt)
+    local ok, err = pcall(aimFrame, dt)
+    if not ok then
+        aimPro.reset() -- A failed frame must never retain stale camera ownership.
+        local now = os.clock()
+        if now - aimErrorAt >= 3 then
+            aimErrorAt = now
+            warn("[124 Visuals] AIM frame: " .. tostring(err))
+        end
+    end
+end
+perfCounters.cpu.wrapped.AIM = perfCounters.cpu.instrument("AIM", safeAimFrame)
 perfCounters.cpu.wrapped.Recoil = perfCounters.cpu.instrument("Recoil", recoil.frame)
 perfCounters.cpu.wrapped.ESPScan = perfCounters.cpu.instrument("ESP Scan", refreshESP)
 local okBind, errBind = pcall(function()
