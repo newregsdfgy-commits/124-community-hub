@@ -7,10 +7,10 @@ const ui=fs.readFileSync("src/08_ui_controls.lua","utf8");
 const hub=fs.readFileSync("Hub.lua","utf8");
 const visuals=fs.readFileSync("Visuals.lua","utf8");
 const launcher=fs.readFileSync("Start.lua","utf8");
-test("v1.6.1 launcher and deterministic bundles match",()=>{
+test("v1.6.2 launcher and deterministic bundles match",()=>{
     assert.equal(hub,visuals);
-    assert.ok(hub.includes('Version = "1.6.1"'));
-    assert.ok(launcher.includes("v1.6.1-stability-audit-test/Visuals.lua"));
+    assert.ok(hub.includes('Version = "1.6.2"'));
+    assert.ok(launcher.includes("v1.6.2-esp-aim-stability-test/Visuals.lua"));
 });
 test("camera original values are stored per camera and overwritten only by our owned writes",()=>{
     assert.match(gui,/written = setmetatable\(\{\}, \{__mode = "k"\}\)/);
